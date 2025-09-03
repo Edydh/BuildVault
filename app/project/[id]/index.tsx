@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject } from '../../../lib/files';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -25,6 +26,27 @@ export default function ProjectDetail() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+
+  // Load saved view mode preference
+  const loadViewModePreference = useCallback(async () => {
+    try {
+      const savedViewMode = await AsyncStorage.getItem('projectViewMode');
+      if (savedViewMode && (savedViewMode === 'list' || savedViewMode === 'grid')) {
+        setViewMode(savedViewMode);
+      }
+    } catch (error) {
+      console.error('Error loading view mode preference:', error);
+    }
+  }, []);
+
+  // Save view mode preference
+  const saveViewModePreference = useCallback(async (mode: 'list' | 'grid') => {
+    try {
+      await AsyncStorage.setItem('projectViewMode', mode);
+    } catch (error) {
+      console.error('Error saving view mode preference:', error);
+    }
+  }, []);
 
   const loadData = useCallback(() => {
     if (!id) return;
@@ -47,6 +69,11 @@ export default function ProjectDetail() {
       Alert.alert('Error', 'Failed to load project data');
     }
   }, [id, router]);
+
+  // Load view mode preference when component mounts
+  useEffect(() => {
+    loadViewModePreference();
+  }, [loadViewModePreference]);
 
   // Refresh data when returning from capture screen
   useFocusEffect(
@@ -345,7 +372,9 @@ export default function ProjectDetail() {
   };
 
   const toggleViewMode = () => {
-    setViewMode(prev => prev === 'list' ? 'grid' : 'list');
+    const newViewMode = viewMode === 'list' ? 'grid' : 'list';
+    setViewMode(newViewMode);
+    saveViewModePreference(newViewMode);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
