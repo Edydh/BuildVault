@@ -384,9 +384,10 @@ export default function ProjectDetail() {
       
       if (copiedFiles.length > 0) {
         // Share the first file and provide instructions
+        const firstMediaItem = selectedMedia[0];
         await Sharing.shareAsync(copiedFiles[0], {
-          mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
-                   mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
+          mimeType: firstMediaItem.type === 'photo' ? 'image/jpeg' : 
+                   firstMediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
           dialogTitle: `Share ${selectedItems.size} Selected Items`,
         });
         
@@ -644,7 +645,7 @@ export default function ProjectDetail() {
               }}
             >
               <Ionicons 
-                name={selectedItems.size === media.length ? "square-outline" : "checkmark-square"} 
+                name={selectedItems.size === media.length ? "square-outline" : "checkbox"} 
                 size={20} 
                 color="#F8FAFC" 
               />
@@ -685,7 +686,7 @@ export default function ProjectDetail() {
                   alignItems: 'center',
                 }}
               >
-                <Ionicons name="checkmark-square-outline" size={20} color="#F8FAFC" />
+                <Ionicons name="checkbox-outline" size={20} color="#F8FAFC" />
               </TouchableOpacity>
             )}
           </View>
