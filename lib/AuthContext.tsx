@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, authService } from './auth';
+import { authService } from './auth';
+import { User } from './db';
 
 interface AuthContextType {
   user: User | null;
@@ -23,12 +24,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     checkAuthState();
   }, []);
 
+  // Debug: Track user state changes
+  useEffect(() => {
+    console.log('AuthContext user state changed:', user ? `User: ${user.name}` : 'No user');
+  }, [user]);
+
   const checkAuthState = async () => {
     try {
       console.log('Checking auth state...');
       const currentUser = await authService.getCurrentUser();
       console.log('Current user:', currentUser ? 'Found' : 'Not found');
-      setUser(currentUser);
+      
+      // Only set user if we don't already have one (prevent overriding fresh sign-in)
+      if (!user || currentUser) {
+        setUser(currentUser);
+      }
     } catch (error) {
       console.error('Error checking auth state:', error);
     } finally {
@@ -45,6 +55,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (result.success && result.user) {
         console.log('Setting user in AuthContext:', result.user.name);
         setUser(result.user);
+        
+        // Force a small delay to ensure state is updated
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log('User state should be updated now');
       } else if (result.error === 'USER_CANCELED') {
         // User canceled - don't throw error, just return
         console.log('User canceled Apple Sign-In');
