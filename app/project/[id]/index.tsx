@@ -1008,7 +1008,6 @@ export default function ProjectDetail() {
         contentContainerStyle={{ 
           padding: 16, 
           paddingBottom: 100,
-          ...(viewMode === 'grid' && { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' })
         }}
         numColumns={viewMode === 'grid' ? 2 : 1}
         key={viewMode} // Force re-render when view mode changes

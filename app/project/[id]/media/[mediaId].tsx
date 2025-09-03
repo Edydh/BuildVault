@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,9 @@ import {
   ScrollView,
   TouchableWithoutFeedback,
   Keyboard,
+  Animated,
 } from 'react-native';
+import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
@@ -20,6 +22,95 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { MediaItem, getMediaById, updateMediaNote, deleteMedia } from '../../../../lib/db';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
+
+// ZoomableImage component
+function ZoomableImage({ uri }: { uri: string }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const lastScale = useRef(1);
+  const lastTranslateX = useRef(0);
+  const lastTranslateY = useRef(0);
+
+  const MIN_SCALE = 1;
+  const MAX_SCALE = 3;
+
+  const onPinchGestureEvent = Animated.event(
+    [{ nativeEvent: { scale } }],
+    { useNativeDriver: true }
+  );
+
+  const onPanGestureEvent = Animated.event(
+    [{ nativeEvent: { translationX: translateX, translationY: translateY } }],
+    { useNativeDriver: true }
+  );
+
+  const onPinchHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.oldState === State.ACTIVE) {
+      const newScale = lastScale.current * event.nativeEvent.scale;
+      
+      // Apply scale constraints
+      if (newScale < MIN_SCALE) {
+        lastScale.current = MIN_SCALE;
+        lastTranslateX.current = 0;
+        lastTranslateY.current = 0;
+        scale.setValue(MIN_SCALE);
+        translateX.setValue(0);
+        translateY.setValue(0);
+      } else if (newScale > MAX_SCALE) {
+        lastScale.current = MAX_SCALE;
+        scale.setValue(MAX_SCALE);
+      } else {
+        lastScale.current = newScale;
+        scale.setValue(newScale);
+      }
+    }
+  };
+
+  const onPanHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.oldState === State.ACTIVE) {
+      // Only allow panning when zoomed in
+      if (lastScale.current > MIN_SCALE) {
+        lastTranslateX.current += event.nativeEvent.translationX;
+        lastTranslateY.current += event.nativeEvent.translationY;
+        translateX.setValue(lastTranslateX.current);
+        translateY.setValue(lastTranslateY.current);
+      }
+    }
+  };
+
+  return (
+    <PinchGestureHandler
+      onGestureEvent={onPinchGestureEvent}
+      onHandlerStateChange={onPinchHandlerStateChange}
+    >
+      <Animated.View style={{ flex: 1 }}>
+        <PanGestureHandler
+          onGestureEvent={onPanGestureEvent}
+          onHandlerStateChange={onPanHandlerStateChange}
+          minPointers={1}
+          maxPointers={1}
+        >
+          <Animated.View style={{ flex: 1 }}>
+            <Animated.Image
+              source={{ uri }}
+              style={{
+                width: Dimensions.get('window').width,
+                height: Dimensions.get('window').height,
+                transform: [
+                  { scale },
+                  { translateX },
+                  { translateY },
+                ],
+              }}
+              resizeMode="contain"
+            />
+          </Animated.View>
+        </PanGestureHandler>
+      </Animated.View>
+    </PinchGestureHandler>
+  );
+}
 
 // VideoPlayer component using expo-video
 function VideoPlayer({ uri }: { uri: string }) {
@@ -77,17 +168,8 @@ function FullScreenPhotoViewer({
       backgroundColor: '#000000',
       zIndex: 1000,
     }}>
-      {/* Full-screen image */}
-      <Image
-        source={{ uri }}
-        style={{
-          width: Dimensions.get('window').width,
-          height: Dimensions.get('window').height,
-        }}
-        contentFit="contain"
-        placeholder={null}
-        enableLiveTextInteraction={true}
-      />
+      {/* Full-screen zoomable image */}
+      <ZoomableImage uri={uri} />
       
       {/* Large touch areas for controls toggle - easier to access */}
       <TouchableOpacity
