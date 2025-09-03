@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -69,7 +70,11 @@ export default function AuthScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
-          <Ionicons name="construct" size={64} color="#FF7A1A" />
+          <Image 
+            source={require('../assets/icon.png')} 
+            style={styles.appIcon}
+            resizeMode="contain"
+          />
         </View>
         <Text style={styles.title}>BuildVault</Text>
         <Text style={styles.subtitle}>Construction Project Documentation</Text>
@@ -152,6 +157,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
+  },
+  appIcon: {
+    width: 80,
+    height: 80,
   },
   title: {
     fontSize: 32,
