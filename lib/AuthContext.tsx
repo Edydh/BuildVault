@@ -25,7 +25,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const checkAuthState = async () => {
     try {
+      console.log('Checking auth state...');
       const currentUser = await authService.getCurrentUser();
+      console.log('Current user:', currentUser ? 'Found' : 'Not found');
       setUser(currentUser);
     } catch (error) {
       console.error('Error checking auth state:', error);
@@ -36,8 +38,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signInWithApple = async () => {
     try {
+      console.log('Starting Apple Sign-In...');
       const result = await authService.signInWithApple();
+      console.log('Apple Sign-In result:', result.success ? 'Success' : 'Failed', result.error || '');
+      
       if (result.success && result.user) {
+        console.log('Setting user in AuthContext:', result.user.name);
         setUser(result.user);
       } else if (result.error === 'USER_CANCELED') {
         // User canceled - don't throw error, just return

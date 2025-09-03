@@ -1,7 +1,7 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { createUser, getUserByProviderId, updateUserLastLogin, User } from './db';
+import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, User } from './db';
 
 // Google OAuth configuration (temporarily disabled)
 const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // Replace with your actual Google Client ID
@@ -171,9 +171,9 @@ export class AuthService {
 
   private async loadUserFromStorage(userId: string): Promise<User | null> {
     try {
-      // This would typically load from database
-      // For now, we'll return null and let the app handle it
-      return null;
+      // Load user from database using the getUserById function
+      const user = await getUserById(userId);
+      return user;
     } catch (error) {
       console.error('Error loading user from storage:', error);
       return null;
