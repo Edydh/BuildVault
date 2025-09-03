@@ -18,11 +18,32 @@ export interface MediaItem {
   created_at: number;
 }
 
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  provider: 'apple' | 'google';
+  providerId: string;
+  avatar?: string | null;
+  created_at: number;
+  last_login_at: number;
+}
+
 const db = SQLite.openDatabaseSync('buildvault.db');
 
 export async function migrate() {
   db.execSync(`
     PRAGMA foreign_keys = ON;
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY NOT NULL,
+      email TEXT NOT NULL,
+      name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      avatar TEXT,
+      created_at INTEGER NOT NULL,
+      last_login_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -107,4 +128,37 @@ export function updateMediaNote(id: string, note: string | null) {
 export function getMediaById(id: string): MediaItem | null {
   const result = db.getFirstSync('SELECT * FROM media WHERE id = ?', [id]) as MediaItem | null;
   return result;
+}
+
+// User management functions
+export function createUser(data: Omit<User, 'id' | 'created_at' | 'last_login_at'>): User {
+  const id = Date.now().toString();
+  const created_at = Date.now();
+  const last_login_at = Date.now();
+
+  db.runSync(
+    'INSERT INTO users (id, email, name, provider, provider_id, avatar, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, data.email, data.name, data.provider, data.providerId, data.avatar || null, created_at, last_login_at]
+  );
+
+  return { id, ...data, created_at, last_login_at };
+}
+
+export function getUserByProviderId(providerId: string, provider: 'apple' | 'google'): User | null {
+  const result = db.getFirstSync('SELECT * FROM users WHERE provider_id = ? AND provider = ?', [providerId, provider]) as User | null;
+  return result;
+}
+
+export function updateUserLastLogin(id: string) {
+  const last_login_at = Date.now();
+  db.runSync('UPDATE users SET last_login_at = ? WHERE id = ?', [last_login_at, id]);
+}
+
+export function getUserById(id: string): User | null {
+  const result = db.getFirstSync('SELECT * FROM users WHERE id = ?', [id]) as User | null;
+  return result;
+}
+
+export function deleteUser(id: string) {
+  db.runSync('DELETE FROM users WHERE id = ?', [id]);
 }

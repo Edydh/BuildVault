@@ -1,19 +1,48 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../lib/AuthContext';
+import { Redirect } from 'expo-router';
+import { View, ActivityIndicator } from 'react-native';
 
-export default function TabsLayout() {
+export default function TabLayout() {
+  const { user, isLoading } = useAuth();
+
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <View style={{ 
+        flex: 1, 
+        backgroundColor: '#0B0F14', 
+        justifyContent: 'center', 
+        alignItems: 'center' 
+      }}>
+        <ActivityIndicator size="large" color="#FF7A1A" />
+      </View>
+    );
+  }
+
+  // Redirect to auth screen if not authenticated
+  if (!user) {
+    return <Redirect href="/auth" />;
+  }
+
   return (
     <Tabs
       screenOptions={{
-        headerShown: false,
+        tabBarActiveTintColor: '#FF7A1A',
+        tabBarInactiveTintColor: '#64748B',
         tabBarStyle: {
-          backgroundColor: '#0B0F14',
-          borderTopColor: '#1F2A37',
+          backgroundColor: '#101826',
+          borderTopColor: '#1E293B',
           borderTopWidth: 1,
         },
-        tabBarActiveTintColor: '#FF7A1A',
-        tabBarInactiveTintColor: '#94A3B8',
+        headerStyle: {
+          backgroundColor: '#101826',
+        },
+        headerTintColor: '#F8FAFC',
+        headerTitleStyle: {
+          fontWeight: '600',
+        },
       }}
     >
       <Tabs.Screen
@@ -21,9 +50,8 @@ export default function TabsLayout() {
         options={{
           title: 'Projects',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="albums" size={size} color={color} />
+            <Ionicons name="folder" size={size} color={color} />
           ),
-          tabBarStyle: { display: 'none' }, // Hide tab bar for projects screen
         }}
       />
       <Tabs.Screen

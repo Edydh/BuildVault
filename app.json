@@ -11,7 +11,11 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-video"
+      "expo-video",
+      "expo-apple-authentication",
+      "expo-auth-session",
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -20,13 +24,18 @@
     },
     "ios": {
       "supportsTablet": true,
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "BuildVault uses the camera to capture high-quality project photos and videos.",
         "NSMicrophoneUsageDescription": "BuildVault uses the microphone to capture audio in videos.",
         "NSPhotoLibraryUsageDescription": "Allow access to show and save your media.",
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["background-processing"],
-        "NSCameraCaptureMode": "photo"
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "google-signin",
+            "CFBundleURLSchemes": ["com.googleusercontent.apps.YOUR_GOOGLE_CLIENT_ID"]
+          }
+        ]
       },
       "bundleIdentifier": "com.edydhm.buildvault"
     },

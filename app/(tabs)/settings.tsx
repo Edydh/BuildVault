@@ -6,9 +6,11 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { getProjects, deleteProject, getMediaByProject } from '../../lib/db';
 import { deleteProjectDir } from '../../lib/files';
+import { useAuth } from '../../lib/AuthContext';
 
 export default function Settings() {
   const insets = useSafeAreaInsets();
+  const { user, signOut } = useAuth();
   const handleExportData = async () => {
     try {
       Alert.alert('Export Data', 'Preparing your data for export...', [], { cancelable: false });
@@ -109,7 +111,7 @@ export default function Settings() {
   const handleAbout = () => {
     Alert.alert(
       'About BuildVault',
-      'BuildVault v1.0.0\n\nA comprehensive construction project management app for organizing projects, capturing media, and managing documentation.\n\n© 2024 uniQubit\nBuilt with React Native & Expo',
+      'BuildVault v1.0.0\n\nA comprehensive construction project management app for organizing projects, capturing media, and managing documentation.\n\n© 2025 uniQubit\nBuilt with React Native & Expo',
       [{ text: 'OK' }]
     );
   };
@@ -175,6 +177,27 @@ export default function Settings() {
     </TouchableOpacity>
   );
 
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out? You will need to sign in again to access your projects.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut();
+            } catch (error) {
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView 
       style={{ flex: 1, backgroundColor: '#0B0F14' }}
@@ -189,6 +212,76 @@ export default function Settings() {
           App preferences and management
         </Text>
       </View>
+
+      {/* User Info Section */}
+      {user && (
+        <View style={{ padding: 16, paddingBottom: 8 }}>
+          <Text style={{
+            color: '#64748B',
+            fontSize: 14,
+            fontWeight: '600',
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            marginBottom: 12,
+          }}>
+            Account
+          </Text>
+          
+          <View style={{
+            backgroundColor: '#101826',
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <View style={{
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: '#FF7A1A',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginRight: 12,
+              }}>
+                <Ionicons 
+                  name={user.provider === 'apple' ? 'logo-apple' : 'logo-google'} 
+                  size={24} 
+                  color="#FFFFFF" 
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
+                  {user.name}
+                </Text>
+                <Text style={{ color: '#94A3B8', fontSize: 14 }}>
+                  {user.email}
+                </Text>
+                <Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
+                  Signed in with {user.provider === 'apple' ? 'Apple ID' : 'Google'}
+                </Text>
+              </View>
+            </View>
+            
+            <TouchableOpacity
+              style={{
+                backgroundColor: '#1E293B',
+                paddingVertical: 12,
+                paddingHorizontal: 16,
+                borderRadius: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onPress={handleSignOut}
+            >
+              <Ionicons name="log-out" size={16} color="#EF4444" />
+              <Text style={{ color: '#EF4444', fontSize: 14, fontWeight: '600', marginLeft: 8 }}>
+                Sign Out
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <View style={{ padding: 16 }}>
         <Text style={{
@@ -257,7 +350,7 @@ export default function Settings() {
           lineHeight: 18,
         }}>
           BuildVault - Construction Project Manager{'\n'}
-          Built with ❤️ using React Native & Expo
+          Built with ❤️ © 2025 uniQubit
         </Text>
       </View>
     </ScrollView>
