@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { migrate } from '../lib/db';
 import { ensureRootDir } from '../lib/files';
 
@@ -15,11 +16,13 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
-        <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false }} />
-      </View>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
+          <StatusBar style="light" />
+          <Stack screenOptions={{ headerShown: false }} />
+        </View>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
