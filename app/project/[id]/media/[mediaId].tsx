@@ -89,14 +89,14 @@ function FullScreenPhotoViewer({
         enableLiveTextInteraction={true}
       />
       
-      {/* Small touch areas for controls toggle - only in corners to avoid Live Text interference */}
+      {/* Large touch areas for controls toggle - easier to access */}
       <TouchableOpacity
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
-          width: 60, // Small area in top-left corner
-          height: 60,
+          width: Dimensions.get('window').width * 0.3, // Larger area on left side
+          height: Dimensions.get('window').height,
           backgroundColor: 'transparent',
         }}
         activeOpacity={1}
@@ -108,8 +108,36 @@ function FullScreenPhotoViewer({
           position: 'absolute',
           top: 0,
           right: 0,
-          width: 60, // Small area in top-right corner
-          height: 60,
+          width: Dimensions.get('window').width * 0.3, // Larger area on right side
+          height: Dimensions.get('window').height,
+          backgroundColor: 'transparent',
+        }}
+        activeOpacity={1}
+        onPress={() => setShowControls(!showControls)}
+      />
+
+      {/* Top touch area for controls toggle */}
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: Dimensions.get('window').width * 0.3,
+          right: Dimensions.get('window').width * 0.3,
+          height: Dimensions.get('window').height * 0.2, // Top 20% of screen
+          backgroundColor: 'transparent',
+        }}
+        activeOpacity={1}
+        onPress={() => setShowControls(!showControls)}
+      />
+
+      {/* Bottom touch area for controls toggle */}
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: Dimensions.get('window').width * 0.3,
+          right: Dimensions.get('window').width * 0.3,
+          height: Dimensions.get('window').height * 0.2, // Bottom 20% of screen
           backgroundColor: 'transparent',
         }}
         activeOpacity={1}
@@ -210,6 +238,36 @@ function FullScreenPhotoViewer({
           >
             <Ionicons name="trash" size={24} color="#FFFFFF" />
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Show tap indicator when controls are hidden */}
+      {!showControls && (
+        <View style={{
+          position: 'absolute',
+          bottom: 40,
+          left: 0,
+          right: 0,
+          alignItems: 'center',
+        }}>
+          <View style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            paddingHorizontal: 16,
+            paddingVertical: 8,
+            borderRadius: 20,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+          }}>
+            <Ionicons name="hand-left" size={16} color="#FFFFFF" />
+            <Text style={{
+              color: '#FFFFFF',
+              fontSize: 12,
+              fontWeight: '500',
+            }}>
+              Tap to show controls
+            </Text>
+          </View>
         </View>
       )}
     </View>
