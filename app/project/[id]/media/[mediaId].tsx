@@ -256,27 +256,43 @@ export default function MediaDetail() {
     if (!media) return;
 
     try {
+      console.log('Starting share process for media:', media.uri);
+      
       const isAvailable = await Sharing.isAvailableAsync();
       if (!isAvailable) {
+        console.log('Sharing not available on this device');
         Alert.alert('Error', 'Sharing is not available on this device');
         return;
       }
 
       // Check if the file exists
       if (!fileExists) {
+        console.log('Media file does not exist:', media.uri);
         Alert.alert('Error', 'Media file not found. Cannot share.');
         return;
       }
 
+      // Ensure the URI is properly formatted
+      const shareUri = media.uri.startsWith('file://') ? media.uri : `file://${media.uri}`;
+      console.log('Formatted share URI:', shareUri);
+
       // Share the actual file
-      await Sharing.shareAsync(media.uri, {
+      await Sharing.shareAsync(shareUri, {
         mimeType: media.type === 'photo' ? 'image/jpeg' : 'video/mp4',
         dialogTitle: `Share ${media.type === 'photo' ? 'Photo' : 'Video'}`,
       });
 
+      console.log('Media share completed successfully');
+
     } catch (error) {
       console.error('Error sharing media:', error);
-      Alert.alert('Error', 'Failed to share media. Please try again.');
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        uri: media.uri,
+        type: media.type
+      });
+      Alert.alert('Error', `Failed to share media: ${error.message || 'Unknown error'}. Please try again.`);
     }
   };
 

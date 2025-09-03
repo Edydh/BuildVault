@@ -18,6 +18,7 @@ import { Image } from 'expo-image';
 import { MediaItem, getMediaByProject, updateMediaNote } from '../../../lib/db';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
+import * as Sharing from 'expo-sharing';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -239,20 +240,48 @@ export default function PhotoGallery() {
 
   const handleShare = async (mediaItem: MediaItem) => {
     try {
+      console.log('Starting share process for:', mediaItem.uri);
+      
+      // Check if sharing is available
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        console.log('Sharing not available on this device');
+        Alert.alert('Error', 'Sharing is not available on this device');
+        return;
+      }
+
+      // Check if file exists
       const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
+      console.log('File info:', fileInfo);
+      
       if (!fileInfo.exists) {
+        console.log('File does not exist:', mediaItem.uri);
         Alert.alert('Error', 'Photo file not found. Cannot share.');
         return;
       }
 
-      const { Sharing } = await import('expo-sharing');
-      await Sharing.shareAsync(mediaItem.uri, {
+      console.log('Attempting to share file:', mediaItem.uri);
+      
+      // Ensure the URI is properly formatted
+      const shareUri = mediaItem.uri.startsWith('file://') ? mediaItem.uri : `file://${mediaItem.uri}`;
+      console.log('Formatted share URI:', shareUri);
+      
+      // Share the photo
+      await Sharing.shareAsync(shareUri, {
         mimeType: 'image/jpeg',
         dialogTitle: 'Share Photo',
       });
+      
+      console.log('Share completed successfully');
     } catch (error) {
       console.error('Error sharing photo:', error);
-      Alert.alert('Error', 'Failed to share photo. Please try again.');
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        uri: mediaItem.uri,
+        type: mediaItem.type
+      });
+      Alert.alert('Error', `Failed to share photo: ${error.message || 'Unknown error'}. Please try again.`);
     }
   };
 
