@@ -324,7 +324,7 @@ export default function ProjectsList() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
+    <View style={{ flex: 1, backgroundColor: '#0B0F14' }} pointerEvents="box-none">
       <Animated.View 
         style={{ 
           padding: 16, 
@@ -353,9 +353,14 @@ export default function ProjectsList() {
       <FlatList
         data={projects}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 16, paddingTop: 160, paddingBottom: 100 }}
+        contentContainerStyle={{ 
+          padding: 16, 
+          paddingTop: 160, 
+          paddingBottom: 100,
+          minHeight: '100%'
+        }}
         renderItem={({ item }) => <ProjectCard project={item} />}
-        onScroll={handleScroll}
+        onScroll={undefined}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={true}
         nestedScrollEnabled={true}
@@ -363,8 +368,10 @@ export default function ProjectsList() {
         style={{ flex: 1 }}
         bounces={true}
         scrollEnabled={true}
+        alwaysBounceVertical={true}
+        keyboardShouldPersistTaps="handled"
         ListEmptyComponent={() => (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60, minHeight: 600 }}>
             <Ionicons name="albums" size={64} color="#1F2A37" style={{ marginBottom: 20 }} />
             <Text style={{ color: '#94A3B8', fontSize: 18, textAlign: 'center', marginBottom: 8 }}>
               No projects yet
@@ -372,6 +379,12 @@ export default function ProjectsList() {
             <Text style={{ color: '#64748B', fontSize: 14, textAlign: 'center' }}>
               Create your first construction project to get started
             </Text>
+            {/* Add some extra content to ensure scrolling works */}
+            <View style={{ height: 200, marginTop: 40 }}>
+              <Text style={{ color: '#64748B', fontSize: 12, textAlign: 'center' }}>
+                Scroll test content
+              </Text>
+            </View>
           </View>
         )}
       />
