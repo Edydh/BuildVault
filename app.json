@@ -28,12 +28,7 @@
         "NSMicrophoneUsageDescription": "BuildVault uses the microphone to capture audio in videos.",
         "NSPhotoLibraryUsageDescription": "Allow access to show and save your media.",
         "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleURLTypes": [
-          {
-            "CFBundleURLName": "google-signin",
-            "CFBundleURLSchemes": ["com.googleusercontent.apps.YOUR_GOOGLE_CLIENT_ID"]
-          }
-        ]
+
       },
       "bundleIdentifier": "com.edydhm.buildvault"
     },
@@ -51,7 +46,7 @@
         "android.permission.READ_EXTERNAL_STORAGE"
       ],
       "edgeToEdgeEnabled": true,
-      "package": "com.yourcompany.buildvault"
+      "package": "com.edydhm.buildvault"
     },
     "web": {
       "favicon": "./assets/favicon.png"
