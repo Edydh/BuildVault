@@ -93,24 +93,22 @@ function FullScreenPhotoViewer({
         onPress={() => setShowControls(!showControls)}
       />
 
-      {/* Controls overlay */}
+      {/* Top controls - always visible when controls are shown */}
       {showControls && (
         <View style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+          paddingTop: 60,
+          paddingHorizontal: 16,
+          paddingBottom: 20,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
         }}>
-          {/* Top controls */}
           <View style={{
             flexDirection: 'row',
             justifyContent: 'space-between',
             alignItems: 'center',
-            paddingTop: 60,
-            paddingHorizontal: 16,
-            paddingBottom: 20,
           }}>
             <TouchableOpacity
               onPress={onClose}
@@ -118,7 +116,7 @@ function FullScreenPhotoViewer({
                 width: 40,
                 height: 40,
                 borderRadius: 20,
-                backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
                 justifyContent: 'center',
                 alignItems: 'center',
               }}
@@ -137,48 +135,58 @@ function FullScreenPhotoViewer({
 
             <View style={{ width: 40 }} />
           </View>
+        </View>
+      )}
 
-          {/* Bottom controls */}
-          <View style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            flexDirection: 'row',
-            justifyContent: 'center',
-            alignItems: 'center',
-            paddingBottom: 40,
-            paddingHorizontal: 16,
-            gap: 20,
-          }}>
-            <TouchableOpacity
-              onPress={onShare}
-              style={{
-                width: 50,
-                height: 50,
-                borderRadius: 25,
-                backgroundColor: 'rgba(59, 130, 246, 0.8)',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <Ionicons name="share" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              onPress={onDelete}
-              style={{
-                width: 50,
-                height: 50,
-                borderRadius: 25,
-                backgroundColor: 'rgba(220, 38, 38, 0.8)',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <Ionicons name="trash" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
+      {/* Bottom controls - only show as floating buttons, not full overlay */}
+      {showControls && (
+        <View style={{
+          position: 'absolute',
+          bottom: 40,
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: 20,
+        }}>
+          <TouchableOpacity
+            onPress={onShare}
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 25,
+              backgroundColor: 'rgba(59, 130, 246, 0.9)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.3,
+              shadowRadius: 4,
+              elevation: 4,
+            }}
+          >
+            <Ionicons name="share" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            onPress={onDelete}
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 25,
+              backgroundColor: 'rgba(220, 38, 38, 0.9)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.3,
+              shadowRadius: 4,
+              elevation: 4,
+            }}
+          >
+            <Ionicons name="trash" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
         </View>
       )}
     </View>
