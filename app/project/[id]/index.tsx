@@ -370,22 +370,8 @@ export default function ProjectDetail() {
         Alert.alert('Error', 'Failed to share file. Please try again.');
       }
     } else {
-      // Multiple files - show options
-      Alert.alert(
-        'Share Multiple Files',
-        `You've selected ${selectedMedia.length} files to share.\n\nChoose your preferred method:`,
-        [
-          { 
-            text: 'Share All at Once', 
-            onPress: () => shareMultipleFilesAtOnce(selectedMedia)
-          },
-          { 
-            text: 'Share One by One', 
-            onPress: () => shareFilesIndividually(selectedMedia)
-          },
-          { text: 'Cancel', style: 'cancel' }
-        ]
-      );
+      // Multiple files - share all at once via text messages
+      await shareMultipleFilesViaText(selectedMedia);
     }
     
     // Exit selection mode
@@ -393,37 +379,10 @@ export default function ProjectDetail() {
     setSelectedItems(new Set());
   };
 
-  const shareFilesIndividually = async (mediaItems: MediaItem[]) => {
-    try {
-      for (let i = 0; i < mediaItems.length; i++) {
-        const mediaItem = mediaItems[i];
-        const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-        
-        if (fileInfo.exists) {
-          await Sharing.shareAsync(mediaItem.uri, {
-            mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
-                     mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
-            dialogTitle: `Share ${mediaItem.type} (${i + 1} of ${mediaItems.length})`,
-          });
-          
-          // Small delay between shares to avoid overwhelming the system
-          if (i < mediaItems.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        }
-      }
-      
-      Alert.alert('Success', `Successfully shared ${mediaItems.length} files individually!`);
-    } catch (error) {
-      console.error('Error sharing files individually:', error);
-      Alert.alert('Error', 'Failed to share some files. Please try again.');
-    }
-  };
-
-  const shareMultipleFilesAtOnce = async (mediaItems: MediaItem[]) => {
+  const shareMultipleFilesViaText = async (mediaItems: MediaItem[]) => {
     try {
       // Create a temporary folder for selected items
-      const tempFolderName = `BuildVault_${Date.now()}`;
+      const tempFolderName = `BuildVault_Share_${Date.now()}`;
       const tempFolderPath = FileSystem.documentDirectory + tempFolderName + '/';
       
       // Create the folder
@@ -453,16 +412,24 @@ export default function ProjectDetail() {
       }
       
       if (copiedFiles.length > 0) {
+        // Share the first file and let the user know about the folder
+        const firstMediaItem = mediaItems[0];
+        await Sharing.shareAsync(copiedFiles[0], {
+          mimeType: firstMediaItem.type === 'photo' ? 'image/jpeg' : 
+                   firstMediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
+          dialogTitle: `Share ${mediaItems.length} Files via Text`,
+        });
+        
         Alert.alert(
-          'Files Ready for Sharing',
-          `✅ ${copiedFiles.length} files prepared in folder: ${tempFolderName}\n\n📱 **To share via AirDrop:**\n1. Open Files app\n2. Navigate to: ${tempFolderName}\n3. Select all files in the folder\n4. Tap Share → AirDrop\n\n💡 **Tip:** This method works best for sharing multiple files at once!`,
+          'Files Ready for Text Sharing',
+          `✅ ${copiedFiles.length} files prepared for sharing!\n\n📱 **To share all files via text messages:**\n1. Open Files app\n2. Find folder: ${tempFolderName}\n3. Select all files in the folder\n4. Tap Share → Messages\n\n💡 **Tip:** This allows you to send all files in one text message!`,
           [{ text: 'Got it!', style: 'default' }]
         );
       } else {
         Alert.alert('Error', 'No files could be prepared for sharing.');
       }
     } catch (error) {
-      console.error('Error preparing files for sharing:', error);
+      console.error('Error preparing files for text sharing:', error);
       Alert.alert('Error', 'Failed to prepare files for sharing. Please try again.');
     }
   };
