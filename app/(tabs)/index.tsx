@@ -25,9 +25,11 @@ export default function ProjectsList() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', client: '', location: '' });
   
-  // Animation values for dynamic header
+  // Animation values for dynamic header and tab bar
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = useRef(new Animated.Value(1)).current;
+  const tabBarOpacity = useRef(new Animated.Value(1)).current;
+  const flatListRef = useRef<FlatList>(null);
 
   const loadProjects = useCallback(() => {
     setProjects(getProjects());
@@ -39,7 +41,7 @@ export default function ProjectsList() {
     }, [loadProjects])
   );
 
-  // Handle scroll events for dynamic header
+  // Handle scroll events for dynamic header and tab bar
   const handleScroll = (event: any) => {
     try {
       const offsetY = event.nativeEvent.contentOffset.y;
@@ -54,12 +56,15 @@ export default function ProjectsList() {
         const opacity = Math.max(0, 1 - progress);
         
         headerOpacity.setValue(opacity);
+        tabBarOpacity.setValue(opacity);
       } else {
         headerOpacity.setValue(1);
+        tabBarOpacity.setValue(1);
       }
     } catch (error) {
-      // Fallback: keep header visible if there's an error
+      // Fallback: keep header and tab bar visible if there's an error
       headerOpacity.setValue(1);
+      tabBarOpacity.setValue(1);
     }
   };
 
@@ -348,6 +353,7 @@ export default function ProjectsList() {
       </Animated.View>
 
       <FlatList
+        ref={flatListRef}
         data={projects}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
@@ -380,11 +386,69 @@ export default function ProjectsList() {
         )}
       />
 
+      {/* Custom Tab Bar Overlay */}
+      <Animated.View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: '#0B0F14',
+          borderTopColor: '#1F2A37',
+          borderTopWidth: 1,
+          opacity: tabBarOpacity,
+          zIndex: 1000,
+        }}
+      >
+        <View style={{
+          flexDirection: 'row',
+          justifyContent: 'space-around',
+          alignItems: 'center',
+          paddingVertical: 8,
+          paddingBottom: 20, // Account for safe area
+        }}>
+          {/* Projects Tab */}
+          <TouchableOpacity
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              paddingVertical: 8,
+            }}
+            onPress={() => {
+              // Already on projects tab, scroll to top
+              if (projects.length > 0 && flatListRef.current) {
+                flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+              }
+            }}
+          >
+            <Ionicons name="albums" size={24} color="#FF7A1A" />
+            <Text style={{ color: '#FF7A1A', fontSize: 12, marginTop: 4, fontWeight: '600' }}>
+              Projects
+            </Text>
+          </TouchableOpacity>
+
+          {/* Settings Tab */}
+          <TouchableOpacity
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              paddingVertical: 8,
+            }}
+            onPress={() => router.push('/settings')}
+          >
+            <Ionicons name="settings" size={24} color="#94A3B8" />
+            <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: 4 }}>
+              Settings
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
       <TouchableOpacity
         style={{
           position: 'absolute',
           right: 20,
-          bottom: 20,
+          bottom: 100, // Moved up to avoid tab bar
           backgroundColor: '#FF7A1A',
           width: 60,
           height: 60,

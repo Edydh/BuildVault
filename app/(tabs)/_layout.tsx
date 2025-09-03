@@ -23,6 +23,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="albums" size={size} color={color} />
           ),
+          tabBarStyle: { display: 'none' }, // Hide tab bar for projects screen
         }}
       />
       <Tabs.Screen
