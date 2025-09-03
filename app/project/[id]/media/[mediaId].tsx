@@ -89,14 +89,14 @@ function FullScreenPhotoViewer({
         enableLiveTextInteraction={true}
       />
       
-      {/* Touch area for controls toggle - positioned to avoid interfering with Live Text */}
+      {/* Small touch areas for controls toggle - only in corners to avoid Live Text interference */}
       <TouchableOpacity
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
-          right: 0,
-          height: 100, // Only top area for controls toggle
+          width: 60, // Small area in top-left corner
+          height: 60,
           backgroundColor: 'transparent',
         }}
         activeOpacity={1}
@@ -106,10 +106,10 @@ function FullScreenPhotoViewer({
       <TouchableOpacity
         style={{
           position: 'absolute',
-          bottom: 0,
-          left: 0,
+          top: 0,
           right: 0,
-          height: 100, // Only bottom area for controls toggle
+          width: 60, // Small area in top-right corner
+          height: 60,
           backgroundColor: 'transparent',
         }}
         activeOpacity={1}
