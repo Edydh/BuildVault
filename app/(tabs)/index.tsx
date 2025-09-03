@@ -11,6 +11,9 @@ import {
   Keyboard,
   Animated,
   StatusBar,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -477,28 +480,43 @@ export default function ProjectsList() {
         animationType="slide"
         onRequestClose={() => setShowCreate(false)}
       >
-        <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
-          <View style={{
-            flex: 1,
-            justifyContent: 'flex-end',
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          }}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
             <View style={{
-              backgroundColor: '#101826',
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              padding: 20,
-              paddingBottom: 40,
+              flex: 1,
+              justifyContent: 'center',
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              paddingHorizontal: 20,
             }}>
-              <Text style={{
-                color: '#F8FAFC',
-                fontSize: 24,
-                fontWeight: 'bold',
-                marginBottom: 20,
-                textAlign: 'center',
+              <View style={{
+                backgroundColor: '#101826',
+                borderRadius: 20,
+                maxHeight: '80%',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 8,
               }}>
-                New Project
-              </Text>
+                <ScrollView 
+                  style={{ maxHeight: '100%' }}
+                  contentContainerStyle={{ padding: 24 }}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text style={{
+                    color: '#F8FAFC',
+                    fontSize: 24,
+                    fontWeight: 'bold',
+                    marginBottom: 20,
+                    textAlign: 'center',
+                  }}>
+                    New Project
+                  </Text>
 
               <TextInput
                 style={{
@@ -592,9 +610,11 @@ export default function ProjectsList() {
                   </Text>
                 </TouchableOpacity>
               </View>
+                </ScrollView>
+              </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
