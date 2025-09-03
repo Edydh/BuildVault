@@ -15,7 +15,11 @@ export default function Settings() {
       
       // Get all projects and their media
       const projects = getProjects();
-      const exportData = {
+      const exportData: {
+        exportDate: string;
+        version: string;
+        projects: any[];
+      } = {
         exportDate: new Date().toISOString(),
         version: '1.0.0',
         projects: []
