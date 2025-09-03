@@ -44,6 +44,149 @@ function VideoPlayer({ uri }: { uri: string }) {
   );
 }
 
+// FullScreenPhotoViewer component
+function FullScreenPhotoViewer({ 
+  uri, 
+  onClose, 
+  onShare, 
+  onDelete 
+}: { 
+  uri: string; 
+  onClose: () => void;
+  onShare: () => void;
+  onDelete: () => void;
+}) {
+  const [showControls, setShowControls] = useState(true);
+
+  React.useEffect(() => {
+    // Auto-hide controls after 3 seconds
+    const timer = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [showControls]);
+
+  return (
+    <View style={{
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: '#000000',
+      zIndex: 1000,
+    }}>
+      {/* Full-screen image */}
+      <TouchableOpacity
+        style={{ flex: 1 }}
+        activeOpacity={1}
+        onPress={() => setShowControls(!showControls)}
+      >
+        <Image
+          source={{ uri }}
+          style={{
+            width: Dimensions.get('window').width,
+            height: Dimensions.get('window').height,
+          }}
+          contentFit="contain"
+          placeholder={null}
+          enableLiveTextInteraction={true}
+        />
+      </TouchableOpacity>
+
+      {/* Controls overlay */}
+      {showControls && (
+        <View style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        }}>
+          {/* Top controls */}
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingTop: 60,
+            paddingHorizontal: 16,
+            paddingBottom: 20,
+          }}>
+            <TouchableOpacity
+              onPress={onClose}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Ionicons name="close" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            <Text style={{ 
+              color: '#FFFFFF', 
+              fontSize: 18, 
+              fontWeight: '600',
+              textAlign: 'center',
+            }}>
+              Full Screen
+            </Text>
+
+            <View style={{ width: 40 }} />
+          </View>
+
+          {/* Bottom controls */}
+          <View style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            flexDirection: 'row',
+            justifyContent: 'center',
+            alignItems: 'center',
+            paddingBottom: 40,
+            paddingHorizontal: 16,
+            gap: 20,
+          }}>
+            <TouchableOpacity
+              onPress={onShare}
+              style={{
+                width: 50,
+                height: 50,
+                borderRadius: 25,
+                backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Ionicons name="share" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              onPress={onDelete}
+              style={{
+                width: 50,
+                height: 50,
+                borderRadius: 25,
+                backgroundColor: 'rgba(220, 38, 38, 0.8)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Ionicons name="trash" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function MediaDetail() {
   const { mediaId } = useLocalSearchParams<{ mediaId: string }>();
   const router = useRouter();
@@ -51,6 +194,7 @@ export default function MediaDetail() {
   const [note, setNote] = useState('');
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [fileExists, setFileExists] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   React.useEffect(() => {
     if (!mediaId) return;
@@ -267,17 +411,44 @@ export default function MediaDetail() {
               minHeight: 300,
             }}>
         {media.type === 'photo' && fileExists ? (
-          <Image
-            source={{ uri: media.uri }}
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => {
+              setIsFullScreen(true);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
             style={{
               width: Dimensions.get('window').width - 16,
               height: Dimensions.get('window').height * 0.7,
               borderRadius: 12,
+              overflow: 'hidden',
             }}
-            contentFit="contain"
-            placeholder={null}
-            enableLiveTextInteraction={true}
-          />
+          >
+            <Image
+              source={{ uri: media.uri }}
+              style={{
+                width: '100%',
+                height: '100%',
+              }}
+              contentFit="contain"
+              placeholder={null}
+              enableLiveTextInteraction={true}
+            />
+            {/* Tap indicator overlay */}
+            <View style={{
+              position: 'absolute',
+              top: 10,
+              right: 10,
+              backgroundColor: 'rgba(0, 0, 0, 0.6)',
+              borderRadius: 20,
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+            }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '500' }}>
+                Tap to view full screen
+              </Text>
+            </View>
+          </TouchableOpacity>
         ) : media.type === 'video' && fileExists && !media.uri.includes('placeholder') ? (
           <VideoPlayer uri={media.uri} />
         ) : media.type === 'video' && media.uri.includes('placeholder') ? (
@@ -622,6 +793,16 @@ export default function MediaDetail() {
           </ScrollView>
         </View>
       </TouchableWithoutFeedback>
+
+      {/* Full-screen photo viewer */}
+      {isFullScreen && media && media.type === 'photo' && (
+        <FullScreenPhotoViewer
+          uri={media.uri}
+          onClose={() => setIsFullScreen(false)}
+          onShare={handleShare}
+          onDelete={handleDeleteMedia}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
