@@ -31,9 +31,10 @@ export default function ProjectsList() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', client: '', location: '' });
   
-  // Animation values for dynamic header
+  // Animation values for dynamic header and tab bar
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = useRef(new Animated.Value(1)).current;
+  const tabBarOpacity = useRef(new Animated.Value(1)).current;
   const flatListRef = useRef<FlatList>(null);
 
   const loadProjects = useCallback(() => {
@@ -61,12 +62,15 @@ export default function ProjectsList() {
         const opacity = Math.max(0, 1 - progress);
         
         headerOpacity.setValue(opacity);
+        tabBarOpacity.setValue(opacity);
       } else {
         headerOpacity.setValue(1);
+        tabBarOpacity.setValue(1);
       }
     } catch (error) {
-      // Fallback: keep header visible if there's an error
+      // Fallback: keep header and tab bar visible if there's an error
       headerOpacity.setValue(1);
+      tabBarOpacity.setValue(1);
     }
   };
 
@@ -389,7 +393,28 @@ export default function ProjectsList() {
         )}
       />
 
-
+      {/* Tab Bar Transparency Overlay - Smart Gradient */}
+      <Animated.View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: insets.bottom + 60, // Tab bar height + safe area
+          opacity: tabBarOpacity,
+          pointerEvents: 'none',
+          zIndex: 999,
+        }}
+      >
+        {/* Gradient overlay to fade the tab bar */}
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: '#0B0F14',
+            opacity: 0.95, // Slight transparency to blend with tab bar
+          }}
+        />
+      </Animated.View>
 
       <TouchableOpacity
         style={{
