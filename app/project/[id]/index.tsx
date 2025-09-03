@@ -381,63 +381,20 @@ export default function ProjectDetail() {
 
   const shareMultipleFilesViaText = async (mediaItems: MediaItem[]) => {
     try {
-      // Create a temporary folder for selected items
-      const tempFolderName = `BuildVault_Share_${Date.now()}`;
-      const tempFolderPath = FileSystem.documentDirectory + tempFolderName + '/';
+      // For Messages app, we need to share files individually
+      // This allows the user to select the same recipient for each file
       
-      // Create the folder
-      await FileSystem.makeDirectoryAsync(tempFolderPath, { intermediates: true });
-      
-      // Copy selected files to the temp folder
-      const copiedFiles = [];
-      for (const mediaItem of mediaItems) {
-        try {
-          const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-          if (fileInfo.exists) {
-            const fileExtension = mediaItem.type === 'photo' ? 'jpg' : 
-                                mediaItem.type === 'video' ? 'mp4' : 'pdf';
-            const fileName = `${mediaItem.type}_${mediaItem.created_at}.${fileExtension}`;
-            const destinationPath = tempFolderPath + fileName;
-            
-            await FileSystem.copyAsync({
-              from: mediaItem.uri,
-              to: destinationPath,
-            });
-            
-            copiedFiles.push(destinationPath);
-          }
-        } catch (fileError) {
-          console.log(`Could not copy file: ${mediaItem.uri}`, fileError);
-        }
-      }
-      
-      if (copiedFiles.length > 0) {
-        // Try to share multiple files using the folder approach
-        try {
-          // Share the folder path - this should allow selecting multiple files
-          await Sharing.shareAsync(tempFolderPath, {
-            mimeType: 'application/octet-stream',
-            dialogTitle: `Share ${mediaItems.length} Files`,
-          });
-        } catch (shareError) {
-          // If folder sharing fails, fall back to individual sharing
-          console.log('Folder sharing failed, trying individual files:', shareError);
-          
-          Alert.alert(
-            'Share Files Individually',
-            `Sharing folder failed. Would you like to share the ${copiedFiles.length} files one by one?`,
-            [
-              { 
-                text: 'Share One by One', 
-                onPress: () => shareFilesSequentially(mediaItems)
-              },
-              { text: 'Cancel', style: 'cancel' }
-            ]
-          );
-        }
-      } else {
-        Alert.alert('Error', 'No files could be prepared for sharing.');
-      }
+      Alert.alert(
+        'Share Multiple Files via Messages',
+        `You've selected ${mediaItems.length} files to share.\n\nThis will open Messages ${mediaItems.length} times. For each file:\n1. Select the same recipient\n2. Send the message\n3. Repeat for the next file\n\nThis way all files go to the same conversation!`,
+        [
+          { 
+            text: 'Start Sharing', 
+            onPress: () => shareFilesSequentially(mediaItems)
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
     } catch (error) {
       console.error('Error preparing files for text sharing:', error);
       Alert.alert('Error', 'Failed to prepare files for sharing. Please try again.');
@@ -451,23 +408,74 @@ export default function ProjectDetail() {
         const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
         
         if (fileInfo.exists) {
-          await Sharing.shareAsync(mediaItem.uri, {
-            mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
-                     mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
-            dialogTitle: `Share ${mediaItem.type} (${i + 1} of ${mediaItems.length})`,
-          });
-          
-          // Small delay between shares to avoid overwhelming the system
-          if (i < mediaItems.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+          // Show progress before sharing each file
+          if (i === 0) {
+            Alert.alert(
+              'Sharing Files',
+              `Ready to share ${mediaItems.length} files via Messages.\n\nFor each file, select the same recipient to send all files to the same conversation.`,
+              [{ text: 'Start', onPress: () => shareNextFile(mediaItems, 0) }]
+            );
+            return; // Exit here, shareNextFile will handle the rest
           }
         }
       }
-      
-      Alert.alert('Success', `Successfully shared ${mediaItems.length} files!`);
     } catch (error) {
       console.error('Error sharing files sequentially:', error);
       Alert.alert('Error', 'Failed to share some files. Please try again.');
+    }
+  };
+
+  const shareNextFile = async (mediaItems: MediaItem[], index: number) => {
+    if (index >= mediaItems.length) {
+      Alert.alert('Success', `Successfully shared ${mediaItems.length} files!`);
+      return;
+    }
+
+    const mediaItem = mediaItems[index];
+    const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
+    
+    if (fileInfo.exists) {
+      try {
+        await Sharing.shareAsync(mediaItem.uri, {
+          mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
+                   mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
+          dialogTitle: `Share ${mediaItem.type} (${index + 1} of ${mediaItems.length})`,
+        });
+        
+        // After sharing, show option to continue with next file
+        if (index < mediaItems.length - 1) {
+          Alert.alert(
+            'Continue Sharing',
+            `File ${index + 1} of ${mediaItems.length} shared!\n\nReady to share the next file?`,
+            [
+              { 
+                text: 'Share Next', 
+                onPress: () => shareNextFile(mediaItems, index + 1)
+              },
+              { text: 'Done', style: 'cancel' }
+            ]
+          );
+        } else {
+          Alert.alert('Success', `Successfully shared all ${mediaItems.length} files!`);
+        }
+      } catch (error) {
+        console.error('Error sharing file:', error);
+        Alert.alert('Error', `Failed to share file ${index + 1}. Continue with next file?`, [
+          { 
+            text: 'Continue', 
+            onPress: () => shareNextFile(mediaItems, index + 1)
+          },
+          { text: 'Stop', style: 'cancel' }
+        ]);
+      }
+    } else {
+      Alert.alert('Error', `File ${index + 1} not found. Continue with next file?`, [
+        { 
+          text: 'Continue', 
+          onPress: () => shareNextFile(mediaItems, index + 1)
+        },
+        { text: 'Stop', style: 'cancel' }
+      ]);
     }
   };
 
