@@ -171,8 +171,8 @@ export class AuthService {
 
   private async loadUserFromStorage(userId: string): Promise<User | null> {
     try {
-      // Load user from database using the getUserById function
-      const user = await getUserById(userId);
+      // Load user from database using the getUserById function (synchronous)
+      const user = getUserById(userId);
       return user;
     } catch (error) {
       console.error('Error loading user from storage:', error);

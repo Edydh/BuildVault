@@ -7,6 +7,9 @@ import { View, ActivityIndicator } from 'react-native';
 export default function TabLayout() {
   const { user, isLoading } = useAuth();
 
+  // Debug logging
+  console.log('TabLayout - isLoading:', isLoading, 'user:', user ? 'Found' : 'Not found');
+
   // Show loading screen while checking authentication
   if (isLoading) {
     return (
@@ -23,8 +26,11 @@ export default function TabLayout() {
 
   // Redirect to auth screen if not authenticated
   if (!user) {
+    console.log('TabLayout - Redirecting to auth screen');
     return <Redirect href="/auth" />;
   }
+
+  console.log('TabLayout - Rendering tabs for user:', user.name);
 
   return (
     <Tabs
