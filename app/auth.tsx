@@ -102,20 +102,13 @@ export default function AuthScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Google Sign In */}
+          {/* Google Sign In - Temporarily Disabled */}
           <TouchableOpacity
-            style={[styles.signInButton, styles.googleButton]}
-            onPress={handleGoogleSignIn}
-            disabled={isLoading}
+            style={[styles.signInButton, styles.googleButton, { opacity: 0.5 }]}
+            disabled={true}
           >
-            {loadingProvider === 'google' ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons name="logo-google" size={20} color="#FFFFFF" />
-                <Text style={styles.buttonText}>Continue with Google</Text>
-              </>
-            )}
+            <Ionicons name="logo-google" size={20} color="#FFFFFF" />
+            <Text style={styles.buttonText}>Google Sign-In (Coming Soon)</Text>
           </TouchableOpacity>
         </View>
 

@@ -13,8 +13,6 @@
       "expo-font",
       "expo-video",
       "expo-apple-authentication",
-      "expo-auth-session",
-      "expo-web-browser",
       "expo-secure-store"
     ],
     "splash": {

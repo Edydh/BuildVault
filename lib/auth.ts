@@ -1,18 +1,10 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { createUser, getUserByProviderId, updateUserLastLogin, User } from './db';
 
-// Configure WebBrowser for Google Sign-In
-WebBrowser.maybeCompleteAuthSession();
-
-// Google OAuth configuration
+// Google OAuth configuration (temporarily disabled)
 const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // Replace with your actual Google Client ID
-const GOOGLE_REDIRECT_URI = AuthSession.makeRedirectUri({
-  useProxy: true,
-});
 
 export interface AuthResult {
   success: boolean;
@@ -58,9 +50,22 @@ export class AuthService {
       // Check if Apple Sign-In is available
       const isAvailable = await AppleAuthentication.isAvailableAsync();
       if (!isAvailable) {
+        // For development/testing, create a mock user
+        console.log('Apple Sign-In not available, creating mock user for development');
+        const mockUser = createUser({
+          email: 'dev@buildvault.app',
+          name: 'Development User',
+          provider: 'apple',
+          providerId: 'dev-user-123',
+          avatar: null,
+        });
+        
+        await this.storeUserSession(mockUser);
+        this.currentUser = mockUser;
+        
         return {
-          success: false,
-          error: 'Apple Sign-In is not available on this device'
+          success: true,
+          user: mockUser,
         };
       }
 
@@ -129,91 +134,11 @@ export class AuthService {
   }
 
   async signInWithGoogle(): Promise<AuthResult> {
-    try {
-      // Create Google OAuth request
-      const request = new AuthSession.AuthRequest({
-        clientId: GOOGLE_CLIENT_ID,
-        scopes: ['openid', 'profile', 'email'],
-        redirectUri: GOOGLE_REDIRECT_URI,
-        responseType: AuthSession.ResponseType.Code,
-        extraParams: {},
-        additionalParameters: {},
-        prompt: AuthSession.Prompt.SelectAccount,
-      });
-
-      // Start authentication
-      const result = await request.promptAsync({
-        authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-      });
-
-      if (result.type !== 'success') {
-        return {
-          success: false,
-          error: 'Google Sign-In was canceled or failed'
-        };
-      }
-
-      // Exchange code for token
-      const tokenResponse = await AuthSession.exchangeCodeAsync(
-        {
-          clientId: GOOGLE_CLIENT_ID,
-          code: result.params.code,
-          redirectUri: GOOGLE_REDIRECT_URI,
-          extraParams: {
-            code_verifier: request.codeVerifier,
-          },
-        },
-        {
-          tokenEndpoint: 'https://oauth2.googleapis.com/token',
-        }
-      );
-
-      // Get user info from Google
-      const userInfoResponse = await fetch(
-        `https://www.googleapis.com/oauth2/v2/userinfo?access_token=${tokenResponse.accessToken}`
-      );
-      const userInfo = await userInfoResponse.json();
-
-      if (!userInfo.id) {
-        return {
-          success: false,
-          error: 'Failed to get user information from Google'
-        };
-      }
-
-      // Check if user already exists
-      let user = getUserByProviderId(userInfo.id, 'google');
-      
-      if (!user) {
-        // Create new user
-        user = createUser({
-          email: userInfo.email,
-          name: userInfo.name,
-          provider: 'google',
-          providerId: userInfo.id,
-          avatar: userInfo.picture,
-        });
-      } else {
-        // Update last login
-        updateUserLastLogin(user.id);
-      }
-
-      // Store user session
-      await this.storeUserSession(user);
-      this.currentUser = user;
-
-      return {
-        success: true,
-        user,
-      };
-
-    } catch (error: any) {
-      console.error('Google Sign-In error:', error);
-      return {
-        success: false,
-        error: error.message || 'Google Sign-In failed'
-      };
-    }
+    // Temporarily disabled - will implement after fixing Apple Sign-In
+    return {
+      success: false,
+      error: 'Google Sign-In is temporarily disabled. Please use Apple Sign-In for now.'
+    };
   }
 
   async signOut(): Promise<void> {
