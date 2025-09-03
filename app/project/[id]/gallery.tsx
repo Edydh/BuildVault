@@ -146,10 +146,12 @@ export default function PhotoGallery() {
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
       const newIndex = viewableItems[0].index;
-      setCurrentIndex(newIndex);
-      // Update note when changing photos
-      setNote(media[newIndex]?.note || '');
-      setIsEditingNote(false);
+      if (newIndex !== currentIndex) {
+        setCurrentIndex(newIndex);
+        // Update note when changing photos
+        setNote(media[newIndex]?.note || '');
+        setIsEditingNote(false);
+      }
     }
   }).current;
 
@@ -170,7 +172,8 @@ export default function PhotoGallery() {
   };
 
   const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 50,
+    itemVisiblePercentThreshold: 80,
+    minimumViewTime: 100,
   }).current;
 
   const renderPhoto = ({ item, index }: { item: MediaItem; index: number }) => {

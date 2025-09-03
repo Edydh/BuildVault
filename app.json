@@ -13,9 +13,6 @@
       "expo-font",
       "expo-video"
     ],
-    "features": [
-      "video"
-    ],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -27,7 +24,8 @@
         "NSCameraUsageDescription": "BuildVault uses the camera to capture project photos and videos.",
         "NSMicrophoneUsageDescription": "BuildVault uses the microphone to capture audio in videos.",
         "NSPhotoLibraryUsageDescription": "Allow access to show and save your media."
-      }
+      },
+      "bundleIdentifier": "com.yourcompany.buildvault"
     },
     "android": {
       "adaptiveIcon": {
