@@ -317,23 +317,32 @@ export default function ProjectDetail() {
     return new Date(timestamp).toLocaleString();
   };
 
-  const MediaCard = ({ item }: { item: MediaItem }) => (
-    <TouchableOpacity
-      style={{
-        backgroundColor: '#101826',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#1F2A37',
-      }}
-      onPress={() => {
-        // Navigate to media detail
+  const MediaCard = ({ item }: { item: MediaItem }) => {
+    const handlePress = () => {
+      if (item.type === 'photo') {
+        // For photos, find the index and navigate to gallery
+        const photoIndex = media.filter(m => m.type === 'photo').findIndex(m => m.id === item.id);
+        router.push(`/project/${id}/gallery?initialIndex=${photoIndex}`);
+      } else {
+        // For videos and documents, navigate to media detail
         router.push(`/project/${id}/media/${item.id}`);
-      }}
-      onLongPress={() => handleDeleteMedia(item)}
-      activeOpacity={0.7}
-    >
+      }
+    };
+
+    return (
+      <TouchableOpacity
+        style={{
+          backgroundColor: '#101826',
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 12,
+          borderWidth: 1,
+          borderColor: '#1F2A37',
+        }}
+        onPress={handlePress}
+        onLongPress={() => handleDeleteMedia(item)}
+        activeOpacity={0.7}
+      >
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <View style={{
           width: 40,
@@ -343,6 +352,7 @@ export default function ProjectDetail() {
           justifyContent: 'center',
           alignItems: 'center',
           marginRight: 12,
+          position: 'relative',
         }}>
           <Ionicons
             name={
@@ -352,6 +362,23 @@ export default function ProjectDetail() {
             size={20}
             color="#0B0F14"
           />
+          {item.type === 'photo' && (
+            <View style={{
+              position: 'absolute',
+              top: -2,
+              right: -2,
+              backgroundColor: '#FF7A1A',
+              borderRadius: 8,
+              width: 16,
+              height: 16,
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 2,
+              borderColor: '#0B0F14',
+            }}>
+              <Ionicons name="albums" size={8} color="#0B0F14" />
+            </View>
+          )}
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
@@ -375,11 +402,17 @@ export default function ProjectDetail() {
               🎬 Recorded • MP4 • Ready to play
             </Text>
           )}
+          {item.type === 'photo' && (
+            <Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
+              📸 Tap to view in gallery • Swipe to browse
+            </Text>
+          )}
         </View>
         <Ionicons name="chevron-forward" size={20} color="#64748B" />
       </View>
     </TouchableOpacity>
-  );
+    );
+  };
 
   if (!project) {
     return (
