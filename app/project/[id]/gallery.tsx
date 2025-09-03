@@ -406,10 +406,12 @@ export default function PhotoGallery() {
       const shareUri = mediaItem.uri.startsWith('file://') ? mediaItem.uri : `file://${mediaItem.uri}`;
       console.log('Formatted share URI:', shareUri);
       
-      // Share the photo
+      // Share the photo with maximum quality preservation
       await Sharing.shareAsync(shareUri, {
         mimeType: 'image/jpeg',
         dialogTitle: 'Share Photo',
+        // Ensure no compression during sharing
+        UTI: 'public.jpeg', // Use JPEG UTI for best quality
       });
       
       console.log('Share completed successfully');

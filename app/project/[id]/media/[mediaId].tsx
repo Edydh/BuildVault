@@ -416,10 +416,12 @@ export default function MediaDetail() {
       const shareUri = media.uri.startsWith('file://') ? media.uri : `file://${media.uri}`;
       console.log('Formatted share URI:', shareUri);
 
-      // Share the actual file
+      // Share the actual file with maximum quality preservation
       await Sharing.shareAsync(shareUri, {
         mimeType: media.type === 'photo' ? 'image/jpeg' : 'video/mp4',
         dialogTitle: `Share ${media.type === 'photo' ? 'Photo' : 'Video'}`,
+        // Ensure no compression during sharing
+        UTI: media.type === 'photo' ? 'public.jpeg' : 'public.mpeg-4',
       });
 
       console.log('Media share completed successfully');

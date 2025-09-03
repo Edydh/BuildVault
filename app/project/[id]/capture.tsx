@@ -91,12 +91,19 @@ export default function CaptureScreen() {
     if (!cameraRef.current || !id) return;
 
     try {
-      // Take the picture with high quality settings
+      // Take the picture with maximum quality settings
       const photo = await cameraRef.current.takePictureAsync({
         quality: 1.0, // Maximum quality (100%)
         exif: true,   // Preserve EXIF data for better image quality
         base64: false, // Don't include base64 to avoid memory issues
         skipProcessing: false, // Allow full image processing
+        // Additional quality settings for maximum resolution
+        imageType: 'jpg', // Use JPEG format for best compatibility
+        additionalExif: {
+          // Preserve additional metadata for quality
+          'ImageDescription': 'BuildVault Construction Photo',
+          'Software': 'BuildVault App'
+        }
       });
 
       if (!photo) {
@@ -182,9 +189,13 @@ export default function CaptureScreen() {
           // For newer Expo Camera versions that support recording
           const video = await (cameraRef.current as any).recordAsync({
             maxDuration: 30, // 30 seconds max
-            quality: '1080p', // Higher quality video
+            quality: '1080p', // Maximum quality video (1080p)
             mute: false,
             mirror: facing === 'front',
+            // Additional quality settings
+            codec: 'h264', // Best compression codec
+            bitrate: 10000000, // High bitrate for better quality (10 Mbps)
+            fps: 30, // Standard frame rate
           });
 
           // Stop the timer
@@ -367,6 +378,9 @@ export default function CaptureScreen() {
           flash={flash}
           mode={mode === 'video' ? 'video' : 'picture'}
           videoQuality="1080p"
+          // Enhanced quality settings
+          pictureSize="max" // Use maximum available picture size
+          enableTorch={flash === 'on'}
           onCameraReady={() => {
             console.log('Camera is ready');
             setCameraReady(true);

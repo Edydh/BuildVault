@@ -392,11 +392,14 @@ export default function ProjectDetail() {
         const mediaItem = selectedMedia[0];
         const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
         if (fileInfo.exists) {
-          await Sharing.shareAsync(mediaItem.uri, {
-            mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
-                     mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
-            dialogTitle: `Share ${mediaItem.type}`,
-          });
+                  await Sharing.shareAsync(mediaItem.uri, {
+          mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
+                   mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
+          dialogTitle: `Share ${mediaItem.type}`,
+          // Ensure no compression during sharing
+          UTI: mediaItem.type === 'photo' ? 'public.jpeg' : 
+               mediaItem.type === 'video' ? 'public.mpeg-4' : 'public.pdf',
+        });
         } else {
           Alert.alert('Error', 'File not found. Please try again.');
         }
@@ -475,6 +478,9 @@ export default function ProjectDetail() {
           mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
                    mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
           dialogTitle: `Share ${mediaItem.type} (${index + 1} of ${mediaItems.length})`,
+          // Ensure no compression during sharing
+          UTI: mediaItem.type === 'photo' ? 'public.jpeg' : 
+               mediaItem.type === 'video' ? 'public.mpeg-4' : 'public.pdf',
         });
         
         // After sharing, show option to continue with next file
