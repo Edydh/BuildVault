@@ -10,7 +10,9 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Animated,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Project, createProject, getProjects, deleteProject } from '../../lib/db';
@@ -21,6 +23,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 export default function ProjectsList() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [projects, setProjects] = useState<Project[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', client: '', location: '' });
@@ -327,10 +330,11 @@ export default function ProjectsList() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }} pointerEvents="box-none">
+      <StatusBar barStyle="light-content" backgroundColor="#0B0F14" translucent />
       <Animated.View 
         style={{ 
           padding: 16, 
-          paddingTop: 60, 
+          paddingTop: insets.top + 16, 
           paddingBottom: 20,
           opacity: headerOpacity,
           position: 'absolute',
@@ -358,8 +362,8 @@ export default function ProjectsList() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
           padding: 16, 
-          paddingTop: 160, 
-          paddingBottom: 100,
+          paddingTop: insets.top + 120, // Header height + safe area
+          paddingBottom: insets.bottom + 100, // Tab bar height + safe area
           minHeight: '100%'
         }}
         renderItem={({ item }) => <ProjectCard project={item} />}
@@ -405,7 +409,7 @@ export default function ProjectsList() {
           justifyContent: 'space-around',
           alignItems: 'center',
           paddingVertical: 8,
-          paddingBottom: 20, // Account for safe area
+          paddingBottom: insets.bottom + 8, // Proper safe area
         }}>
           {/* Projects Tab */}
           <TouchableOpacity
@@ -448,7 +452,7 @@ export default function ProjectsList() {
         style={{
           position: 'absolute',
           right: 20,
-          bottom: 100, // Moved up to avoid tab bar
+          bottom: insets.bottom + 100, // Proper safe area + tab bar height
           backgroundColor: '#FF7A1A',
           width: 60,
           height: 60,

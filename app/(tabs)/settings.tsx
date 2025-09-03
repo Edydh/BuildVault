@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
@@ -7,6 +8,7 @@ import { getProjects, deleteProject, getMediaByProject } from '../../lib/db';
 import { deleteProjectDir } from '../../lib/files';
 
 export default function Settings() {
+  const insets = useSafeAreaInsets();
   const handleExportData = async () => {
     try {
       Alert.alert('Export Data', 'Preparing your data for export...', [], { cancelable: false });
@@ -170,8 +172,12 @@ export default function Settings() {
   );
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#0B0F14' }}>
-      <View style={{ padding: 16, paddingTop: 60, paddingBottom: 20 }}>
+    <ScrollView 
+      style={{ flex: 1, backgroundColor: '#0B0F14' }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+    >
+      <StatusBar barStyle="light-content" backgroundColor="#0B0F14" translucent />
+      <View style={{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 20 }}>
         <Text style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 'bold' }}>
           Settings
         </Text>
