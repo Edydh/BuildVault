@@ -78,22 +78,43 @@ function FullScreenPhotoViewer({
       zIndex: 1000,
     }}>
       {/* Full-screen image */}
+      <Image
+        source={{ uri }}
+        style={{
+          width: Dimensions.get('window').width,
+          height: Dimensions.get('window').height,
+        }}
+        contentFit="contain"
+        placeholder={null}
+        enableLiveTextInteraction={true}
+      />
+      
+      {/* Touch area for controls toggle - positioned to avoid interfering with Live Text */}
       <TouchableOpacity
-        style={{ flex: 1 }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 100, // Only top area for controls toggle
+          backgroundColor: 'transparent',
+        }}
         activeOpacity={1}
         onPress={() => setShowControls(!showControls)}
-      >
-        <Image
-          source={{ uri }}
-          style={{
-            width: Dimensions.get('window').width,
-            height: Dimensions.get('window').height,
-          }}
-          contentFit="contain"
-          placeholder={null}
-          enableLiveTextInteraction={true}
-        />
-      </TouchableOpacity>
+      />
+      
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 100, // Only bottom area for controls toggle
+          backgroundColor: 'transparent',
+        }}
+        activeOpacity={1}
+        onPress={() => setShowControls(!showControls)}
+      />
 
       {/* Controls overlay */}
       {showControls && (
@@ -411,19 +432,13 @@ export default function MediaDetail() {
               minHeight: 300,
             }}>
         {media.type === 'photo' && fileExists ? (
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => {
-              setIsFullScreen(true);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }}
-            style={{
-              width: Dimensions.get('window').width - 16,
-              height: Dimensions.get('window').height * 0.7,
-              borderRadius: 12,
-              overflow: 'hidden',
-            }}
-          >
+          <View style={{
+            width: Dimensions.get('window').width - 16,
+            height: Dimensions.get('window').height * 0.7,
+            borderRadius: 12,
+            overflow: 'hidden',
+            position: 'relative',
+          }}>
             <Image
               source={{ uri: media.uri }}
               style={{
@@ -434,21 +449,38 @@ export default function MediaDetail() {
               placeholder={null}
               enableLiveTextInteraction={true}
             />
-            {/* Tap indicator overlay */}
-            <View style={{
-              position: 'absolute',
-              top: 10,
-              right: 10,
-              backgroundColor: 'rgba(0, 0, 0, 0.6)',
-              borderRadius: 20,
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-            }}>
-              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '500' }}>
-                Tap to view full screen
+            
+            {/* Full-screen button overlay */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                setIsFullScreen(true);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+              style={{
+                position: 'absolute',
+                top: 12,
+                right: 12,
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                borderRadius: 25,
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.3,
+                shadowRadius: 4,
+                elevation: 4,
+              }}
+            >
+              <Ionicons name="expand" size={16} color="#FFFFFF" />
+              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
+                Full Screen
               </Text>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
         ) : media.type === 'video' && fileExists && !media.uri.includes('placeholder') ? (
           <VideoPlayer uri={media.uri} />
         ) : media.type === 'video' && media.uri.includes('placeholder') ? (
