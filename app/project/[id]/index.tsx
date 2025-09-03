@@ -167,6 +167,8 @@ export default function ProjectDetail() {
   };
 
   const shareProjectSummary = async () => {
+    if (!project) return;
+    
     try {
       // Create project summary data (metadata only)
       const projectData = {
@@ -210,6 +212,8 @@ export default function ProjectDetail() {
   };
 
   const shareProjectWithMedia = async () => {
+    if (!project) return;
+    
     try {
       Alert.alert('Share with Media', 'Preparing project with all media files...', [], { cancelable: false });
       
