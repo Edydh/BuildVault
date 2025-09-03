@@ -349,11 +349,81 @@ export default function ProjectDetail() {
       return;
     }
 
+    const selectedMedia = media.filter(item => selectedItems.has(item.id));
+    
+    if (selectedMedia.length === 1) {
+      // Single file sharing - direct approach
+      try {
+        const mediaItem = selectedMedia[0];
+        const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
+        if (fileInfo.exists) {
+          await Sharing.shareAsync(mediaItem.uri, {
+            mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
+                     mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
+            dialogTitle: `Share ${mediaItem.type}`,
+          });
+        } else {
+          Alert.alert('Error', 'File not found. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error sharing single file:', error);
+        Alert.alert('Error', 'Failed to share file. Please try again.');
+      }
+    } else {
+      // Multiple files - show options
+      Alert.alert(
+        'Share Multiple Files',
+        `You've selected ${selectedMedia.length} files to share.\n\nChoose your preferred method:`,
+        [
+          { 
+            text: 'Share All at Once', 
+            onPress: () => shareMultipleFilesAtOnce(selectedMedia)
+          },
+          { 
+            text: 'Share One by One', 
+            onPress: () => shareFilesIndividually(selectedMedia)
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    }
+    
+    // Exit selection mode
+    setIsSelectionMode(false);
+    setSelectedItems(new Set());
+  };
+
+  const shareFilesIndividually = async (mediaItems: MediaItem[]) => {
     try {
-      const selectedMedia = media.filter(item => selectedItems.has(item.id));
+      for (let i = 0; i < mediaItems.length; i++) {
+        const mediaItem = mediaItems[i];
+        const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
+        
+        if (fileInfo.exists) {
+          await Sharing.shareAsync(mediaItem.uri, {
+            mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
+                     mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
+            dialogTitle: `Share ${mediaItem.type} (${i + 1} of ${mediaItems.length})`,
+          });
+          
+          // Small delay between shares to avoid overwhelming the system
+          if (i < mediaItems.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
       
+      Alert.alert('Success', `Successfully shared ${mediaItems.length} files individually!`);
+    } catch (error) {
+      console.error('Error sharing files individually:', error);
+      Alert.alert('Error', 'Failed to share some files. Please try again.');
+    }
+  };
+
+  const shareMultipleFilesAtOnce = async (mediaItems: MediaItem[]) => {
+    try {
       // Create a temporary folder for selected items
-      const tempFolderName = `selected_media_${Date.now()}`;
+      const tempFolderName = `BuildVault_${Date.now()}`;
       const tempFolderPath = FileSystem.documentDirectory + tempFolderName + '/';
       
       // Create the folder
@@ -361,7 +431,7 @@ export default function ProjectDetail() {
       
       // Copy selected files to the temp folder
       const copiedFiles = [];
-      for (const mediaItem of selectedMedia) {
+      for (const mediaItem of mediaItems) {
         try {
           const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
           if (fileInfo.exists) {
@@ -383,30 +453,17 @@ export default function ProjectDetail() {
       }
       
       if (copiedFiles.length > 0) {
-        // Share the first file and provide instructions
-        const firstMediaItem = selectedMedia[0];
-        await Sharing.shareAsync(copiedFiles[0], {
-          mimeType: firstMediaItem.type === 'photo' ? 'image/jpeg' : 
-                   firstMediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
-          dialogTitle: `Share ${selectedItems.size} Selected Items`,
-        });
-        
         Alert.alert(
-          'Selected Items Shared!',
-          `Successfully prepared ${copiedFiles.length} selected items for sharing.\n\n💡 To share all selected files:\n1. Use Files app to access the folder\n2. Select all files in the folder\n3. Share via cloud storage\n\n📂 Folder: ${tempFolderName}`,
-          [{ text: 'OK' }]
+          'Files Ready for Sharing',
+          `✅ ${copiedFiles.length} files prepared in folder: ${tempFolderName}\n\n📱 **To share via AirDrop:**\n1. Open Files app\n2. Navigate to: ${tempFolderName}\n3. Select all files in the folder\n4. Tap Share → AirDrop\n\n💡 **Tip:** This method works best for sharing multiple files at once!`,
+          [{ text: 'Got it!', style: 'default' }]
         );
       } else {
-        Alert.alert('Error', 'No files could be copied for sharing.');
+        Alert.alert('Error', 'No files could be prepared for sharing.');
       }
-      
-      // Exit selection mode
-      setIsSelectionMode(false);
-      setSelectedItems(new Set());
-      
     } catch (error) {
-      console.error('Error sharing selected items:', error);
-      Alert.alert('Error', 'Failed to share selected items. Please try again.');
+      console.error('Error preparing files for sharing:', error);
+      Alert.alert('Error', 'Failed to prepare files for sharing. Please try again.');
     }
   };
 
