@@ -41,28 +41,25 @@ export default function ProjectsList() {
 
   // Handle scroll events for dynamic header
   const handleScroll = (event: any) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    
-    // Calculate opacity based on scroll position
-    // Start fading at 50px, fully transparent at 150px
-    const fadeStart = 50;
-    const fadeEnd = 150;
-    
-    if (offsetY > fadeStart) {
-      const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
-      const opacity = 1 - progress;
+    try {
+      const offsetY = event.nativeEvent.contentOffset.y;
       
-      Animated.timing(headerOpacity, {
-        toValue: opacity,
-        duration: 100,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(headerOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
+      // Calculate opacity based on scroll position
+      // Start fading at 50px, fully transparent at 150px
+      const fadeStart = 50;
+      const fadeEnd = 150;
+      
+      if (offsetY > fadeStart) {
+        const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
+        const opacity = Math.max(0, 1 - progress);
+        
+        headerOpacity.setValue(opacity);
+      } else {
+        headerOpacity.setValue(1);
+      }
+    } catch (error) {
+      // Fallback: keep header visible if there's an error
+      headerOpacity.setValue(1);
     }
   };
 
@@ -360,7 +357,7 @@ export default function ProjectsList() {
           minHeight: '100%'
         }}
         renderItem={({ item }) => <ProjectCard project={item} />}
-        onScroll={undefined}
+        onScroll={handleScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={true}
         nestedScrollEnabled={true}
@@ -371,7 +368,7 @@ export default function ProjectsList() {
         alwaysBounceVertical={true}
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={() => (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60, minHeight: 600 }}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
             <Ionicons name="albums" size={64} color="#1F2A37" style={{ marginBottom: 20 }} />
             <Text style={{ color: '#94A3B8', fontSize: 18, textAlign: 'center', marginBottom: 8 }}>
               No projects yet
@@ -379,12 +376,6 @@ export default function ProjectsList() {
             <Text style={{ color: '#64748B', fontSize: 14, textAlign: 'center' }}>
               Create your first construction project to get started
             </Text>
-            {/* Add some extra content to ensure scrolling works */}
-            <View style={{ height: 200, marginTop: 40 }}>
-              <Text style={{ color: '#64748B', fontSize: 12, textAlign: 'center' }}>
-                Scroll test content
-              </Text>
-            </View>
           </View>
         )}
       />
