@@ -24,6 +24,7 @@ export default function ProjectDetail() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   const loadData = useCallback(() => {
     if (!id) return;
@@ -343,6 +344,11 @@ export default function ProjectDetail() {
     setSelectedItems(new Set());
   };
 
+  const toggleViewMode = () => {
+    setViewMode(prev => prev === 'list' ? 'grid' : 'list');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
   const handleShareSelected = async () => {
     if (selectedItems.size === 0) {
       Alert.alert('No Selection', 'Please select at least one item to share.');
@@ -539,6 +545,140 @@ export default function ProjectDetail() {
           },
         },
       ]
+    );
+  };
+
+  const MediaCardGrid = ({ item }: { item: MediaItem }) => {
+    const isSelected = selectedItems.has(item.id);
+    
+    const handlePress = () => {
+      if (isSelectionMode) {
+        toggleItemSelection(item.id);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } else {
+        if (item.type === 'photo') {
+          // For photos, find the index and navigate to gallery
+          const photoIndex = media.filter(m => m.type === 'photo').findIndex(m => m.id === item.id);
+          router.push(`/project/${id}/gallery?initialIndex=${photoIndex}`);
+        } else {
+          // For videos and documents, navigate to media detail
+          router.push(`/project/${id}/media/${item.id}`);
+        }
+      }
+    };
+
+    return (
+      <TouchableOpacity
+        style={{
+          backgroundColor: isSelected ? '#1E3A8A' : '#101826',
+          borderRadius: 12,
+          padding: 12,
+          marginBottom: 8,
+          borderWidth: 2,
+          borderColor: isSelected ? '#3B82F6' : '#1F2A37',
+          width: '48%', // Two columns with gap
+        }}
+        onPress={handlePress}
+        onLongPress={() => {
+          if (!isSelectionMode) {
+            handleDeleteMedia(item);
+          }
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={{ alignItems: 'center' }}>
+          {isSelectionMode && (
+            <View style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              width: 20,
+              height: 20,
+              borderRadius: 10,
+              borderWidth: 2,
+              borderColor: isSelected ? '#3B82F6' : '#64748B',
+              backgroundColor: isSelected ? '#3B82F6' : 'transparent',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 1,
+            }}>
+              {isSelected && (
+                <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+              )}
+            </View>
+          )}
+          
+          <View style={{
+            width: 60,
+            height: 60,
+            borderRadius: 12,
+            backgroundColor: '#FF7A1A',
+            justifyContent: 'center',
+            alignItems: 'center',
+            marginBottom: 8,
+            position: 'relative',
+          }}>
+            <Ionicons
+              name={
+                item.type === 'photo' ? 'image' :
+                item.type === 'video' ? 'videocam' : 'document'
+              }
+              size={24}
+              color="#0B0F14"
+            />
+            {item.type === 'photo' && (
+              <View style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                backgroundColor: '#FF7A1A',
+                borderRadius: 8,
+                width: 20,
+                height: 20,
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 2,
+                borderColor: '#0B0F14',
+              }}>
+                <Ionicons name="albums" size={10} color="#0B0F14" />
+              </View>
+            )}
+          </View>
+          
+          <Text style={{ 
+            color: '#F8FAFC', 
+            fontSize: 14, 
+            fontWeight: '600',
+            textAlign: 'center',
+            marginBottom: 4,
+          }}>
+            {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
+          </Text>
+          
+          <Text style={{ 
+            color: '#64748B', 
+            fontSize: 10, 
+            textAlign: 'center',
+            marginBottom: 4,
+          }}>
+            {formatDate(item.created_at)}
+          </Text>
+          
+          {item.note && (
+            <Text 
+              style={{ 
+                color: '#94A3B8', 
+                fontSize: 11, 
+                textAlign: 'center',
+                lineHeight: 14,
+              }}
+              numberOfLines={2}
+            >
+              {item.note}
+            </Text>
+          )}
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -744,19 +884,39 @@ export default function ProjectDetail() {
               <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
             </TouchableOpacity>
             {media.length > 0 && (
-              <TouchableOpacity
-                onPress={toggleSelectionMode}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: '#101826',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="checkbox-outline" size={20} color="#F8FAFC" />
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  onPress={toggleViewMode}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: '#101826',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: 8,
+                  }}
+                >
+                  <Ionicons 
+                    name={viewMode === 'list' ? 'grid' : 'list'} 
+                    size={20} 
+                    color="#F8FAFC" 
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={toggleSelectionMode}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: '#101826',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="checkbox-outline" size={20} color="#F8FAFC" />
+                </TouchableOpacity>
+              </>
             )}
           </View>
         )}
@@ -766,7 +926,10 @@ export default function ProjectDetail() {
             {isSelectionMode ? `${selectedItems.size} Selected` : project.name}
           </Text>
           <Text style={{ color: '#94A3B8', fontSize: 14, marginTop: 4 }}>
-            {isSelectionMode ? 'Tap items to select • Use buttons to share or delete' : 'Project Details'}
+            {isSelectionMode 
+              ? 'Tap items to select • Use buttons to share or delete' 
+              : `Project Details • ${viewMode === 'list' ? 'List' : 'Grid'} View`
+            }
           </Text>
         </View>
 
@@ -838,12 +1001,20 @@ export default function ProjectDetail() {
         )}
       </View>
 
-      {/* Media List */}
+      {/* Media List/Grid */}
       <FlatList
         data={media}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
-        renderItem={({ item }) => <MediaCard item={item} />}
+        contentContainerStyle={{ 
+          padding: 16, 
+          paddingBottom: 100,
+          ...(viewMode === 'grid' && { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' })
+        }}
+        numColumns={viewMode === 'grid' ? 2 : 1}
+        key={viewMode} // Force re-render when view mode changes
+        renderItem={({ item }) => 
+          viewMode === 'grid' ? <MediaCardGrid item={item} /> : <MediaCard item={item} />
+        }
         ListEmptyComponent={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
             <Ionicons name="images" size={64} color="#1F2A37" style={{ marginBottom: 20 }} />
