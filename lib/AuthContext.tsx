@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { router } from 'expo-router';
 import { authService } from './auth';
 import { User } from './db';
 
@@ -59,6 +60,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Force a small delay to ensure state is updated
         await new Promise(resolve => setTimeout(resolve, 100));
         console.log('User state should be updated now');
+        
+        // Force navigation to main app
+        console.log('Forcing navigation to main app...');
+        router.replace('/(tabs)');
       } else if (result.error === 'USER_CANCELED') {
         // User canceled - don't throw error, just return
         console.log('User canceled Apple Sign-In');
