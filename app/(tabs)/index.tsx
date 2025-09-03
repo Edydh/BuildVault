@@ -40,37 +40,31 @@ export default function ProjectsList() {
   );
 
   // Handle scroll events for dynamic header
-  const handleScroll = Animated.event(
-    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-    {
-      useNativeDriver: false,
-      listener: (event: any) => {
-        const offsetY = event.nativeEvent.contentOffset.y;
-        
-        // Calculate opacity based on scroll position
-        // Start fading at 50px, fully transparent at 150px
-        const fadeStart = 50;
-        const fadeEnd = 150;
-        
-        if (offsetY > fadeStart) {
-          const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
-          const opacity = 1 - progress;
-          
-          Animated.timing(headerOpacity, {
-            toValue: opacity,
-            duration: 100,
-            useNativeDriver: true,
-          }).start();
-        } else {
-          Animated.timing(headerOpacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
-        }
-      },
+  const handleScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    
+    // Calculate opacity based on scroll position
+    // Start fading at 50px, fully transparent at 150px
+    const fadeStart = 50;
+    const fadeEnd = 150;
+    
+    if (offsetY > fadeStart) {
+      const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
+      const opacity = 1 - progress;
+      
+      Animated.timing(headerOpacity, {
+        toValue: opacity,
+        duration: 100,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(headerOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
     }
-  );
+  };
 
   const handleCreateProject = async () => {
     if (!form.name.trim()) {
@@ -343,14 +337,17 @@ export default function ProjectsList() {
           right: 0,
           zIndex: 1000,
           backgroundColor: '#0B0F14',
+          pointerEvents: 'none',
         }}
       >
-        <Text style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 'bold' }}>
-          BuildVault
-        </Text>
-        <Text style={{ color: '#94A3B8', fontSize: 16, marginTop: 4 }}>
-          Construction Project Manager
-        </Text>
+        <View style={{ pointerEvents: 'auto' }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 'bold' }}>
+            BuildVault
+          </Text>
+          <Text style={{ color: '#94A3B8', fontSize: 16, marginTop: 4 }}>
+            Construction Project Manager
+          </Text>
+        </View>
       </Animated.View>
 
       <FlatList
@@ -360,7 +357,12 @@ export default function ProjectsList() {
         renderItem={({ item }) => <ProjectCard project={item} />}
         onScroll={handleScroll}
         scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        removeClippedSubviews={false}
+        style={{ flex: 1 }}
+        bounces={true}
+        scrollEnabled={true}
         ListEmptyComponent={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
             <Ionicons name="albums" size={64} color="#1F2A37" style={{ marginBottom: 20 }} />
