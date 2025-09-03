@@ -1,26 +1,47 @@
 {
   "expo": {
     "name": "BuildVault",
-    "slug": "BuildVault",
+    "slug": "buildvault",
+    "scheme": "buildvault",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-video"
+    ],
+    "features": [
+      "video"
+    ],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0B0F14"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "BuildVault uses the camera to capture project photos and videos.",
+        "NSMicrophoneUsageDescription": "BuildVault uses the microphone to capture audio in videos.",
+        "NSPhotoLibraryUsageDescription": "Allow access to show and save your media."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0B0F14"
       },
-      "edgeToEdgeEnabled": true
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO"
+      ],
+      "edgeToEdgeEnabled": true,
+      "package": "com.yourcompany.buildvault"
     },
     "web": {
       "favicon": "./assets/favicon.png"

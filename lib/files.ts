@@ -1,0 +1,91 @@
+import * as FileSystem from 'expo-file-system';
+
+const ROOT_DIR = FileSystem.documentDirectory + 'buildvault/';
+
+export async function ensureRootDir() {
+  const dirInfo = await FileSystem.getInfoAsync(ROOT_DIR);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(ROOT_DIR, { intermediates: true });
+  }
+}
+
+export async function ensureProjectDir(projectId: string) {
+  const projectDir = ROOT_DIR + projectId + '/';
+  const dirInfo = await FileSystem.getInfoAsync(projectDir);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(projectDir, { intermediates: true });
+  }
+  return projectDir;
+}
+
+export async function deleteProjectDir(projectId: string) {
+  const projectDir = ROOT_DIR + projectId + '/';
+  const dirInfo = await FileSystem.getInfoAsync(projectDir);
+  if (dirInfo.exists) {
+    await FileSystem.deleteAsync(projectDir, { idempotent: true });
+  }
+}
+
+export async function getProjectMediaDir(projectId: string) {
+  const projectDir = await ensureProjectDir(projectId);
+  const mediaDir = projectDir + 'media/';
+  const dirInfo = await FileSystem.getInfoAsync(mediaDir);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(mediaDir, { intermediates: true });
+  }
+  return mediaDir;
+}
+
+export function getFileExtension(filename: string): string {
+  return filename.split('.').pop()?.toLowerCase() || '';
+}
+
+export function getMediaType(filename: string): 'photo' | 'video' | 'doc' {
+  const ext = getFileExtension(filename);
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'photo';
+  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return 'video';
+  return 'doc';
+}
+
+export async function saveMediaToProject(
+  projectId: string,
+  uri: string,
+  type: 'photo' | 'video' | 'doc',
+  note?: string
+): Promise<{ fileUri: string; thumbUri?: string }> {
+  const mediaDir = await getProjectMediaDir(projectId);
+
+  // Generate unique filename
+  const timestamp = Date.now();
+  let extension: string;
+  let filename: string;
+  
+  if (type === 'doc') {
+    // For documents, preserve original extension
+    const originalExtension = getFileExtension(uri) || 'bin';
+    filename = `doc_${timestamp}.${originalExtension}`;
+  } else {
+    extension = type === 'photo' ? 'jpg' : 'mp4';
+    filename = `${type}_${timestamp}.${extension}`;
+  }
+  
+  const fileUri = mediaDir + filename;
+
+  // For video, we might need to handle different URI formats
+  let processedUri = uri;
+  if (type === 'video' && uri.startsWith('file://')) {
+    processedUri = uri;
+  }
+
+  // Copy file to project directory
+  await FileSystem.copyAsync({
+    from: uri,
+    to: fileUri,
+  });
+
+  // For photos, we could generate a thumbnail here
+  // For now, we'll use the same file as thumbnail
+  const thumbUri = type === 'photo' ? fileUri : undefined;
+
+  return { fileUri, thumbUri };
+}
