@@ -91,10 +91,12 @@ export default function CaptureScreen() {
     if (!cameraRef.current || !id) return;
 
     try {
-      // Take the picture
+      // Take the picture with high quality settings
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-        exif: false,
+        quality: 1.0, // Maximum quality (100%)
+        exif: true,   // Preserve EXIF data for better image quality
+        base64: false, // Don't include base64 to avoid memory issues
+        skipProcessing: false, // Allow full image processing
       });
 
       if (!photo) {
@@ -180,7 +182,7 @@ export default function CaptureScreen() {
           // For newer Expo Camera versions that support recording
           const video = await (cameraRef.current as any).recordAsync({
             maxDuration: 30, // 30 seconds max
-            quality: '720p',
+            quality: '1080p', // Higher quality video
             mute: false,
             mirror: facing === 'front',
           });
@@ -364,7 +366,7 @@ export default function CaptureScreen() {
           facing={facing}
           flash={flash}
           mode={mode === 'video' ? 'video' : 'picture'}
-          videoQuality="720p"
+          videoQuality="1080p"
           onCameraReady={() => {
             console.log('Camera is ready');
             setCameraReady(true);
