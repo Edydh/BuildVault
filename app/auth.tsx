@@ -12,12 +12,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { authService } from '../lib/auth';
+import { useAuth } from '../lib/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
 export default function AuthScreen() {
   const router = useRouter();
+  const { signInWithApple, signInWithGoogle } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProvider, setLoadingProvider] = useState<'apple' | 'google' | null>(null);
 
@@ -26,27 +27,17 @@ export default function AuthScreen() {
     setLoadingProvider('apple');
 
     try {
-      const result = await authService.signInWithApple();
-      
-      if (result.success && result.user) {
-        // Navigate to main app
-        router.replace('/(tabs)');
-      } else if (result.error === 'USER_CANCELED') {
-        // User canceled - don't show error alert, just log it
+      await signInWithApple();
+      // If successful, the AuthContext will update and the protected route will redirect
+      // No need to manually navigate here
+    } catch (error: any) {
+      // Check if it's a user cancellation
+      if (error.code === 'ERR_CANCELED' || error.message?.includes('canceled') || error.message?.includes('USER_CANCELED')) {
         console.log('User canceled Apple Sign-In');
         // No alert needed - user intentionally canceled
       } else {
-        // Show alert only for actual errors
-        Alert.alert('Sign In Failed', result.error || 'Apple Sign-In failed. Please try again.');
-      }
-    } catch (error: any) {
-      // Check if it's a user cancellation in the catch block too
-      if (error.code === 'ERR_CANCELED' || error.message?.includes('canceled')) {
-        console.log('User canceled Apple Sign-In (catch block)');
-        // No alert needed - user intentionally canceled
-      } else {
         console.error('Apple Sign-In error:', error);
-        Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+        Alert.alert('Sign In Failed', error.message || 'Apple Sign-In failed. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -59,17 +50,12 @@ export default function AuthScreen() {
     setLoadingProvider('google');
 
     try {
-      const result = await authService.signInWithGoogle();
-      
-      if (result.success && result.user) {
-        // Navigate to main app
-        router.replace('/(tabs)');
-      } else {
-        Alert.alert('Sign In Failed', result.error || 'Google Sign-In failed. Please try again.');
-      }
-    } catch (error) {
+      await signInWithGoogle();
+      // If successful, the AuthContext will update and the protected route will redirect
+      // No need to manually navigate here
+    } catch (error: any) {
       console.error('Google Sign-In error:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      Alert.alert('Sign In Failed', error.message || 'Google Sign-In failed. Please try again.');
     } finally {
       setIsLoading(false);
       setLoadingProvider(null);

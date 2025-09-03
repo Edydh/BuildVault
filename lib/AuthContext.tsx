@@ -39,6 +39,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const result = await authService.signInWithApple();
       if (result.success && result.user) {
         setUser(result.user);
+      } else if (result.error === 'USER_CANCELED') {
+        // User canceled - don't throw error, just return
+        console.log('User canceled Apple Sign-In');
+        return;
       } else {
         throw new Error(result.error || 'Apple Sign-In failed');
       }
