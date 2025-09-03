@@ -23,9 +23,10 @@
       "infoPlist": {
         "NSCameraUsageDescription": "BuildVault uses the camera to capture project photos and videos.",
         "NSMicrophoneUsageDescription": "BuildVault uses the microphone to capture audio in videos.",
-        "NSPhotoLibraryUsageDescription": "Allow access to show and save your media."
+        "NSPhotoLibraryUsageDescription": "Allow access to show and save your media.",
+        "ITSAppUsesNonExemptEncryption": false
       },
-      "bundleIdentifier": "com.yourcompany.buildvault"
+      "bundleIdentifier": "com.edydhm.buildvault"
     },
     "android": {
       "adaptiveIcon": {
@@ -43,6 +44,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "50a61d02-4a8e-4f71-9423-183446f39b6a"
+      }
     }
   }
 }
