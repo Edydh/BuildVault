@@ -31,12 +31,23 @@ export default function AuthScreen() {
       if (result.success && result.user) {
         // Navigate to main app
         router.replace('/(tabs)');
+      } else if (result.error === 'USER_CANCELED') {
+        // User canceled - don't show error alert, just log it
+        console.log('User canceled Apple Sign-In');
+        // No alert needed - user intentionally canceled
       } else {
+        // Show alert only for actual errors
         Alert.alert('Sign In Failed', result.error || 'Apple Sign-In failed. Please try again.');
       }
-    } catch (error) {
-      console.error('Apple Sign-In error:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    } catch (error: any) {
+      // Check if it's a user cancellation in the catch block too
+      if (error.code === 'ERR_CANCELED' || error.message?.includes('canceled')) {
+        console.log('User canceled Apple Sign-In (catch block)');
+        // No alert needed - user intentionally canceled
+      } else {
+        console.error('Apple Sign-In error:', error);
+        Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      }
     } finally {
       setIsLoading(false);
       setLoadingProvider(null);

@@ -117,15 +117,18 @@ export class AuthService {
       };
 
     } catch (error: any) {
-      console.error('Apple Sign-In error:', error);
-      
-      if (error.code === 'ERR_CANCELED') {
+      // Handle user cancellation gracefully (not an error)
+      if (error.code === 'ERR_CANCELED' || error.message?.includes('canceled')) {
+        console.log('Apple Sign-In was canceled by user');
         return {
           success: false,
-          error: 'Sign-in was canceled'
+          error: 'USER_CANCELED' // Special code for user cancellation
         };
       }
 
+      // Log actual errors
+      console.error('Apple Sign-In error:', error);
+      
       return {
         success: false,
         error: error.message || 'Apple Sign-In failed'
