@@ -737,12 +737,12 @@ export default function ProjectDetail() {
     };
 
     return (
-      <TouchableOpacity
-        style={{
+    <TouchableOpacity
+      style={{
           backgroundColor: isSelected ? '#1E3A8A' : '#101826',
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 12,
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12,
           borderWidth: 2,
           borderColor: isSelected ? '#3B82F6' : '#1F2A37',
         }}
@@ -752,8 +752,8 @@ export default function ProjectDetail() {
             handleDeleteMedia(item);
           }
         }}
-        activeOpacity={0.7}
-      >
+      activeOpacity={0.7}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         {isSelectionMode && (
           <View style={{
@@ -839,7 +839,7 @@ export default function ProjectDetail() {
         <Ionicons name="chevron-forward" size={20} color="#64748B" />
       </View>
     </TouchableOpacity>
-    );
+  );
   };
 
   if (!project) {
@@ -880,11 +880,11 @@ export default function ProjectDetail() {
             <TouchableOpacity
               onPress={selectedItems.size === media.length ? clearSelection : selectAllItems}
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: '#101826',
-                justifyContent: 'center',
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: '#101826',
+            justifyContent: 'center',
                 alignItems: 'center',
               }}
             >
@@ -914,10 +914,10 @@ export default function ProjectDetail() {
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginRight: 8,
-              }}
-            >
-              <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
-            </TouchableOpacity>
+          }}
+        >
+          <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
+        </TouchableOpacity>
             {media.length > 0 && (
               <>
                 <TouchableOpacity
