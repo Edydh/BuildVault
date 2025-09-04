@@ -33,7 +33,7 @@ function ZoomableImage({ uri }: { uri: string }) {
   const lastTranslateY = useRef(0);
 
   const MIN_SCALE = 1;
-  const MAX_SCALE = 3;
+  const MAX_SCALE = 4; // Increased max zoom for better experience
 
   const onPinchGestureEvent = Animated.event(
     [{ nativeEvent: { scale } }],
@@ -49,32 +49,114 @@ function ZoomableImage({ uri }: { uri: string }) {
     if (event.nativeEvent.oldState === State.ACTIVE) {
       const newScale = lastScale.current * event.nativeEvent.scale;
       
-      // Apply scale constraints
+      // Apply scale constraints with smooth animation
       if (newScale < MIN_SCALE) {
         lastScale.current = MIN_SCALE;
         lastTranslateX.current = 0;
         lastTranslateY.current = 0;
-        scale.setValue(MIN_SCALE);
-        translateX.setValue(0);
-        translateY.setValue(0);
+        
+        // Smooth animation back to original position
+        Animated.parallel([
+          Animated.spring(scale, {
+            toValue: MIN_SCALE,
+            useNativeDriver: true,
+            tension: 120,
+            friction: 9,
+          }),
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 120,
+            friction: 9,
+          }),
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 120,
+            friction: 9,
+          }),
+        ]).start();
       } else if (newScale > MAX_SCALE) {
         lastScale.current = MAX_SCALE;
-        scale.setValue(MAX_SCALE);
+        
+        // Smooth animation to max scale
+        Animated.spring(scale, {
+          toValue: MAX_SCALE,
+          useNativeDriver: true,
+          tension: 120,
+          friction: 9,
+        }).start();
       } else {
         lastScale.current = newScale;
-        scale.setValue(newScale);
+        
+        // Smooth animation to new scale
+        Animated.spring(scale, {
+          toValue: newScale,
+          useNativeDriver: true,
+          tension: 120,
+          friction: 9,
+        }).start();
       }
     }
+  };
+
+  // Add double tap to reset zoom
+  const handleDoubleTap = () => {
+    lastScale.current = MIN_SCALE;
+    lastTranslateX.current = 0;
+    lastTranslateY.current = 0;
+    
+    Animated.parallel([
+      Animated.spring(scale, {
+        toValue: MIN_SCALE,
+        useNativeDriver: true,
+        tension: 120,
+        friction: 9,
+      }),
+      Animated.spring(translateX, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 120,
+        friction: 9,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 120,
+        friction: 9,
+      }),
+    ]).start();
   };
 
   const onPanHandlerStateChange = (event: any) => {
     if (event.nativeEvent.oldState === State.ACTIVE) {
       // Only allow panning when zoomed in
       if (lastScale.current > MIN_SCALE) {
-        lastTranslateX.current += event.nativeEvent.translationX;
-        lastTranslateY.current += event.nativeEvent.translationY;
-        translateX.setValue(lastTranslateX.current);
-        translateY.setValue(lastTranslateY.current);
+        const newTranslateX = lastTranslateX.current + event.nativeEvent.translationX;
+        const newTranslateY = lastTranslateY.current + event.nativeEvent.translationY;
+        
+        // Constrain panning to keep image visible
+        const maxTranslateX = (Dimensions.get('window').width * (lastScale.current - 1)) / 2;
+        const maxTranslateY = (Dimensions.get('window').height * (lastScale.current - 1)) / 2;
+        
+        lastTranslateX.current = Math.max(-maxTranslateX, Math.min(maxTranslateX, newTranslateX));
+        lastTranslateY.current = Math.max(-maxTranslateY, Math.min(maxTranslateY, newTranslateY));
+        
+        // Smooth animation to new position
+        Animated.parallel([
+          Animated.spring(translateX, {
+            toValue: lastTranslateX.current,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 8,
+          }),
+          Animated.spring(translateY, {
+            toValue: lastTranslateY.current,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 8,
+          }),
+        ]).start();
       }
     }
   };
@@ -92,19 +174,25 @@ function ZoomableImage({ uri }: { uri: string }) {
           maxPointers={1}
         >
           <Animated.View style={{ flex: 1 }}>
-            <Animated.Image
-              source={{ uri }}
-              style={{
-                width: Dimensions.get('window').width,
-                height: Dimensions.get('window').height,
-                transform: [
-                  { scale },
-                  { translateX },
-                  { translateY },
-                ],
-              }}
-              resizeMode="contain"
-            />
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={handleDoubleTap}
+              style={{ flex: 1 }}
+            >
+              <Animated.Image
+                source={{ uri }}
+                style={{
+                  width: Dimensions.get('window').width,
+                  height: Dimensions.get('window').height,
+                  transform: [
+                    { scale },
+                    { translateX },
+                    { translateY },
+                  ],
+                }}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
           </Animated.View>
         </PanGestureHandler>
       </Animated.View>
@@ -347,7 +435,7 @@ function FullScreenPhotoViewer({
               fontSize: 12,
               fontWeight: '500',
             }}>
-              Tap to show controls
+              Tap to show controls • Double-tap to reset zoom
             </Text>
           </View>
         </View>

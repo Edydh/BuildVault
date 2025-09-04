@@ -5,11 +5,13 @@ import {
   TouchableOpacity,
   Alert,
   FlatList,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia } from '../../../lib/db';
+import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject } from '../../../lib/files';
@@ -22,10 +24,14 @@ export default function ProjectDetail() {
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -61,14 +67,18 @@ export default function ProjectDetail() {
       }
       setProject(projectData);
 
-      // Get media for this project
-      const mediaItems = getMediaByProject(id);
+      // Get folders for this project
+      const projectFolders = getFoldersByProject(id);
+      setFolders(projectFolders);
+
+      // Get media for current folder (or root if no folder selected)
+      const mediaItems = getMediaByFolder(id, currentFolder);
       setMedia(mediaItems);
     } catch (error) {
       console.error('Error loading project data:', error);
       Alert.alert('Error', 'Failed to load project data');
     }
-  }, [id, router]);
+  }, [id, router, currentFolder]);
 
   // Load view mode preference when component mounts
   useEffect(() => {
@@ -83,23 +93,25 @@ export default function ProjectDetail() {
   );
 
   const handleCaptureMedia = () => {
+    const currentFolderName = currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media';
+    
     Alert.alert(
       'Capture Media',
-      'Choose media type',
+      `Choose media type\n\n📁 Will be saved to: ${currentFolderName}`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Take Photo',
           onPress: () => {
-            // Navigate to capture screen with photo mode
-            router.push(`/project/${id}/capture?mode=photo`);
+            // Navigate to capture screen with photo mode and current folder
+            router.push(`/project/${id}/capture?mode=photo&folderId=${currentFolder || ''}`);
           },
         },
         {
           text: 'Record Video',
           onPress: () => {
-            // Navigate to capture screen with video mode
-            router.push(`/project/${id}/capture?mode=video`);
+            // Navigate to capture screen with video mode and current folder
+            router.push(`/project/${id}/capture?mode=video&folderId=${currentFolder || ''}`);
           },
         },
         {
@@ -129,6 +141,7 @@ export default function ProjectDetail() {
       // Save to database
       const mediaItem = createMedia({
         project_id: id!,
+        folder_id: currentFolder,
         type: 'doc',
         uri: fileUri,
         thumb_uri: null,
@@ -382,6 +395,106 @@ export default function ProjectDetail() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
+  // Folder management functions
+  const handleCreateFolder = () => {
+    if (!newFolderName.trim()) {
+      Alert.alert('Error', 'Please enter a folder name');
+      return;
+    }
+
+    try {
+      const folder = createFolder({
+        project_id: id!,
+        name: newFolderName.trim(),
+      });
+      
+      setFolders(prev => [...prev, folder]);
+      setNewFolderName('');
+      setShowFolderModal(false);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Alert.alert('Success', 'Folder created successfully!');
+    } catch (error) {
+      console.error('Error creating folder:', error);
+      Alert.alert('Error', 'Failed to create folder');
+    }
+  };
+
+  const handleDeleteFolder = (folderId: string, folderName: string) => {
+    Alert.alert(
+      'Delete Folder',
+      `Are you sure you want to delete "${folderName}"? All media in this folder will be moved to the root level.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              deleteFolder(folderId);
+              setFolders(prev => prev.filter(f => f.id !== folderId));
+              
+              // If we're currently viewing this folder, go back to root
+              if (currentFolder === folderId) {
+                setCurrentFolder(null);
+              }
+              
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              Alert.alert('Success', 'Folder deleted successfully!');
+            } catch (error) {
+              console.error('Error deleting folder:', error);
+              Alert.alert('Error', 'Failed to delete folder');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSelectFolder = (folderId: string | null) => {
+    setCurrentFolder(folderId);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleMoveMedia = (mediaItem: MediaItem) => {
+    const currentFolderName = currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media';
+    
+    Alert.alert(
+      'Move Media',
+      `Move "${mediaItem.type}" to which folder?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'All Media',
+          onPress: () => {
+            try {
+              moveMediaToFolder(mediaItem.id, null);
+              loadData();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              Alert.alert('Success', 'Media moved to All Media');
+            } catch (error) {
+              console.error('Error moving media:', error);
+              Alert.alert('Error', 'Failed to move media');
+            }
+          },
+        },
+        ...folders.map(folder => ({
+          text: folder.name,
+          onPress: () => {
+            try {
+              moveMediaToFolder(mediaItem.id, folder.id);
+              loadData();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              Alert.alert('Success', `Media moved to ${folder.name}`);
+            } catch (error) {
+              console.error('Error moving media:', error);
+              Alert.alert('Error', 'Failed to move media');
+            }
+          },
+        })),
+      ]
+    );
+  };
+
   const handleShareSelected = async () => {
     if (selectedItems.size === 0) {
       Alert.alert('No Selection', 'Please select at least one item to share.');
@@ -611,21 +724,37 @@ export default function ProjectDetail() {
         style={{
           backgroundColor: isSelected ? '#1E3A8A' : '#101826',
           borderRadius: 12,
-          padding: 12,
+          padding: 8,
           marginBottom: 8,
           borderWidth: 2,
           borderColor: isSelected ? '#3B82F6' : '#1F2A37',
           width: '48%', // Two columns with gap
+          aspectRatio: 1, // Square aspect ratio
         }}
         onPress={handlePress}
         onLongPress={() => {
           if (!isSelectionMode) {
-            handleDeleteMedia(item);
+            Alert.alert(
+              'Media Options',
+              'What would you like to do with this media?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Move to Folder',
+                  onPress: () => handleMoveMedia(item),
+                },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: () => handleDeleteMedia(item),
+                },
+              ]
+            );
           }
         }}
         activeOpacity={0.7}
       >
-        <View style={{ alignItems: 'center' }}>
+        <View style={{ flex: 1, position: 'relative' }}>
           {isSelectionMode && (
             <View style={{
               position: 'absolute',
@@ -639,7 +768,7 @@ export default function ProjectDetail() {
               backgroundColor: isSelected ? '#3B82F6' : 'transparent',
               justifyContent: 'center',
               alignItems: 'center',
-              zIndex: 1,
+              zIndex: 2,
             }}>
               {isSelected && (
                 <Ionicons name="checkmark" size={12} color="#FFFFFF" />
@@ -647,41 +776,83 @@ export default function ProjectDetail() {
             </View>
           )}
           
+          {/* Media Preview */}
           <View style={{
-            width: 60,
-            height: 60,
-            borderRadius: 12,
-            backgroundColor: '#FF7A1A',
+            flex: 1,
+            borderRadius: 8,
+            overflow: 'hidden',
+            backgroundColor: '#1F2A37',
             justifyContent: 'center',
             alignItems: 'center',
-            marginBottom: 8,
-            position: 'relative',
+          }}>
+            {item.type === 'photo' ? (
+              <Image
+                source={{ uri: item.uri }}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                }}
+                contentFit="cover"
+                placeholder={null}
+              />
+            ) : item.type === 'video' ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                {item.thumb_uri ? (
+                  <Image
+                    source={{ uri: item.thumb_uri }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                    }}
+                    contentFit="cover"
+                    placeholder={null}
+                  />
+                ) : (
+                  <Ionicons name="videocam" size={32} color="#FF7A1A" />
+                )}
+                <View style={{
+                  position: 'absolute',
+                  bottom: 8,
+                  right: 8,
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                  borderRadius: 4,
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                }}>
+                  <Ionicons name="play" size={12} color="#FFFFFF" />
+                </View>
+              </View>
+            ) : (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="document" size={32} color="#FF7A1A" />
+              </View>
+            )}
+          </View>
+          
+          {/* Type Badge */}
+          <View style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            borderRadius: 4,
+            paddingHorizontal: 6,
+            paddingVertical: 2,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
           }}>
             <Ionicons
               name={
                 item.type === 'photo' ? 'image' :
                 item.type === 'video' ? 'videocam' : 'document'
               }
-              size={24}
-              color="#0B0F14"
+              size={12}
+              color="#FFFFFF"
             />
-            {item.type === 'photo' && (
-              <View style={{
-                position: 'absolute',
-                top: -4,
-                right: -4,
-                backgroundColor: '#FF7A1A',
-                borderRadius: 8,
-                width: 20,
-                height: 20,
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderWidth: 2,
-                borderColor: '#0B0F14',
-              }}>
-                <Ionicons name="albums" size={10} color="#0B0F14" />
-              </View>
-            )}
+            <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '600' }}>
+              {item.type.toUpperCase()}
+            </Text>
           </View>
           
           <Text style={{ 
@@ -753,12 +924,27 @@ export default function ProjectDetail() {
         onPress={handlePress}
         onLongPress={() => {
           if (!isSelectionMode) {
-            handleDeleteMedia(item);
+            Alert.alert(
+              'Media Options',
+              'What would you like to do with this media?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Move to Folder',
+                  onPress: () => handleMoveMedia(item),
+                },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: () => handleDeleteMedia(item),
+                },
+              ]
+            );
           }
         }}
-      activeOpacity={0.7}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        activeOpacity={0.7}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         {isSelectionMode && (
           <View style={{
             width: 24,
@@ -964,6 +1150,11 @@ export default function ProjectDetail() {
           <Text style={{ color: '#F8FAFC', fontSize: 24, fontWeight: 'bold' }}>
             {isSelectionMode ? `${selectedItems.size} Selected` : project.name}
           </Text>
+          {!isSelectionMode && currentFolder && (
+            <Text style={{ color: '#FF7A1A', fontSize: 16, marginTop: 2 }}>
+              📁 {folders.find(f => f.id === currentFolder)?.name || 'Folder'}
+            </Text>
+          )}
           <Text style={{ color: '#94A3B8', fontSize: 14, marginTop: 4 }}>
             {isSelectionMode 
               ? 'Tap items to select • Use buttons to share or delete' 
@@ -1041,6 +1232,102 @@ export default function ProjectDetail() {
       </View>
 
       {/* Media List/Grid */}
+      {/* Folder Management */}
+      {!isSelectionMode && (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+          {/* Folder Selector */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <TouchableOpacity
+              onPress={() => handleSelectFolder(null)}
+              style={{
+                backgroundColor: currentFolder === null ? '#FF7A1A' : '#1F2A37',
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 20,
+                marginRight: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}
+            >
+              <Ionicons name="home" size={16} color={currentFolder === null ? '#0B0F14' : '#F8FAFC'} />
+              <Text style={{ 
+                color: currentFolder === null ? '#0B0F14' : '#F8FAFC', 
+                fontSize: 12, 
+                fontWeight: '600',
+                marginLeft: 4 
+              }}>
+                All Media
+              </Text>
+            </TouchableOpacity>
+            
+            {folders.map(folder => (
+              <TouchableOpacity
+                key={folder.id}
+                onPress={() => handleSelectFolder(folder.id)}
+                style={{
+                  backgroundColor: currentFolder === folder.id ? '#FF7A1A' : '#1F2A37',
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 20,
+                  marginRight: 8,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons name="folder" size={16} color={currentFolder === folder.id ? '#0B0F14' : '#F8FAFC'} />
+                <Text style={{ 
+                  color: currentFolder === folder.id ? '#0B0F14' : '#F8FAFC', 
+                  fontSize: 12, 
+                  fontWeight: '600',
+                  marginLeft: 4 
+                }}>
+                  {folder.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            
+            <TouchableOpacity
+              onPress={() => setShowFolderModal(true)}
+              style={{
+                backgroundColor: '#1F2A37',
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 20,
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: '#FF7A1A',
+                borderStyle: 'dashed',
+              }}
+            >
+              <Ionicons name="add" size={16} color="#FF7A1A" />
+              <Text style={{ color: '#FF7A1A', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
+                New Folder
+              </Text>
+            </TouchableOpacity>
+          </View>
+          
+          {/* Current Folder Indicator */}
+          <View style={{ 
+            backgroundColor: '#1F2A37', 
+            paddingHorizontal: 12, 
+            paddingVertical: 8, 
+            borderRadius: 12,
+            marginTop: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Ionicons name="camera" size={14} color="#FF7A1A" />
+            <Text style={{ color: '#94A3B8', fontSize: 12, marginLeft: 6 }}>
+              New media will be saved to: <Text style={{ color: '#FF7A1A', fontWeight: '600' }}>
+                {currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media'}
+              </Text>
+            </Text>
+          </View>
+        </View>
+      )}
+
       <FlatList
         data={media}
         keyExtractor={(item) => item.id}
@@ -1089,6 +1376,96 @@ export default function ProjectDetail() {
       >
         <Ionicons name="camera" size={30} color="#0B0F14" />
       </TouchableOpacity>
+
+      {/* Folder Creation Modal */}
+      {showFolderModal && (
+        <View style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000,
+        }}>
+          <View style={{
+            backgroundColor: '#101826',
+            borderRadius: 16,
+            padding: 24,
+            width: '90%',
+            maxWidth: 400,
+            borderWidth: 1,
+            borderColor: '#1F2A37',
+          }}>
+            <Text style={{ 
+              color: '#F8FAFC', 
+              fontSize: 20, 
+              fontWeight: '600', 
+              marginBottom: 16,
+              textAlign: 'center'
+            }}>
+              Create New Folder
+            </Text>
+            
+            <TextInput
+              style={{
+                backgroundColor: '#1F2A37',
+                borderRadius: 12,
+                padding: 16,
+                color: '#F8FAFC',
+                fontSize: 16,
+                marginBottom: 20,
+                borderWidth: 1,
+                borderColor: '#FF7A1A',
+              }}
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              placeholder="Enter folder name..."
+              placeholderTextColor="#64748B"
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleCreateFolder}
+            />
+            
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: '#374151',
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                }}
+                onPress={() => {
+                  setShowFolderModal(false);
+                  setNewFolderName('');
+                }}
+              >
+                <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: '#FF7A1A',
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                }}
+                onPress={handleCreateFolder}
+              >
+                <Text style={{ color: '#0B0F14', fontSize: 16, fontWeight: '600' }}>
+                  Create Folder
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }

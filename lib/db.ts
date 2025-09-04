@@ -8,9 +8,17 @@ export interface Project {
   created_at: number;
 }
 
+export interface Folder {
+  id: string;
+  project_id: string;
+  name: string;
+  created_at: number;
+}
+
 export interface MediaItem {
   id: string;
   project_id: string;
+  folder_id?: string | null;
   type: 'photo' | 'video' | 'doc';
   uri: string;
   thumb_uri?: string | null;
@@ -31,7 +39,7 @@ export interface User {
 
 const db = SQLite.openDatabaseSync('buildvault.db');
 
-export async function migrate() {
+export function migrate() {
   db.execSync(`
     PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS users (
@@ -51,6 +59,13 @@ export async function migrate() {
       location TEXT,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS folders (
+      id TEXT PRIMARY KEY NOT NULL,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS media (
       id TEXT PRIMARY KEY NOT NULL,
       project_id TEXT NOT NULL,
@@ -62,6 +77,14 @@ export async function migrate() {
       FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     );
   `);
+
+  // Add folder_id column to media table if it doesn't exist
+  try {
+    db.execSync(`ALTER TABLE media ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL`);
+  } catch (error) {
+    // Column already exists, ignore error
+    console.log('folder_id column already exists or error adding it:', error);
+  }
 }
 
 export function getProjects(search?: string): Project[] {
@@ -110,8 +133,8 @@ export function createMedia(data: Omit<MediaItem, 'id' | 'created_at'>): MediaIt
   const created_at = Date.now();
 
   db.runSync(
-    'INSERT INTO media (id, project_id, type, uri, thumb_uri, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [id, data.project_id, data.type, data.uri, data.thumb_uri || null, data.note || null, created_at]
+    'INSERT INTO media (id, project_id, folder_id, type, uri, thumb_uri, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, data.project_id, data.folder_id || null, data.type, data.uri, data.thumb_uri || null, data.note || null, created_at]
   );
 
   return { id, ...data, created_at };
@@ -161,4 +184,52 @@ export function getUserById(id: string): User | null {
 
 export function deleteUser(id: string) {
   db.runSync('DELETE FROM users WHERE id = ?', [id]);
+}
+
+// Folder management functions
+export function createFolder(data: Omit<Folder, 'id' | 'created_at'>): Folder {
+  const id = Date.now().toString();
+  const created_at = Date.now();
+
+  db.runSync(
+    'INSERT INTO folders (id, project_id, name, created_at) VALUES (?, ?, ?, ?)',
+    [id, data.project_id, data.name, created_at]
+  );
+
+  return { id, ...data, created_at };
+}
+
+export function getFoldersByProject(projectId: string): Folder[] {
+  const result = db.getAllSync('SELECT * FROM folders WHERE project_id = ? ORDER BY created_at ASC', [projectId]) as Folder[];
+  return result;
+}
+
+export function getFolderById(id: string): Folder | null {
+  const result = db.getFirstSync('SELECT * FROM folders WHERE id = ?', [id]) as Folder | null;
+  return result;
+}
+
+export function updateFolderName(id: string, name: string) {
+  db.runSync('UPDATE folders SET name = ? WHERE id = ?', [name, id]);
+}
+
+export function deleteFolder(id: string) {
+  // Move all media in this folder to the root level (folder_id = null)
+  db.runSync('UPDATE media SET folder_id = NULL WHERE folder_id = ?', [id]);
+  // Delete the folder
+  db.runSync('DELETE FROM folders WHERE id = ?', [id]);
+}
+
+export function getMediaByFolder(projectId: string, folderId?: string | null): MediaItem[] {
+  const query = folderId 
+    ? 'SELECT * FROM media WHERE project_id = ? AND folder_id = ? ORDER BY created_at DESC'
+    : 'SELECT * FROM media WHERE project_id = ? AND folder_id IS NULL ORDER BY created_at DESC';
+  
+  const params = folderId ? [projectId, folderId] : [projectId];
+  const result = db.getAllSync(query, params) as MediaItem[];
+  return result;
+}
+
+export function moveMediaToFolder(mediaId: string, folderId: string | null) {
+  db.runSync('UPDATE media SET folder_id = ? WHERE id = ?', [folderId, mediaId]);
 }

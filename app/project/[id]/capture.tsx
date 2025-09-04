@@ -4,16 +4,19 @@ import {
   Text,
   TouchableOpacity,
   Alert,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { createMedia } from '../../../lib/db';
 import { saveMediaToProject } from '../../../lib/files';
 
 export default function CaptureScreen() {
-  const { id, mode } = useLocalSearchParams<{ id: string; mode: string }>();
+  const { id, mode, folderId } = useLocalSearchParams<{ id: string; mode: string; folderId?: string }>();
   const router = useRouter();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
@@ -24,6 +27,13 @@ export default function CaptureScreen() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [cameraReady, setCameraReady] = useState(false);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Zoom functionality
+  const [zoom, setZoom] = useState(0);
+  const scale = useRef(new Animated.Value(1)).current;
+  const lastScale = useRef(1);
+  const MIN_ZOOM = 0;
+  const MAX_ZOOM = 1;
 
   if (!permission || !microphonePermission) {
     return (
@@ -117,6 +127,7 @@ export default function CaptureScreen() {
       // Save to database
       const mediaItem = createMedia({
         project_id: id,
+        folder_id: folderId || null,
         type: 'photo',
         uri: fileUri,
         thumb_uri: thumbUri,
@@ -247,6 +258,7 @@ export default function CaptureScreen() {
       // Save to database
       const mediaItem = createMedia({
         project_id: id,
+        folder_id: folderId || null,
         type: 'video',
         uri: fileUri,
         thumb_uri: thumbUri,
@@ -338,6 +350,71 @@ export default function CaptureScreen() {
     });
   };
 
+  // Enhanced zoom gesture handlers
+  const onPinchGestureEvent = Animated.event(
+    [{ nativeEvent: { scale } }],
+    { useNativeDriver: true }
+  );
+
+  const onPinchHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.oldState === State.ACTIVE) {
+      const newScale = lastScale.current * event.nativeEvent.scale;
+      const clampedScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newScale));
+      
+      lastScale.current = clampedScale;
+      
+      // Smooth animation to new scale
+      Animated.spring(scale, {
+        toValue: clampedScale,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }).start();
+      
+      // Update zoom state for camera
+      setZoom(clampedScale);
+    }
+  };
+
+  const resetZoom = () => {
+    lastScale.current = 1;
+    setZoom(0);
+    
+    // Smooth animation back to normal
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 8,
+    }).start();
+  };
+
+  const zoomIn = () => {
+    const newZoom = Math.min(MAX_ZOOM, zoom + 0.1);
+    setZoom(newZoom);
+    lastScale.current = newZoom;
+    
+    Animated.spring(scale, {
+      toValue: newZoom,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 8,
+    }).start();
+  };
+
+  const zoomOut = () => {
+    const newZoom = Math.max(MIN_ZOOM, zoom - 0.1);
+    setZoom(newZoom);
+    lastScale.current = newZoom;
+    
+    Animated.spring(scale, {
+      toValue: newZoom,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 8,
+    }).start();
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
       {/* Header */}
@@ -371,21 +448,29 @@ export default function CaptureScreen() {
 
       {/* Camera View */}
       <View style={{ flex: 1 }}>
-        <CameraView
-          ref={cameraRef}
-          style={{ flex: 1 }}
-          facing={facing}
-          flash={flash}
-          mode={mode === 'video' ? 'video' : 'picture'}
-          videoQuality="1080p"
-          // Enhanced quality settings
-          pictureSize="max" // Use maximum available picture size
-          enableTorch={flash === 'on'}
-          onCameraReady={() => {
-            console.log('Camera is ready');
-            setCameraReady(true);
-          }}
-        />
+        <PinchGestureHandler
+          onGestureEvent={onPinchGestureEvent}
+          onHandlerStateChange={onPinchHandlerStateChange}
+        >
+          <Animated.View style={{ flex: 1 }}>
+            <CameraView
+              ref={cameraRef}
+              style={{ flex: 1 }}
+              facing={facing}
+              flash={flash}
+              mode={mode === 'video' ? 'video' : 'picture'}
+              videoQuality="1080p"
+              // Enhanced quality settings
+              pictureSize="max" // Use maximum available picture size
+              enableTorch={flash === 'on'}
+              zoom={zoom} // Add zoom support
+              onCameraReady={() => {
+                console.log('Camera is ready');
+                setCameraReady(true);
+              }}
+            />
+          </Animated.View>
+        </PinchGestureHandler>
 
         {/* Top Controls */}
         <View style={{
@@ -429,6 +514,50 @@ export default function CaptureScreen() {
             onPress={toggleCameraFacing}
           >
             <Ionicons name="camera-reverse" size={24} color="#F8FAFC" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 25,
+              backgroundColor: 'rgba(11, 15, 20, 0.7)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+            onPress={zoomOut}
+            disabled={zoom <= MIN_ZOOM}
+          >
+            <Ionicons name="remove" size={24} color={zoom <= MIN_ZOOM ? "#64748B" : "#F8FAFC"} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 25,
+              backgroundColor: 'rgba(11, 15, 20, 0.7)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+            onPress={zoomIn}
+            disabled={zoom >= MAX_ZOOM}
+          >
+            <Ionicons name="add" size={24} color={zoom >= MAX_ZOOM ? "#64748B" : "#F8FAFC"} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 25,
+              backgroundColor: 'rgba(11, 15, 20, 0.7)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+            onPress={resetZoom}
+          >
+            <Ionicons name="refresh" size={24} color="#F8FAFC" />
           </TouchableOpacity>
         </View>
 
@@ -483,6 +612,40 @@ export default function CaptureScreen() {
                   size={30}
                   color="#0B0F14"
                 />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Enhanced Zoom Indicator */}
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'center',
+            alignItems: 'center',
+            marginTop: 10,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 20,
+            alignSelf: 'center',
+          }}>
+            <Ionicons name="search" size={16} color="#FF7A1A" />
+            <Text style={{ color: '#F8FAFC', fontSize: 14, fontWeight: '600', marginLeft: 6 }}>
+              {Math.round((1 + zoom) * 100)}x
+            </Text>
+            {zoom > 0 && (
+              <TouchableOpacity
+                style={{
+                  marginLeft: 8,
+                  paddingHorizontal: 8,
+                  paddingVertical: 2,
+                  backgroundColor: 'rgba(255, 122, 26, 0.2)',
+                  borderRadius: 10,
+                }}
+                onPress={resetZoom}
+              >
+                <Text style={{ color: '#FF7A1A', fontSize: 12, fontWeight: '600' }}>
+                  Reset
+                </Text>
               </TouchableOpacity>
             )}
           </View>

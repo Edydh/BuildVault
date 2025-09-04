@@ -11,7 +11,7 @@ import { AuthProvider } from '../lib/AuthContext';
 export default function RootLayout() {
   useEffect(() => {
     (async () => {
-      await migrate();
+      migrate();
       await ensureRootDir();
     })();
   }, []);

@@ -83,9 +83,18 @@ export async function saveMediaToProject(
     to: fileUri,
   });
 
-  // For photos, we could generate a thumbnail here
-  // For now, we'll use the same file as thumbnail
-  const thumbUri = type === 'photo' ? fileUri : undefined;
+  // Generate thumbnails for photos and videos
+  let thumbUri: string | undefined;
+  
+  if (type === 'photo') {
+    // For photos, we'll use the same file as thumbnail for now
+    // In the future, we could generate a smaller thumbnail here
+    thumbUri = fileUri;
+  } else if (type === 'video') {
+    // For videos, we'll use the same file as thumbnail for now
+    // In the future, we could generate a proper video thumbnail here
+    thumbUri = fileUri;
+  }
 
   return { fileUri, thumbUri };
 }
