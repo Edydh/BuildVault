@@ -14,7 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import { saveMediaToProject } from '../../../lib/files';
+import { saveMediaToProject, getMediaType } from '../../../lib/files';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -135,23 +135,27 @@ export default function ProjectDetail() {
 
       const document = result.assets[0];
       
-      // Save document to project directory
-      const { fileUri } = await saveMediaToProject(id!, document.uri, 'doc');
+      // Determine the correct media type based on file extension
+      const mediaType = getMediaType(document.name || document.uri);
       
-      // Save to database
+      // Save document to project directory with correct type
+      const { fileUri, thumbUri } = await saveMediaToProject(id!, document.uri, mediaType);
+      
+      // Save to database with correct type
       const mediaItem = createMedia({
         project_id: id!,
         folder_id: currentFolder,
-        type: 'doc',
+        type: mediaType,
         uri: fileUri,
-        thumb_uri: null,
+        thumb_uri: thumbUri,
         note: `Uploaded: ${document.name}`,
       });
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       loadData();
       
-      Alert.alert('Success', 'Document uploaded successfully!');
+      const fileTypeMessage = mediaType === 'photo' ? 'Image' : mediaType === 'video' ? 'Video' : 'Document';
+      Alert.alert('Success', `${fileTypeMessage} uploaded successfully!`);
       
     } catch (error) {
       console.error('Document upload error:', error);
