@@ -204,7 +204,7 @@ export default function CaptureScreen() {
             mute: false,
             mirror: facing === 'front',
             // Additional quality settings
-            codec: 'h264', // Best compression codec
+            codec: 'avc1', // H.264 codec (correct enum value)
             bitrate: 10000000, // High bitrate for better quality (10 Mbps)
             fps: 30, // Standard frame rate
           });
