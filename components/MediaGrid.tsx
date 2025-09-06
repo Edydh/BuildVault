@@ -15,7 +15,15 @@ type Props = {
 function Badge({ type }: { type: MediaItem['type'] }) {
   const icon = type === 'photo' ? 'image' : type === 'video' ? 'videocam' : 'document';
   return (
-    <View className="absolute top-1 left-1 rounded-full bg-[rgba(16,24,38,0.75)] px-1.5 py-1">
+    <View style={{
+      position: 'absolute',
+      top: 4,
+      left: 4,
+      borderRadius: 12,
+      backgroundColor: 'rgba(16,24,38,0.75)',
+      paddingHorizontal: 6,
+      paddingVertical: 4,
+    }}>
       <Ionicons name={icon as any} size={14} color="#F8FAFC" />
     </View>
   );
@@ -23,21 +31,21 @@ function Badge({ type }: { type: MediaItem['type'] }) {
 
 export default function MediaGrid({ items, onPressItem, selected, onToggleSelect, showTypeBadge = true }: Props) {
   return (
-    <View className="flex-row flex-wrap -mx-1">
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 }}>
       {items.map((m) => {
         const isSel = selected?.has(m.id);
         const displayUri = m.type === 'video' ? m.thumb_uri ?? m.uri : m.uri;
         return (
           <TouchableOpacity
             key={m.id}
-            className="w-1/3 px-1 mb-2"
+            style={{ width: '33.333%', paddingHorizontal: 4, marginBottom: 8 }}
             onPress={() => (onPressItem ? onPressItem(m) : undefined)}
             onLongPress={() => onToggleSelect?.(m.id)}
             activeOpacity={0.9}
           >
-            <View className="aspect-square rounded-xl overflow-hidden border border-border">
+            <View style={{ aspectRatio: 1, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#1E293B' }}>
               {m.type === 'doc' ? (
-                <View className="flex-1 items-center justify-center bg-[rgba(16,24,38,0.60)]">
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(16,24,38,0.60)' }}>
                   <Ionicons name="document-text" size={36} color="#94A3B8" />
                 </View>
               ) : (
@@ -45,11 +53,19 @@ export default function MediaGrid({ items, onPressItem, selected, onToggleSelect
               )}
               {showTypeBadge && <Badge type={m.type} />}
               {onToggleSelect && (
-                <View className="absolute bottom-1 right-1">
+                <View style={{ position: 'absolute', bottom: 4, right: 4 }}>
                   <View
-                    className={`w-6 h-6 rounded-full border border-border items-center justify-center ${
-                      isSel ? 'bg-primary' : 'bg-[rgba(16,24,38,0.75)]'
-                    }`}
+                    style={[{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: '#1E293B',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }, {
+                      backgroundColor: isSel ? '#FF7A1A' : 'rgba(16,24,38,0.75)'
+                    }]}
                   >
                     {isSel ? (
                       <Ionicons name="checkmark" size={16} color="#0B0F14" />
@@ -64,8 +80,8 @@ export default function MediaGrid({ items, onPressItem, selected, onToggleSelect
         );
       })}
       {items.length === 0 && (
-        <View className="w-full items-center justify-center py-10">
-          <Text className="text-text-secondary">No media yet</Text>
+        <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', paddingVertical: 40 }}>
+          <Text style={{ color: '#94A3B8' }}>No media yet</Text>
         </View>
       )}
     </View>

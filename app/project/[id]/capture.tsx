@@ -6,6 +6,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -28,13 +29,20 @@ export default function CaptureScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Zoom functionality
+  // Enhanced zoom functionality
   const [zoom, setZoom] = useState(0);
   const scale = useRef(new Animated.Value(1)).current;
   const lastScale = useRef(1);
+  const isZooming = useRef(false);
   const MIN_ZOOM = 0;
-  const MAX_ZOOM = 1;
+  const MAX_ZOOM = 2; // Increased max zoom for better range
+  const ZOOM_STEP = 0.05; // Smaller steps for smoother zoom
 
+  // Custom zoom slider for smooth control
+  const zoomSliderRef = useRef(new Animated.Value(0)).current;
+  const [isSliderActive, setIsSliderActive] = useState(false);
+
+  // Handle early returns after all hooks are declared
   if (!permission || !microphonePermission) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0B0F14', justifyContent: 'center', alignItems: 'center' }}>
@@ -350,29 +358,48 @@ export default function CaptureScreen() {
     });
   };
 
-  // Enhanced zoom gesture handlers
+  // Enhanced zoom gesture handlers for smooth video recording
   const onPinchGestureEvent = Animated.event(
     [{ nativeEvent: { scale } }],
     { useNativeDriver: true }
   );
 
   const onPinchHandlerStateChange = (event: any) => {
-    if (event.nativeEvent.oldState === State.ACTIVE) {
+    if (event.nativeEvent.state === State.BEGAN) {
+      isZooming.current = true;
+      // Add haptic feedback when starting zoom
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else if (event.nativeEvent.state === State.ACTIVE) {
+      // Real-time zoom updates during gesture
+      const newScale = lastScale.current * event.nativeEvent.scale;
+      const clampedScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newScale));
+      
+      // Update zoom immediately for smooth camera response
+      setZoom(clampedScale);
+      
+      // Update scale for visual feedback
+      scale.setValue(clampedScale);
+    } else if (event.nativeEvent.state === State.END || event.nativeEvent.state === State.CANCELLED) {
+      isZooming.current = false;
+      
       const newScale = lastScale.current * event.nativeEvent.scale;
       const clampedScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newScale));
       
       lastScale.current = clampedScale;
       
-      // Smooth animation to new scale
+      // Smooth final animation
       Animated.spring(scale, {
         toValue: clampedScale,
         useNativeDriver: true,
-        tension: 100,
-        friction: 8,
+        tension: 150,
+        friction: 10,
       }).start();
       
-      // Update zoom state for camera
+      // Final zoom state update
       setZoom(clampedScale);
+      
+      // Add haptic feedback when ending zoom
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
 
@@ -390,30 +417,86 @@ export default function CaptureScreen() {
   };
 
   const zoomIn = () => {
-    const newZoom = Math.min(MAX_ZOOM, zoom + 0.1);
+    const newZoom = Math.min(MAX_ZOOM, zoom + ZOOM_STEP);
     setZoom(newZoom);
     lastScale.current = newZoom;
+    
+    // Add haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
     Animated.spring(scale, {
       toValue: newZoom,
       useNativeDriver: true,
-      tension: 100,
+      tension: 120,
       friction: 8,
     }).start();
   };
 
   const zoomOut = () => {
-    const newZoom = Math.max(MIN_ZOOM, zoom - 0.1);
+    const newZoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP);
     setZoom(newZoom);
     lastScale.current = newZoom;
+    
+    // Add haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
     Animated.spring(scale, {
       toValue: newZoom,
       useNativeDriver: true,
-      tension: 100,
+      tension: 120,
       friction: 8,
     }).start();
   };
+
+  const zoomSliderPanResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (evt) => {
+      try {
+        setIsSliderActive(true);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        // Store the initial position
+        const sliderWidth = 200;
+        const initialX = evt.nativeEvent.locationX;
+        
+        // Safety check for valid position
+        if (isNaN(initialX) || initialX < 0) return;
+        
+        const progress = Math.max(0, Math.min(1, initialX / sliderWidth));
+        zoomSliderRef.setValue(progress * sliderWidth);
+      } catch (error) {
+        console.error('Zoom slider grant error:', error);
+      }
+    },
+    onPanResponderMove: (evt, gestureState) => {
+      try {
+        const sliderWidth = 200;
+        const currentX = evt.nativeEvent.locationX;
+        
+        // Safety check for valid position
+        if (isNaN(currentX) || currentX < 0) return;
+        
+        const progress = Math.max(0, Math.min(1, currentX / sliderWidth));
+        const newZoom = MIN_ZOOM + (MAX_ZOOM - MIN_ZOOM) * progress;
+        
+        // Update zoom state safely
+        setZoom(newZoom);
+        lastScale.current = newZoom;
+        scale.setValue(newZoom);
+        zoomSliderRef.setValue(progress * sliderWidth);
+      } catch (error) {
+        console.error('Zoom slider error:', error);
+      }
+    },
+    onPanResponderRelease: () => {
+      try {
+        setIsSliderActive(false);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch (error) {
+        console.error('Zoom slider release error:', error);
+      }
+    },
+  });
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
@@ -649,6 +732,65 @@ export default function CaptureScreen() {
               </TouchableOpacity>
             )}
           </View>
+
+          {/* Enhanced Zoom Slider for Video Recording */}
+          {mode === 'video' && (
+            <View style={{
+              marginTop: 15,
+              alignItems: 'center',
+            }}>
+              <Text style={{ color: '#94A3B8', fontSize: 12, marginBottom: 8 }}>
+                Drag to zoom smoothly
+              </Text>
+              <View style={{
+                width: 200,
+                height: 4,
+                backgroundColor: 'rgba(148, 163, 184, 0.3)',
+                borderRadius: 2,
+                position: 'relative',
+              }}>
+                <Animated.View
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    height: 4,
+                    width: zoomSliderRef,
+                    backgroundColor: isSliderActive ? '#FF7A1A' : '#64748B',
+                    borderRadius: 2,
+                  }}
+                />
+                <View
+                  {...zoomSliderPanResponder.panHandlers}
+                  style={{
+                    position: 'absolute',
+                    left: -10,
+                    top: -8,
+                    width: 20,
+                    height: 20,
+                    backgroundColor: isSliderActive ? '#FF7A1A' : '#F8FAFC',
+                    borderRadius: 10,
+                    borderWidth: 2,
+                    borderColor: isSliderActive ? '#FF7A1A' : '#64748B',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 4,
+                    elevation: 5,
+                  }}
+                />
+              </View>
+              <View style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                width: 200,
+                marginTop: 4,
+              }}>
+                <Text style={{ color: '#64748B', fontSize: 10 }}>1x</Text>
+                <Text style={{ color: '#64748B', fontSize: 10 }}>3x</Text>
+              </View>
+            </View>
+          )}
 
           {isRecording && (
             <View style={{

@@ -11,24 +11,42 @@ type Props = ViewProps & {
 
 export default function Header({ title, onBack, search, right, style, ...rest }: Props) {
   return (
-    <View className="px-4 pt-3 pb-2 bg-base" style={style} {...rest}>
-      <View className="flex-row items-center justify-between">
-        <View className="flex-row items-center gap-3">
+    <View style={[{
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 8,
+      backgroundColor: '#0B0F14',
+    }, style]} {...rest}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           {onBack ? (
             <TouchableOpacity onPress={onBack} hitSlop={10}>
               <Ionicons name="chevron-back" size={28} color="#F8FAFC" />
             </TouchableOpacity>
           ) : null}
-          <Text className="text-text-primary text-2xl font-semibold">{title}</Text>
+          <Text style={{ color: '#F8FAFC', fontSize: 24, fontWeight: '600' }}>{title}</Text>
         </View>
         <View>{right}</View>
       </View>
       {search ? (
-        <View className="mt-3">
-          <View className="flex-row items-center bg-[rgba(16,24,38,0.60)] rounded-2xl border border-border px-3 py-2">
+        <View style={{ marginTop: 12 }}>
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: 'rgba(16,24,38,0.60)',
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: '#1E293B',
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+          }}>
             <Ionicons name="search" size={18} color="#94A3B8" />
             <TextInput
-              className="ml-2 text-text-primary flex-1"
+              style={{
+                marginLeft: 8,
+                color: '#F8FAFC',
+                flex: 1,
+              }}
               placeholderTextColor="#94A3B8"
               placeholder={search.placeholder ?? 'Search'}
               value={search.value}

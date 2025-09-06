@@ -10,7 +10,14 @@ type Props = ViewProps & {
 
 export default function GlassCard({ children, intensity = 40, className, style, ...rest }: Props) {
   return (
-    <BlurView intensity={intensity} tint="dark" className={`rounded-2xl shadow-glass ${className ?? ''}`} style={style} {...rest}>
+    <BlurView intensity={intensity} tint="dark" style={[{
+      borderRadius: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 4,
+    }, style]} {...rest}>
       {children}
     </BlurView>
   );

@@ -517,12 +517,12 @@ export default function MediaDetail() {
     } catch (error) {
       console.error('Error sharing media:', error);
       console.error('Error details:', {
-        message: error.message,
-        code: error.code,
+        message: (error as Error).message,
+        code: (error as any).code,
         uri: media.uri,
         type: media.type
       });
-      Alert.alert('Error', `Failed to share media: ${error.message || 'Unknown error'}. Please try again.`);
+      Alert.alert('Error', `Failed to share media: ${(error as Error).message || 'Unknown error'}. Please try again.`);
     }
   };
 

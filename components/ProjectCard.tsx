@@ -12,16 +12,21 @@ type Props = {
 
 export default function ProjectCard({ project, onPress, onLongPress }: Props) {
   return (
-    <TouchableOpacity onPress={onPress} onLongPress={onLongPress} className="mb-3" activeOpacity={0.9}>
-      <GlassCard className="p-4 bg-[rgba(16,24,38,0.60)] border border-border">
-        <Text className="text-text-primary text-lg font-semibold">{project.name}</Text>
+    <TouchableOpacity onPress={onPress} onLongPress={onLongPress} style={{ marginBottom: 12 }} activeOpacity={0.9}>
+      <GlassCard style={{
+        padding: 16,
+        backgroundColor: 'rgba(16,24,38,0.60)',
+        borderWidth: 1,
+        borderColor: '#1E293B',
+      }}>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600' }}>{project.name}</Text>
         {(project.client || project.location) && (
-          <Text className="text-text-secondary mt-1">
+          <Text style={{ color: '#94A3B8', marginTop: 4 }}>
             {[project.client, project.location].filter(Boolean).join(' • ')}
           </Text>
         )}
-        <View className="mt-2">
-          <Text className="text-text-secondary text-xs">Created {formatDate(project.created_at)}</Text>
+        <View style={{ marginTop: 8 }}>
+          <Text style={{ color: '#94A3B8', fontSize: 12 }}>Created {formatDate(project.created_at)}</Text>
         </View>
       </GlassCard>
     </TouchableOpacity>

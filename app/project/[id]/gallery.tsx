@@ -506,12 +506,12 @@ export default function PhotoGallery() {
     } catch (error) {
       console.error('Error sharing photo:', error);
       console.error('Error details:', {
-        message: error.message,
-        code: error.code,
+        message: (error as Error).message,
+        code: (error as any).code,
         uri: mediaItem.uri,
         type: mediaItem.type
       });
-      Alert.alert('Error', `Failed to share photo: ${error.message || 'Unknown error'}. Please try again.`);
+      Alert.alert('Error', `Failed to share photo: ${(error as Error).message || 'Unknown error'}. Please try again.`);
     }
   };
 
