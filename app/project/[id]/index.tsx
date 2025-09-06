@@ -6,6 +6,7 @@ import {
   Alert,
   FlatList,
   TextInput,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
@@ -1372,7 +1373,16 @@ export default function ProjectDetail() {
       {!isSelectionMode && (
         <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
           {/* Folder Selector */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              paddingRight: 16 
+            }}
+            style={{ marginBottom: 12 }}
+          >
             <TouchableOpacity
               onPress={() => handleSelectFolder(null)}
               style={{
@@ -1441,7 +1451,7 @@ export default function ProjectDetail() {
                 New Folder
               </Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
           
           {/* Current Folder Indicator */}
           <View style={{ 
