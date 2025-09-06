@@ -1,10 +1,19 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, User } from './db';
 
-// Google OAuth configuration (temporarily disabled)
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'; // Replace with your actual Google Client ID
+// Google OAuth configuration
+const getGoogleClientId = () => {
+  const clientId = Constants.expoConfig?.extra?.googleClientId;
+  if (Platform.OS === 'ios') return clientId?.ios;
+  if (Platform.OS === 'android') return clientId?.android;
+  return clientId?.web;
+};
+
+const GOOGLE_CLIENT_ID = getGoogleClientId();
 
 export interface AuthResult {
   success: boolean;
@@ -137,11 +146,82 @@ export class AuthService {
   }
 
   async signInWithGoogle(): Promise<AuthResult> {
-    // Temporarily disabled - will implement after fixing Apple Sign-In
-    return {
-      success: false,
-      error: 'Google Sign-In is temporarily disabled. Please use Apple Sign-In for now.'
-    };
+    try {
+      if (!GOOGLE_CLIENT_ID) {
+        return {
+          success: false,
+          error: 'Google Sign-In is not configured yet. Please set up Google OAuth credentials in app.json. For now, please use Apple Sign-In.'
+        };
+      }
+
+      // Configure Google Sign-In
+      GoogleSignin.configure({
+        webClientId: GOOGLE_CLIENT_ID,
+        offlineAccess: true,
+        hostedDomain: '',
+        forceCodeForRefreshToken: true,
+      });
+
+      // Check if device has Google Play Services (Android only)
+      if (Platform.OS === 'android') {
+        await GoogleSignin.hasPlayServices();
+      }
+
+      // Sign in
+      const userInfo = await GoogleSignin.signIn();
+
+      if (!userInfo.data?.user?.email) {
+        return {
+          success: false,
+          error: 'No email address returned from Google',
+        };
+      }
+
+      const email = userInfo.data.user.email;
+      const name = userInfo.data.user.name || userInfo.data.user.givenName || 'Google User';
+      const providerId = userInfo.data.user.id;
+      const avatar = userInfo.data.user.photo || null;
+
+      // Check if user already exists
+      let user = getUserByProviderId(providerId, 'google');
+      if (!user) {
+        // Create new user
+        user = createUser({
+          email,
+          name,
+          provider: 'google',
+          providerId,
+          avatar,
+        });
+      } else {
+        // Update last login
+        updateUserLastLogin(user.id);
+      }
+
+      // Store user session
+      await this.storeUserSession(user);
+      this.currentUser = user;
+
+      return {
+        success: true,
+        user,
+      };
+    } catch (error: any) {
+      console.error('Google Sign-In error:', error);
+      
+      // Handle user cancellation
+      if (error.code === 'SIGN_IN_CANCELLED' || error.code === '12501') {
+        return {
+          success: false,
+          error: 'USER_CANCELED',
+        };
+      }
+
+      return {
+        success: false,
+        error: error.message || 'Google Sign-In failed',
+      };
+    }
   }
 
   async signOut(): Promise<void> {

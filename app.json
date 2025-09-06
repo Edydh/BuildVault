@@ -8,13 +8,14 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
-    "plugins": [
-      "expo-router",
-      "expo-font",
-      "expo-video",
-      "expo-apple-authentication",
-      "expo-secure-store"
-    ],
+      "plugins": [
+    "expo-router",
+    "expo-font",
+    "expo-video",
+    "expo-apple-authentication",
+    "expo-secure-store",
+    "@react-native-google-signin/google-signin"
+  ],
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -55,6 +56,11 @@
       "router": {},
       "eas": {
         "projectId": "50a61d02-4a8e-4f71-9423-183446f39b6a"
+      },
+      "googleClientId": {
+        "ios": "132753027985-7l0b1cameabaierc16fivmot3ql6ds8v.apps.googleusercontent.com",
+        "android": "132753027985-7l0b1cameabaierc16fivmot3ql6ds8v.apps.googleusercontent.com",
+        "web": "132753027985-7l0b1cameabaierc16fivmot3ql6ds8v.apps.googleusercontent.com"
       }
     }
   }

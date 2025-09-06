@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { router } from 'expo-router';
-import { authService } from './auth';
+import { authService, AuthResult } from './auth';
 import { User } from './db';
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  signInWithApple: () => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<AuthResult>;
+  signInWithGoogle: () => Promise<AuthResult>;
   signOut: () => Promise<void>;
 }
 
@@ -47,7 +47,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const signInWithApple = async () => {
+  const signInWithApple = async (): Promise<AuthResult> => {
     try {
       console.log('Starting Apple Sign-In...');
       const result = await authService.signInWithApple();
@@ -64,30 +64,44 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Force navigation to main app
         console.log('Forcing navigation to main app...');
         router.replace('/(tabs)');
-      } else if (result.error === 'USER_CANCELED') {
-        // User canceled - don't throw error, just return
-        console.log('User canceled Apple Sign-In');
-        return;
-      } else {
-        throw new Error(result.error || 'Apple Sign-In failed');
       }
+      
+      return result;
     } catch (error) {
       console.error('Apple Sign-In error:', error);
-      throw error;
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Apple Sign-In failed'
+      };
     }
   };
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (): Promise<AuthResult> => {
     try {
+      console.log('Starting Google Sign-In...');
       const result = await authService.signInWithGoogle();
+      console.log('Google Sign-In result:', result.success ? 'Success' : 'Failed', result.error || '');
+      
       if (result.success && result.user) {
+        console.log('Setting user in AuthContext:', result.user.name);
         setUser(result.user);
-      } else {
-        throw new Error(result.error || 'Google Sign-In failed');
+        
+        // Force a small delay to ensure state is updated
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log('User state should be updated now');
+        
+        // Force navigation to main app
+        console.log('Forcing navigation to main app...');
+        router.replace('/(tabs)');
       }
+      
+      return result;
     } catch (error) {
       console.error('Google Sign-In error:', error);
-      throw error;
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Google Sign-In failed'
+      };
     }
   };
 

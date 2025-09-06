@@ -50,7 +50,18 @@ export default function AuthScreen() {
     setLoadingProvider('google');
 
     try {
-      await signInWithGoogle();
+      const result = await signInWithGoogle();
+      
+      if (!result.success) {
+        // Check if it's a user cancellation
+        if (result.error === 'USER_CANCELED') {
+          console.log('User canceled Google Sign-In');
+          // No alert needed - user intentionally canceled
+        } else {
+          console.error('Google Sign-In error:', result.error);
+          Alert.alert('Sign In Failed', result.error || 'Google Sign-In failed. Please try again.');
+        }
+      }
       // If successful, the AuthContext will update and the protected route will redirect
       // No need to manually navigate here
     } catch (error: any) {
@@ -104,13 +115,20 @@ export default function AuthScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Google Sign In - Temporarily Disabled */}
+          {/* Google Sign In */}
           <TouchableOpacity
-            style={[styles.signInButton, styles.googleButton, { opacity: 0.5 }]}
-            disabled={true}
+            style={[styles.signInButton, styles.googleButton]}
+            onPress={handleGoogleSignIn}
+            disabled={isLoading}
           >
-            <Ionicons name="logo-google" size={20} color="#FFFFFF" />
-            <Text style={styles.buttonText}>Google Sign-In (Coming Soon)</Text>
+            {loadingProvider === 'google' ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Ionicons name="logo-google" size={20} color="#FFFFFF" />
+                <Text style={styles.buttonText}>Continue with Google</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
 
