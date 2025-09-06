@@ -22,6 +22,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { MediaItem, getMediaById, updateMediaNote, deleteMedia } from '../../../../lib/db';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
+import { cleanupImageVariants } from '../../../../lib/imageOptimization';
 
 // ZoomableImage component
 function ZoomableImage({ uri }: { uri: string }) {
@@ -568,6 +569,12 @@ export default function MediaDetail() {
                 if (thumbInfo.exists) {
                   await FileSystem.deleteAsync(media.thumb_uri, { idempotent: true });
                 }
+              }
+              
+              // Clean up image variants if it's a photo
+              if (media.type === 'photo') {
+                // Get project ID from the media item's project_id
+                await cleanupImageVariants(media.id, media.project_id);
               }
               
               // Delete from database

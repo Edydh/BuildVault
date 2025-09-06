@@ -21,6 +21,9 @@ import { MediaItem, getMediaByProject, updateMediaNote } from '../../../lib/db';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
+import LazyImage from '../../../components/LazyImage';
+import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
+import SharingQualitySelector from '../../../components/SharingQualitySelector';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -430,7 +433,45 @@ export default function PhotoGallery() {
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [note, setNote] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [imageVariants, setImageVariants] = useState<Map<string, ImageVariants>>(new Map());
+  const [showQualitySelector, setShowQualitySelector] = useState(false);
+  const [sharingItem, setSharingItem] = useState<MediaItem | null>(null);
   const flatListRef = useRef<FlatList>(null);
+
+  // Load image variants for all photos
+  const loadImageVariants = async (photos: MediaItem[]) => {
+    if (!id) return;
+    
+    const variantsMap = new Map<string, ImageVariants>();
+    
+    for (const photo of photos) {
+      try {
+        // Check if variants already exist
+        const variantsExist = await checkImageVariantsExist(photo.id, id);
+        
+        if (variantsExist) {
+          // Load existing variants
+          const existingVariants = await getImageVariants(photo.id, id, photo.uri);
+          variantsMap.set(photo.id, existingVariants);
+        } else {
+          // Generate new variants in the background
+          const newVariants = await generateImageVariants(photo.uri, id, photo.id);
+          variantsMap.set(photo.id, newVariants);
+        }
+      } catch (error) {
+        console.error('Error loading image variants for photo:', photo.id, error);
+        // Fallback to original URI
+        variantsMap.set(photo.id, {
+          original: photo.uri,
+          full: photo.uri,
+          preview: photo.uri,
+          thumbnail: photo.uri,
+        });
+      }
+    }
+    
+    setImageVariants(variantsMap);
+  };
 
   React.useEffect(() => {
     if (!id) return;
@@ -445,6 +486,8 @@ export default function PhotoGallery() {
         if (photos.length > 0) {
           setNote(photos[parseInt(initialIndex || '0')]?.note || '');
         }
+        // Load image variants
+        loadImageVariants(photos);
       } catch (error) {
         console.error('Error loading media:', error);
         Alert.alert('Error', 'Failed to load photos');
@@ -467,8 +510,19 @@ export default function PhotoGallery() {
   }, [media, currentIndex]);
 
   const handleShare = async (mediaItem: MediaItem) => {
+    // Show quality selector for photos
+    if (mediaItem.type === 'photo') {
+      setSharingItem(mediaItem);
+      setShowQualitySelector(true);
+    } else {
+      // For other media types, share directly
+      await shareMedia(mediaItem.uri);
+    }
+  };
+
+  const shareMedia = async (uri: string) => {
     try {
-      console.log('Starting share process for:', mediaItem.uri);
+      console.log('Starting share process for:', uri);
       
       // Check if sharing is available
       const isAvailable = await Sharing.isAvailableAsync();
@@ -479,19 +533,19 @@ export default function PhotoGallery() {
       }
 
       // Check if file exists
-      const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
+      const fileInfo = await FileSystem.getInfoAsync(uri);
       console.log('File info:', fileInfo);
       
       if (!fileInfo.exists) {
-        console.log('File does not exist:', mediaItem.uri);
+        console.log('File does not exist:', uri);
         Alert.alert('Error', 'Photo file not found. Cannot share.');
         return;
       }
 
-      console.log('Attempting to share file:', mediaItem.uri);
+      console.log('Attempting to share file:', uri);
       
       // Ensure the URI is properly formatted
-      const shareUri = mediaItem.uri.startsWith('file://') ? mediaItem.uri : `file://${mediaItem.uri}`;
+      const shareUri = uri.startsWith('file://') ? uri : `file://${uri}`;
       console.log('Formatted share URI:', shareUri);
       
       // Share the photo with maximum quality preservation
@@ -508,11 +562,14 @@ export default function PhotoGallery() {
       console.error('Error details:', {
         message: (error as Error).message,
         code: (error as any).code,
-        uri: mediaItem.uri,
-        type: mediaItem.type
+        uri: uri,
       });
       Alert.alert('Error', `Failed to share photo: ${(error as Error).message || 'Unknown error'}. Please try again.`);
     }
+  };
+
+  const handleQualityShare = async (uri: string, quality: string) => {
+    await shareMedia(uri);
   };
 
   const handleDelete = (mediaItem: MediaItem) => {
@@ -538,6 +595,11 @@ export default function PhotoGallery() {
                 if (thumbInfo.exists) {
                   await FileSystem.deleteAsync(mediaItem.thumb_uri, { idempotent: true });
                 }
+              }
+              
+              // Clean up image variants if it's a photo
+              if (mediaItem.type === 'photo' && id) {
+                await cleanupImageVariants(mediaItem.id, id);
               }
               
               // Delete from database
@@ -609,18 +671,33 @@ export default function PhotoGallery() {
   }).current;
 
   const renderPhoto = ({ item, index }: { item: MediaItem; index: number }) => {
+    const variants = imageVariants.get(item.id);
+    
     return (
       <View style={{ width: screenWidth, height: screenHeight, position: 'relative' }}>
-        <Image
-          source={{ uri: item.uri }}
-          style={{
-            width: screenWidth,
-            height: screenHeight - 200, // Leave space for header and controls
-          }}
-          contentFit="contain"
-          placeholder={null}
-          enableLiveTextInteraction={true}
-        />
+        {variants ? (
+          <LazyImage
+            variants={variants}
+            style={{
+              width: screenWidth,
+              height: screenHeight - 200, // Leave space for header and controls
+            }}
+            contentFit="contain"
+            progressiveLoading={true}
+            priority="high"
+          />
+        ) : (
+          <Image
+            source={{ uri: item.uri }}
+            style={{
+              width: screenWidth,
+              height: screenHeight - 200, // Leave space for header and controls
+            }}
+            contentFit="contain"
+            placeholder={null}
+            enableLiveTextInteraction={true}
+          />
+        )}
         
         {/* Full-screen button overlay */}
         <TouchableOpacity
@@ -937,6 +1014,24 @@ export default function PhotoGallery() {
           onClose={() => setIsFullScreen(false)}
           onShare={() => handleShare(media[currentIndex])}
           onDelete={() => handleDelete(media[currentIndex])}
+        />
+      )}
+
+      {/* Quality selector for sharing */}
+      {sharingItem && (
+        <SharingQualitySelector
+          variants={imageVariants.get(sharingItem.id) || {
+            original: sharingItem.uri,
+            full: sharingItem.uri,
+            preview: sharingItem.uri,
+            thumbnail: sharingItem.uri,
+          }}
+          onShare={handleQualityShare}
+          onClose={() => {
+            setShowQualitySelector(false);
+            setSharingItem(null);
+          }}
+          visible={showQualitySelector}
         />
       )}
     </View>

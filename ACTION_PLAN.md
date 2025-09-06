@@ -439,10 +439,10 @@ The critical camera recording issue should be addressed immediately as it signif
 
 ---
 
-**Last Updated**: December 2024
+**Last Updated**: January 2025
 **Next Review**: All critical features completed - app is production ready
 **Estimated Total Development Time**: 4-5 weeks
-**Status**: ✅ ALL CRITICAL FEATURES COMPLETED + FINAL BUG FIXES
+**Status**: ✅ ALL CRITICAL FEATURES COMPLETED + LATEST STABILITY FIXES
 
 ---
 
@@ -585,6 +585,10 @@ The following features are now optional enhancements for future versions:
 | **Photo Grid Thumbnails** | ✅ Complete | Actual image previews instead of file type icons |
 | **Enhanced Photo Zoom** | ✅ Complete | Double-tap reset, smooth zoom out functionality |
 | **Folder Organization** | ✅ Complete | Create folders, organize media, intuitive UX |
+| **Folder Context Fix** | ✅ Complete | Media saves to selected folder, not all media |
+| **Image Upload Recognition** | ✅ Complete | Smart file type detection, images open as images |
+| **Camera System Optimization** | ✅ Complete | Stable camera with no React Hooks warnings |
+| **Code Architecture Cleanup** | ✅ Complete | Clean codebase using native Expo APIs |
 
 ### 🎯 **User Experience Highlights**
 
@@ -598,15 +602,57 @@ The following features are now optional enhancements for future versions:
 - **Accessibility**: Large touch targets and clear visual feedback
 - **Performance**: Optimized file handling and database operations
 
+### 🎯 **Latest Updates - January 2025**
+
+#### ✅ **Recent Critical Fixes Completed**
+
+**13. ✅ Folder Context Fix**
+- Fixed media saving to respect folder context instead of always going to "all media"
+- Added proper `folder_id` association for both photo and video capture
+- Contextual success messages indicate folder vs project context
+- Maintains backward compatibility when no folder is selected
+- **Result**: Media now properly saves to working folder when selected
+
+**14. ✅ Image Upload Recognition Fix**
+- Fixed uploaded images (PNG, JPG, etc.) to be recognized as photos instead of documents
+- Added smart media type detection using `getMediaType()` function
+- Images uploaded via "Upload Document" now open in image viewer
+- Videos uploaded via document picker now open with video playback controls
+- Proper thumbnail generation for uploaded images and videos
+- **Result**: PNG/JPG images now open in image viewer with full photo gallery features
+
+**15. ✅ Camera System Optimization**
+- Cleaned up problematic custom hooks causing React Hooks order violations
+- Removed duplicate declaration errors by using native Expo hooks directly
+- Maintained all camera functionality: video recording, smooth zoom, photo capture
+- Improved stability and eliminated React warnings
+- **Result**: Camera system now stable with no React Hooks warnings
+
+**16. ✅ Code Architecture Cleanup**
+- Removed unused custom hooks: `useCameraPermissions`, `useZoomGesture`, `useRecordingHandler`
+- Removed unused components: `CameraControls`
+- Simplified `capture.tsx` to use native Expo hooks directly
+- Maintained all functionality while improving code stability
+- **Result**: Cleaner, more maintainable codebase with better performance
+
+#### 📋 **Recent Git Commits**
+- **Commit 28a8ad9**: Fix media saving to respect folder context
+- **Commit 1d490b1**: Fix image upload recognition in document picker
+- Multiple stability fixes and React Hooks cleanup commits
+- All changes maintain backward compatibility and improve user experience
+
 ### 🚀 **Ready for Production**
 
 Your BuildVault app now provides a complete construction project management solution with:
 - Professional-grade media capture and management with enhanced zoom controls
-- Comprehensive project organization with intuitive folder system
+- **Perfect folder organization** - media saves exactly where users expect it
+- **Smart file type recognition** - images open as images, videos as videos, documents as documents
 - Visual media management with actual image thumbnails
 - Smooth zoom experience for both capture and viewing
+- **Stable camera system** with no React warnings or errors
 - Reliable data backup and export
 - Intuitive user interface with modern UX patterns
 - Robust error handling and recovery
+- **Clean, maintainable codebase** using native Expo APIs
 
-**Congratulations on building a fully functional construction project management app with enhanced user experience!** 🏗️📱✨
+**Congratulations on building a fully functional construction project management app with enhanced user experience and rock-solid stability!** 🏗️📱✨

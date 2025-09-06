@@ -8,7 +8,8 @@ import {
   TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { Image as ExpoImage } from 'expo-image';
+import { Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder } from '../../../lib/db';
@@ -18,6 +19,8 @@ import { saveMediaToProject, getMediaType } from '../../../lib/files';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import LazyImage from '../../../components/LazyImage';
+import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -74,6 +77,42 @@ export default function ProjectDetail() {
       // Get media for current folder (or root if no folder selected)
       const mediaItems = getMediaByFolder(id, currentFolder);
       setMedia(mediaItems);
+      
+      // Check for videos that need thumbnail regeneration
+      const videosNeedingThumbnails = mediaItems.filter(item => 
+        item.type === 'video' && 
+        item.thumb_uri && 
+        !item.thumb_uri.endsWith('.jpg')
+      );
+      
+      if (videosNeedingThumbnails.length > 0) {
+        console.log(`Found ${videosNeedingThumbnails.length} videos needing thumbnail regeneration`);
+        // Regenerate thumbnails in the background
+        videosNeedingThumbnails.forEach(async (video) => {
+          try {
+            const { generateSmartVideoThumbnail } = await import('../../../lib/media');
+            const thumbnailResult = await generateSmartVideoThumbnail(video.uri, {
+              quality: 0.9,
+              width: 400,
+              height: 400,
+            });
+            
+            // Move thumbnail to project directory
+            const thumbFilename = `thumb_${video.id}.jpg`;
+            const mediaDir = `${FileSystem.documentDirectory}buildvault/${id}/media/`;
+            const thumbFileUri = mediaDir + thumbFilename;
+            
+            await FileSystem.moveAsync({
+              from: thumbnailResult.uri,
+              to: thumbFileUri,
+            });
+            
+            console.log(`Regenerated thumbnail for video ${video.id}: ${thumbFileUri}`);
+          } catch (error) {
+            console.error(`Failed to regenerate thumbnail for video ${video.id}:`, error);
+          }
+        });
+      }
     } catch (error) {
       console.error('Error loading project data:', error);
       Alert.alert('Error', 'Failed to load project data');
@@ -341,6 +380,11 @@ export default function ProjectDetail() {
                 if (thumbInfo.exists) {
                   await FileSystem.deleteAsync(mediaItem.thumb_uri, { idempotent: true });
                 }
+              }
+              
+              // Clean up image variants if it's a photo
+              if (mediaItem.type === 'photo' && id) {
+                await cleanupImageVariants(mediaItem.id, id);
               }
               
               // Delete from database
@@ -706,6 +750,44 @@ export default function ProjectDetail() {
 
   const MediaCardGrid = ({ item }: { item: MediaItem }) => {
     const isSelected = selectedItems.has(item.id);
+    const [variants, setVariants] = useState<ImageVariants | null>(null);
+    const [isGeneratingVariants, setIsGeneratingVariants] = useState(false);
+    
+    // Load image variants for photos
+    useEffect(() => {
+      const loadVariants = async () => {
+        if (item.type !== 'photo' || !id) return;
+
+        try {
+          // Check if variants already exist
+          const variantsExist = await checkImageVariantsExist(item.id, id);
+          
+          if (variantsExist) {
+            // Load existing variants
+            const existingVariants = await getImageVariants(item.id, id, item.uri);
+            setVariants(existingVariants);
+          } else {
+            // Generate new variants in the background
+            setIsGeneratingVariants(true);
+            const newVariants = await generateImageVariants(item.uri, id, item.id);
+            setVariants(newVariants);
+            setIsGeneratingVariants(false);
+          }
+        } catch (error) {
+          console.error('Error loading image variants:', error);
+          // Fallback to original URI
+          setVariants({
+            original: item.uri,
+            full: item.uri,
+            preview: item.uri,
+            thumbnail: item.uri,
+          });
+          setIsGeneratingVariants(false);
+        }
+      };
+
+      loadVariants();
+    }, [item.id, item.uri, item.type, id]);
     
     const handlePress = () => {
       if (isSelectionMode) {
@@ -790,26 +872,54 @@ export default function ProjectDetail() {
             alignItems: 'center',
           }}>
             {item.type === 'photo' ? (
-              <Image
-                source={{ uri: item.uri }}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                }}
-                contentFit="cover"
-                placeholder={null}
-              />
+              variants ? (
+                <LazyImage
+                  variants={variants}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                  }}
+                  contentFit="cover"
+                  progressiveLoading={true}
+                  priority="normal"
+                />
+              ) : (
+                <Image
+                  source={{ uri: item.uri }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                  }}
+                  resizeMode="cover"
+                />
+              )
             ) : item.type === 'video' ? (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                {item.thumb_uri ? (
+                {(() => {
+                  console.log('Rendering video item:', {
+                    id: item.id,
+                    type: item.type,
+                    thumb_uri: item.thumb_uri,
+                    uri: item.uri,
+                    hasThumbnail: !!item.thumb_uri
+                  });
+                  return null;
+                })()}
+                {item.thumb_uri && item.thumb_uri.endsWith('.jpg') ? (
                   <Image
                     source={{ uri: item.thumb_uri }}
                     style={{
                       width: '100%',
                       height: '100%',
                     }}
-                    contentFit="cover"
-                    placeholder={null}
+                    resizeMode="cover"
+                    onError={(error) => {
+                      console.log('Video thumbnail load error in MediaCardGrid:', error);
+                      console.log('Failed URI:', item.thumb_uri);
+                    }}
+                    onLoad={() => {
+                      console.log('Video thumbnail loaded successfully in MediaCardGrid:', item.thumb_uri);
+                    }}
                   />
                 ) : (
                   <Ionicons name="videocam" size={32} color="#FF7A1A" />
@@ -858,6 +968,28 @@ export default function ProjectDetail() {
               {item.type.toUpperCase()}
             </Text>
           </View>
+
+          {/* Loading indicator for image variants generation */}
+          {isGeneratingVariants && (
+            <View style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              backgroundColor: 'rgba(255, 122, 26, 0.9)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}>
+              <View style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: '#0B0F14',
+              }} />
+            </View>
+          )}
           
           <Text style={{ 
             color: '#F8FAFC', 

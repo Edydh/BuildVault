@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system';
+import { makeVideoThumb, VideoThumbnailResult, generateSmartVideoThumbnail } from './media';
 
 const ROOT_DIR = FileSystem.documentDirectory + 'buildvault/';
 
@@ -91,9 +92,37 @@ export async function saveMediaToProject(
     // In the future, we could generate a smaller thumbnail here
     thumbUri = fileUri;
   } else if (type === 'video') {
-    // For videos, we'll use the same file as thumbnail for now
-    // In the future, we could generate a proper video thumbnail here
-    thumbUri = fileUri;
+    try {
+      // Generate a smart video thumbnail that tries multiple time points
+      console.log('Generating smart video thumbnail for:', fileUri);
+      const thumbnailResult: VideoThumbnailResult = await generateSmartVideoThumbnail(fileUri, {
+        quality: 0.9, // Higher quality
+        width: 400, // Larger thumbnail
+        height: 400,
+      });
+      
+      // Move thumbnail to project directory
+      const thumbFilename = `thumb_${timestamp}.jpg`;
+      const thumbFileUri = mediaDir + thumbFilename;
+      
+      await FileSystem.moveAsync({
+        from: thumbnailResult.uri,
+        to: thumbFileUri,
+      });
+      
+      thumbUri = thumbFileUri;
+      console.log('Video thumbnail generated successfully:', thumbUri);
+      console.log('Thumbnail details:', {
+        fileSize: thumbnailResult.fileSize,
+        width: thumbnailResult.width,
+        height: thumbnailResult.height,
+        originalUri: thumbnailResult.uri
+      });
+    } catch (error) {
+      console.error('Error generating video thumbnail:', error);
+      // Fallback to using the video file itself
+      thumbUri = fileUri;
+    }
   }
 
   return { fileUri, thumbUri };
