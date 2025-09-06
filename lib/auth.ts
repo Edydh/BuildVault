@@ -13,7 +13,13 @@ const getGoogleClientId = () => {
   return clientId?.web;
 };
 
+const getWebClientId = () => {
+  const clientId = Constants.expoConfig?.extra?.googleClientId;
+  return clientId?.web;
+};
+
 const GOOGLE_CLIENT_ID = getGoogleClientId();
+const WEB_CLIENT_ID = getWebClientId();
 
 export interface AuthResult {
   success: boolean;
@@ -156,7 +162,8 @@ export class AuthService {
 
       // Configure Google Sign-In
       GoogleSignin.configure({
-        webClientId: GOOGLE_CLIENT_ID,
+        webClientId: WEB_CLIENT_ID,
+        iosClientId: WEB_CLIENT_ID, // Use web client ID for iOS too
         offlineAccess: true,
         hostedDomain: '',
         forceCodeForRefreshToken: true,
