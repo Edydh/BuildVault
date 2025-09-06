@@ -14,8 +14,7 @@ const getGoogleClientId = () => {
 };
 
 const getWebClientId = () => {
-  const clientId = Constants.expoConfig?.extra?.googleClientId;
-  return clientId?.web;
+  return Constants.expoConfig?.extra?.googleWebClientId;
 };
 
 const GOOGLE_CLIENT_ID = getGoogleClientId();
@@ -153,6 +152,9 @@ export class AuthService {
 
   async signInWithGoogle(): Promise<AuthResult> {
     try {
+      console.log('Starting Google Sign-In...');
+      console.log('GOOGLE_CLIENT_ID:', GOOGLE_CLIENT_ID);
+      
       if (!GOOGLE_CLIENT_ID) {
         return {
           success: false,
@@ -161,13 +163,15 @@ export class AuthService {
       }
 
       // Configure Google Sign-In
+      console.log('Configuring Google Sign-In...');
       GoogleSignin.configure({
-        webClientId: WEB_CLIENT_ID,
-        iosClientId: WEB_CLIENT_ID, // Use web client ID for iOS too
+        webClientId: GOOGLE_CLIENT_ID, // Use the same client ID for both
+        iosClientId: GOOGLE_CLIENT_ID, // Use the same client ID for both
         offlineAccess: true,
         hostedDomain: '',
         forceCodeForRefreshToken: true,
       });
+      console.log('Google Sign-In configured successfully');
 
       // Check if device has Google Play Services (Android only)
       if (Platform.OS === 'android') {
