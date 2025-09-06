@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar } from 'react-native';
+import React, { useRef } from 'react';
+import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
@@ -11,6 +11,35 @@ import { useAuth } from '../../lib/AuthContext';
 export default function Settings() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
+  
+  // Animation values for dynamic header
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerOpacity = useRef(new Animated.Value(1)).current;
+
+  // Handle scroll events for dynamic header
+  const handleScroll = (event: any) => {
+    try {
+      const offsetY = event.nativeEvent.contentOffset.y;
+      
+      // Calculate opacity based on scroll position
+      // Start fading at 50px, fully transparent at 150px
+      const fadeStart = 50;
+      const fadeEnd = 150;
+      
+      if (offsetY > fadeStart) {
+        const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
+        const opacity = Math.max(0, 1 - progress);
+        
+        headerOpacity.setValue(opacity);
+      } else {
+        headerOpacity.setValue(1);
+      }
+    } catch (error) {
+      // Fallback: keep header visible if there's an error
+      headerOpacity.setValue(1);
+    }
+  };
+
   const handleExportData = async () => {
     try {
       Alert.alert('Export Data', 'Preparing your data for export...', [], { cancelable: false });
@@ -199,23 +228,53 @@ export default function Settings() {
   };
 
   return (
-    <ScrollView 
-      style={{ flex: 1, backgroundColor: '#0B0F14' }}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
-    >
+    <View style={{ flex: 1, backgroundColor: '#0B0F14' }} pointerEvents="box-none">
       <StatusBar barStyle="light-content" backgroundColor="#0B0F14" translucent />
-      <View style={{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 20 }}>
-        <Text style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 'bold' }}>
-          Settings
-        </Text>
-        <Text style={{ color: '#94A3B8', fontSize: 16, marginTop: 4 }}>
-          App preferences and management
-        </Text>
-      </View>
+      <Animated.View 
+        style={{ 
+          padding: 16, 
+          paddingTop: insets.top + 16, 
+          paddingBottom: 20,
+          opacity: headerOpacity,
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+          backgroundColor: '#0B0F14',
+          pointerEvents: 'none',
+        }}
+      >
+        <View style={{ pointerEvents: 'auto' }}>
+          <Text style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 'bold' }}>
+            Settings
+          </Text>
+          <Text style={{ color: '#94A3B8', fontSize: 16, marginTop: 4 }}>
+            App preferences and management
+          </Text>
+        </View>
+      </Animated.View>
+
+      <ScrollView 
+        style={{ flex: 1, backgroundColor: '#0B0F14' }}
+        contentContainerStyle={{ 
+          padding: 16, 
+          paddingTop: insets.top + 120, // Header height + safe area
+          paddingBottom: insets.bottom + 20 
+        }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        removeClippedSubviews={false}
+        bounces={true}
+        scrollEnabled={true}
+        alwaysBounceVertical={true}
+      >
 
       {/* User Info Section */}
       {user && (
-        <View style={{ padding: 16, paddingBottom: 8 }}>
+        <View style={{ paddingBottom: 8 }}>
           <Text style={{
             color: '#64748B',
             fontSize: 14,
@@ -283,7 +342,7 @@ export default function Settings() {
         </View>
       )}
 
-      <View style={{ padding: 16 }}>
+      <View>
         <Text style={{
           color: '#64748B',
           fontSize: 14,
@@ -342,7 +401,7 @@ export default function Settings() {
         />
       </View>
 
-      <View style={{ padding: 16, paddingBottom: 40 }}>
+      <View style={{ paddingBottom: 40 }}>
         <Text style={{
           color: '#475569',
           fontSize: 12,
@@ -353,6 +412,7 @@ export default function Settings() {
           Built with ❤️ © 2025 uniQubit
         </Text>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
