@@ -13,8 +13,7 @@
     "expo-font",
     "expo-video",
     "expo-apple-authentication",
-    "expo-secure-store",
-    "@react-native-google-signin/google-signin"
+    "expo-secure-store"
   ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -57,12 +56,8 @@
       "eas": {
         "projectId": "50a61d02-4a8e-4f71-9423-183446f39b6a"
       },
-      "googleClientId": {
-        "ios": "132753027985-7l0b1cameabaierc16fivmot3ql6ds8v.apps.googleusercontent.com",
-        "android": "132753027985-7l0b1cameabaierc16fivmot3ql6ds8v.apps.googleusercontent.com",
-        "web": "132753027985-7l0b1cameabaierc16fivmot3ql6ds8v.apps.googleusercontent.com"
-      },
-      "googleWebClientId": "132753027985-7l0b1cameabaierc16fivmot3ql6ds8v.apps.googleusercontent.com"
+      "supabaseUrl": "https://ayppptoommolvkcnksmv.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF5cHBwdG9vbW1vbHZrY25rc212Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcxMjQwNDQsImV4cCI6MjA3MjcwMDA0NH0.22VF7VpdsltqEqS_Gv42kNSgXQRdq2z5D408bfLJuQc"
     }
   }
 }
