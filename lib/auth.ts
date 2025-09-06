@@ -135,67 +135,6 @@ export class AuthService {
     }
   }
 
-  async signInWithGoogle(): Promise<AuthResult> {
-    try {
-      console.log('Starting Google Sign-In...');
-      
-      // For Expo Go: Create a mock Google user for development
-      // In production (TestFlight), this will use proper OAuth
-      Alert.alert(
-        'Google Sign-In',
-        'Google Sign-In requires a production build. For development, we\'ll create a test user.',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-            onPress: () => {
-              // User cancelled
-            }
-          },
-          {
-            text: 'Use Test User',
-            onPress: async () => {
-              const mockUser = createUser({
-                email: 'test@google.com',
-                name: 'Google Test User',
-                provider: 'google',
-                providerId: 'google-test-123',
-                avatar: null,
-              });
-              
-              await this.storeUserSession(mockUser);
-              this.currentUser = mockUser;
-            }
-          }
-        ]
-      );
-
-      // Return mock success for now
-      const mockUser = createUser({
-        email: 'test@google.com',
-        name: 'Google Test User',
-        provider: 'google',
-        providerId: 'google-test-123',
-        avatar: null,
-      });
-      
-      await this.storeUserSession(mockUser);
-      this.currentUser = mockUser;
-
-      return {
-        success: true,
-        user: mockUser,
-      };
-
-    } catch (error: any) {
-      console.error('Google Sign-In error:', error);
-      
-      return {
-        success: false,
-        error: error.message || 'Google Sign-In failed',
-      };
-    }
-  }
 
   async signOut(): Promise<void> {
     try {

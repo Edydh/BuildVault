@@ -18,13 +18,11 @@ const { width, height } = Dimensions.get('window');
 
 export default function AuthScreen() {
   const router = useRouter();
-  const { signInWithApple, signInWithGoogle } = useAuth();
+  const { signInWithApple } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingProvider, setLoadingProvider] = useState<'apple' | 'google' | null>(null);
 
   const handleAppleSignIn = async () => {
     setIsLoading(true);
-    setLoadingProvider('apple');
 
     try {
       await signInWithApple();
@@ -41,37 +39,9 @@ export default function AuthScreen() {
       }
     } finally {
       setIsLoading(false);
-      setLoadingProvider(null);
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setIsLoading(true);
-    setLoadingProvider('google');
-
-    try {
-      const result = await signInWithGoogle();
-      
-      if (!result.success) {
-        // Check if it's a user cancellation
-        if (result.error === 'USER_CANCELED') {
-          console.log('User canceled Google Sign-In');
-          // No alert needed - user intentionally canceled
-        } else {
-          console.error('Google Sign-In error:', result.error);
-          Alert.alert('Sign In Failed', result.error || 'Google Sign-In failed. Please try again.');
-        }
-      }
-      // If successful, the AuthContext will update and the protected route will redirect
-      // No need to manually navigate here
-    } catch (error: any) {
-      console.error('Google Sign-In error:', error);
-      Alert.alert('Sign In Failed', error.message || 'Google Sign-In failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-      setLoadingProvider(null);
-    }
-  };
 
   return (
     <View style={styles.container}>
@@ -97,7 +67,7 @@ export default function AuthScreen() {
           Sign in to access your construction projects and documentation
         </Text>
 
-        {/* Sign In Buttons */}
+        {/* Sign In Button */}
         <View style={styles.buttonContainer}>
           {/* Apple Sign In */}
           <TouchableOpacity
@@ -105,28 +75,12 @@ export default function AuthScreen() {
             onPress={handleAppleSignIn}
             disabled={isLoading}
           >
-            {loadingProvider === 'apple' ? (
+            {isLoading ? (
               <ActivityIndicator color="#FFFFFF" size="small" />
             ) : (
               <>
                 <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
                 <Text style={styles.buttonText}>Continue with Apple</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* Google Sign In */}
-          <TouchableOpacity
-            style={[styles.signInButton, styles.googleButton]}
-            onPress={handleGoogleSignIn}
-            disabled={isLoading}
-          >
-            {loadingProvider === 'google' ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons name="logo-google" size={20} color="#FFFFFF" />
-                <Text style={styles.buttonText}>Continue with Google</Text>
               </>
             )}
           </TouchableOpacity>
@@ -223,9 +177,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     borderWidth: 1,
     borderColor: '#374151',
-  },
-  googleButton: {
-    backgroundColor: '#4285F4',
   },
   buttonText: {
     fontSize: 16,
