@@ -154,6 +154,7 @@ export class AuthService {
     try {
       console.log('Starting Google Sign-In...');
       console.log('GOOGLE_CLIENT_ID:', GOOGLE_CLIENT_ID);
+      console.log('WEB_CLIENT_ID:', WEB_CLIENT_ID);
       
       if (!GOOGLE_CLIENT_ID) {
         return {
@@ -162,24 +163,59 @@ export class AuthService {
         };
       }
 
-      // Configure Google Sign-In
+      // Configure Google Sign-In with proper error handling
       console.log('Configuring Google Sign-In...');
-      GoogleSignin.configure({
-        webClientId: GOOGLE_CLIENT_ID, // Use the same client ID for both
-        iosClientId: GOOGLE_CLIENT_ID, // Use the same client ID for both
-        offlineAccess: true,
-        hostedDomain: '',
-        forceCodeForRefreshToken: true,
-      });
-      console.log('Google Sign-In configured successfully');
+      try {
+        GoogleSignin.configure({
+          webClientId: WEB_CLIENT_ID || GOOGLE_CLIENT_ID,
+          iosClientId: GOOGLE_CLIENT_ID,
+          offlineAccess: true,
+          hostedDomain: '',
+          forceCodeForRefreshToken: true,
+        });
+        console.log('Google Sign-In configured successfully');
+      } catch (configError) {
+        console.error('Google Sign-In configuration error:', configError);
+        return {
+          success: false,
+          error: 'Failed to configure Google Sign-In. Please check your OAuth credentials.'
+        };
+      }
 
       // Check if device has Google Play Services (Android only)
       if (Platform.OS === 'android') {
-        await GoogleSignin.hasPlayServices();
+        try {
+          await GoogleSignin.hasPlayServices();
+        } catch (playServicesError) {
+          console.error('Google Play Services error:', playServicesError);
+          return {
+            success: false,
+            error: 'Google Play Services is not available. Please update Google Play Services.'
+          };
+        }
       }
 
-      // Sign in
-      const userInfo = await GoogleSignin.signIn();
+      // Sign in with Google
+      console.log('Attempting Google Sign-In...');
+      let userInfo;
+      try {
+        userInfo = await GoogleSignin.signIn();
+        console.log('Google Sign-In successful, userInfo:', userInfo);
+      } catch (signInError: any) {
+        console.error('Google Sign-In error:', signInError);
+        
+        if (signInError.code === 'SIGN_IN_CANCELLED' || signInError.code === '12501') {
+          return {
+            success: false,
+            error: 'USER_CANCELED'
+          };
+        }
+        
+        return {
+          success: false,
+          error: signInError.message || 'Google Sign-In failed. Please try again.'
+        };
+      }
 
       if (!userInfo.data?.user?.email) {
         return {
