@@ -8,6 +8,10 @@ import {
   Alert,
   Animated,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -40,6 +44,7 @@ export default function NoteEncouragement({
   const [noteText, setNoteText] = useState(currentNote);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [pulseAnim] = useState(new Animated.Value(1));
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const insets = useSafeAreaInsets();
 
   // Quick note suggestions based on media type
@@ -98,6 +103,21 @@ export default function NoteEncouragement({
     }
   }, [hasNote, showPrompt]);
 
+  // Keyboard event listeners
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+      setKeyboardVisible(true);
+    });
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      keyboardDidShowListener?.remove();
+      keyboardDidHideListener?.remove();
+    };
+  }, []);
+
   const handleSaveNote = () => {
     if (noteText.trim()) {
       if (hasNote) {
@@ -113,7 +133,12 @@ export default function NoteEncouragement({
 
   const handleQuickNote = (note: string) => {
     setNoteText(note);
+    Keyboard.dismiss();
     handleSaveNote();
+  };
+
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
   };
 
   const handleEdit = () => {
@@ -180,20 +205,33 @@ export default function NoteEncouragement({
         animationType="fade"
         onRequestClose={handleCancel}
       >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: 20,
-        }}>
-          <View style={{
-            backgroundColor: '#1F2A37',
-            borderRadius: 16,
-            padding: 24,
-            width: '100%',
-            maxWidth: 400,
-          }}>
+        <KeyboardAvoidingView
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 20,
+          }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <ScrollView
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={{
+              backgroundColor: '#1F2A37',
+              borderRadius: 16,
+              padding: 24,
+              width: '100%',
+              maxWidth: 400,
+              maxHeight: keyboardVisible ? '80%' : '90%',
+            }}>
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -253,24 +291,39 @@ export default function NoteEncouragement({
             </View>
 
             {/* Custom note input */}
-            <TextInput
-              style={{
-                backgroundColor: '#374151',
-                borderRadius: 8,
-                padding: 12,
-                color: '#F8FAFC',
-                fontSize: 16,
-                marginBottom: 16,
-                minHeight: 80,
-                textAlignVertical: 'top',
-              }}
-              placeholder="Or write your own note..."
-              placeholderTextColor="#6B7280"
-              value={noteText}
-              onChangeText={setNoteText}
-              multiline
-              autoFocus
-            />
+            <View style={{ marginBottom: 16 }}>
+              <TextInput
+                style={{
+                  backgroundColor: '#374151',
+                  borderRadius: 8,
+                  padding: 12,
+                  color: '#F8FAFC',
+                  fontSize: 16,
+                  minHeight: 80,
+                  textAlignVertical: 'top',
+                }}
+                placeholder="Or write your own note..."
+                placeholderTextColor="#6B7280"
+                value={noteText}
+                onChangeText={setNoteText}
+                multiline
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={dismissKeyboard}
+                blurOnSubmit={false}
+              />
+              <TouchableOpacity
+                onPress={dismissKeyboard}
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="keyboard" size={16} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
 
             {/* Action buttons */}
             <View style={{
@@ -320,42 +373,62 @@ export default function NoteEncouragement({
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     );
   }
 
   // Note display and edit
   return (
-    <View style={{
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      padding: 16,
-    }}>
+    <KeyboardAvoidingView
+      style={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        padding: 16,
+      }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
       {isEditing ? (
         <View>
-          <TextInput
-            style={{
-              backgroundColor: '#374151',
-              borderRadius: 8,
-              padding: 12,
-              color: '#F8FAFC',
-              fontSize: 16,
-              marginBottom: 12,
-              minHeight: 60,
-              textAlignVertical: 'top',
-            }}
-            placeholder="Add a note to help with searching..."
-            placeholderTextColor="#6B7280"
-            value={noteText}
-            onChangeText={setNoteText}
-            multiline
-            autoFocus
-          />
+          <View style={{ marginBottom: 12 }}>
+            <TextInput
+              style={{
+                backgroundColor: '#374151',
+                borderRadius: 8,
+                padding: 12,
+                color: '#F8FAFC',
+                fontSize: 16,
+                minHeight: 60,
+                textAlignVertical: 'top',
+              }}
+              placeholder="Add a note to help with searching..."
+              placeholderTextColor="#6B7280"
+              value={noteText}
+              onChangeText={setNoteText}
+              multiline
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={dismissKeyboard}
+              blurOnSubmit={false}
+            />
+            <TouchableOpacity
+              onPress={dismissKeyboard}
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                padding: 4,
+              }}
+            >
+              <Ionicons name="keyboard" size={16} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
           <View style={{
             flexDirection: 'row',
             justifyContent: 'space-between',
@@ -454,6 +527,6 @@ export default function NoteEncouragement({
           )}
         </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
