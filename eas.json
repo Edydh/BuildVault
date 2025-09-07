@@ -12,10 +12,19 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "autoSubmit": true
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "edydhm@icloud.com",
+        "ascAppId": "6751867299",
+        "appleTeamId": "U3KFL78946"
+      }
+    }
   }
 }
