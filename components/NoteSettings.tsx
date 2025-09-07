@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -32,6 +33,8 @@ const STORAGE_KEY = 'note_encouragement_settings';
 export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
   const [settings, setSettings] = useState<NoteSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [animation] = useState(new Animated.Value(0));
 
   useEffect(() => {
     loadSettings();
@@ -81,6 +84,17 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
     );
   };
 
+  const toggleExpanded = () => {
+    const toValue = isExpanded ? 0 : 1;
+    setIsExpanded(!isExpanded);
+    
+    Animated.timing(animation, {
+      toValue,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  };
+
   if (loading) {
     return (
       <View style={{
@@ -104,34 +118,72 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
     <View style={{
       backgroundColor: '#1F2A37',
       borderRadius: 12,
-      padding: 16,
       marginVertical: 8,
+      overflow: 'hidden',
     }}>
-      {/* Header */}
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-      }}>
-        <Ionicons name="document-text" size={24} color="#3B82F6" />
-        <Text style={{
-          color: '#F8FAFC',
-          fontSize: 18,
-          fontWeight: 'bold',
-          marginLeft: 12,
-        }}>
-          Note Encouragement
-        </Text>
-      </View>
+      {/* Header - Always Visible */}
+      <TouchableOpacity
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: 16,
+        }}
+        onPress={toggleExpanded}
+        activeOpacity={0.7}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          <Ionicons name="document-text" size={24} color="#3B82F6" />
+          <View style={{ marginLeft: 12, flex: 1 }}>
+            <Text style={{
+              color: '#F8FAFC',
+              fontSize: 18,
+              fontWeight: 'bold',
+            }}>
+              Note Encouragement
+            </Text>
+            <Text style={{
+              color: '#94A3B8',
+              fontSize: 14,
+              marginTop: 2,
+            }}>
+              Configure note-taking preferences
+            </Text>
+          </View>
+        </View>
+        <Animated.View
+          style={{
+            transform: [{
+              rotate: animation.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0deg', '180deg'],
+              }),
+            }],
+          }}
+        >
+          <Ionicons name="chevron-down" size={20} color="#64748B" />
+        </Animated.View>
+      </TouchableOpacity>
 
-      <Text style={{
-        color: '#94A3B8',
-        fontSize: 14,
-        marginBottom: 20,
-        lineHeight: 20,
-      }}>
-        Configure how the app encourages you to add notes to your media for better searchability.
-      </Text>
+      {/* Expandable Content */}
+      <Animated.View
+        style={{
+          maxHeight: animation.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, 1000], // Large enough to accommodate all content
+          }),
+          opacity: animation,
+        }}
+      >
+        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+          <Text style={{
+            color: '#94A3B8',
+            fontSize: 14,
+            marginBottom: 20,
+            lineHeight: 20,
+          }}>
+            Configure how the app encourages you to add notes to your media for better searchability.
+          </Text>
 
       {/* Settings */}
       <View style={{ marginBottom: 20 }}>
@@ -329,6 +381,8 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
           Reset to Default
         </Text>
       </TouchableOpacity>
+        </View>
+      </Animated.View>
     </View>
   );
 }
