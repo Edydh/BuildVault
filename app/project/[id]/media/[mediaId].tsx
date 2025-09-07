@@ -23,6 +23,9 @@ import { MediaItem, getMediaById, updateMediaNote, deleteMedia } from '../../../
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { cleanupImageVariants } from '../../../../lib/imageOptimization';
+import NoteEncouragement from '../../../../components/NoteEncouragement';
+import NotePrompt from '../../../../components/NotePrompt';
+import { shouldShowPrompt, markPromptShown } from '../../../../components/NoteSettings';
 
 // ZoomableImage component
 function ZoomableImage({ uri }: { uri: string }) {
@@ -453,6 +456,7 @@ export default function MediaDetail() {
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [fileExists, setFileExists] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [showNotePrompt, setShowNotePrompt] = useState(false);
 
   React.useEffect(() => {
     if (!mediaId) return;
@@ -472,6 +476,14 @@ export default function MediaDetail() {
 
         setMedia(mediaData);
         setNote(mediaData.note || '');
+
+        // Check if we should show note prompt
+        if (!mediaData.note) {
+          const shouldShow = await shouldShowPrompt(mediaId);
+          if (shouldShow) {
+            setShowNotePrompt(true);
+          }
+        }
       } catch (error) {
         console.error('Error loading media:', error);
         Alert.alert('Error', 'Failed to load media');
@@ -539,6 +551,33 @@ export default function MediaDetail() {
       console.error('Error saving note:', error);
       Alert.alert('Error', 'Failed to save note');
     }
+  };
+
+  const handleAddNote = () => {
+    setIsEditingNote(true);
+    setShowNotePrompt(false);
+    markPromptShown(mediaId);
+  };
+
+  const handleNoteSave = (newNote: string) => {
+    setNote(newNote);
+    handleSaveNote();
+  };
+
+  const handleNoteUpdate = (newNote: string) => {
+    setNote(newNote);
+    handleSaveNote();
+  };
+
+  const handlePromptDismiss = () => {
+    setShowNotePrompt(false);
+    markPromptShown(mediaId);
+  };
+
+  const handleNeverShowAgain = () => {
+    setShowNotePrompt(false);
+    markPromptShown(mediaId);
+    // TODO: Implement never show again logic
   };
 
   const handleDeleteMedia = () => {
@@ -1095,6 +1134,29 @@ export default function MediaDetail() {
           onShare={handleShare}
           onDelete={handleDeleteMedia}
         />
+      )}
+
+      {/* Note Encouragement Components */}
+      {media && (
+        <>
+          <NoteEncouragement
+            mediaId={media.id}
+            hasNote={!!media.note}
+            currentNote={media.note || ''}
+            onNoteSave={handleNoteSave}
+            onNoteUpdate={handleNoteUpdate}
+            mediaType={media.type}
+            showPrompt={!media.note}
+          />
+
+          <NotePrompt
+            visible={showNotePrompt}
+            mediaType={media.type}
+            onAddNote={handleAddNote}
+            onDismiss={handlePromptDismiss}
+            onNeverShowAgain={handleNeverShowAgain}
+          />
+        </>
       )}
     </KeyboardAvoidingView>
   );

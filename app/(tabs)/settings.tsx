@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system';
 import { getProjects, deleteProject, getMediaByProject } from '../../lib/db';
 import { deleteProjectDir } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
+import NoteSettings from '../../components/NoteSettings';
 
 export default function Settings() {
   const insets = useSafeAreaInsets();
@@ -360,6 +361,9 @@ export default function Settings() {
           subtitle="Export all project data and media"
           onPress={handleExportData}
         />
+
+        {/* Note Encouragement Settings */}
+        <NoteSettings />
 
         <Text style={{
           color: '#64748B',
