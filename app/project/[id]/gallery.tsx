@@ -24,6 +24,8 @@ import * as Sharing from 'expo-sharing';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import SharingQualitySelector from '../../../components/SharingQualitySelector';
+import NotePrompt from '../../../components/NotePrompt';
+import { shouldShowPrompt, markPromptShown } from '../../../components/NoteSettings';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -436,6 +438,7 @@ export default function PhotoGallery() {
   const [imageVariants, setImageVariants] = useState<Map<string, ImageVariants>>(new Map());
   const [showQualitySelector, setShowQualitySelector] = useState(false);
   const [sharingItem, setSharingItem] = useState<MediaItem | null>(null);
+  const [showNotePrompt, setShowNotePrompt] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // Load image variants for all photos
@@ -484,7 +487,16 @@ export default function PhotoGallery() {
         setMedia(photos);
         // Set initial note for the first photo
         if (photos.length > 0) {
-          setNote(photos[parseInt(initialIndex || '0')]?.note || '');
+          const currentPhoto = photos[parseInt(initialIndex || '0')];
+          setNote(currentPhoto?.note || '');
+          
+          // Check if we should show note prompt for current photo
+          if (currentPhoto && !currentPhoto.note) {
+            const shouldShow = await shouldShowPrompt(currentPhoto.id);
+            if (shouldShow) {
+              setShowNotePrompt(true);
+            }
+          }
         }
         // Load image variants
         loadImageVariants(photos);
@@ -663,6 +675,29 @@ export default function PhotoGallery() {
       console.error('Error saving note:', error);
       Alert.alert('Error', 'Failed to save note');
     }
+  };
+
+  const handleAddNote = () => {
+    setIsEditingNote(true);
+    setShowNotePrompt(false);
+    if (media[currentIndex]) {
+      markPromptShown(media[currentIndex].id);
+    }
+  };
+
+  const handlePromptDismiss = () => {
+    setShowNotePrompt(false);
+    if (media[currentIndex]) {
+      markPromptShown(media[currentIndex].id);
+    }
+  };
+
+  const handleNeverShowAgain = () => {
+    setShowNotePrompt(false);
+    if (media[currentIndex]) {
+      markPromptShown(media[currentIndex].id);
+    }
+    // TODO: Implement never show again logic
   };
 
   const viewabilityConfig = useRef({
@@ -1032,6 +1067,17 @@ export default function PhotoGallery() {
             setSharingItem(null);
           }}
           visible={showQualitySelector}
+        />
+      )}
+
+      {/* Note Prompt */}
+      {media[currentIndex] && (
+        <NotePrompt
+          visible={showNotePrompt}
+          mediaType={media[currentIndex].type}
+          onAddNote={handleAddNote}
+          onDismiss={handlePromptDismiss}
+          onNeverShowAgain={handleNeverShowAgain}
         />
       )}
     </View>

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity } from 'react-native';
-import { MediaItem } from '@/lib/db';
+import { MediaItem, updateMediaNote } from '@/lib/db';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import LazyImage from './LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants } from '@/lib/imageOptimization';
+import NoteEncouragement from './NoteEncouragement';
 
 type Props = {
   items: MediaItem[];
@@ -48,6 +49,24 @@ function MediaItemComponent({
   projectId: string;
 }) {
   const [variants, setVariants] = useState<ImageVariants | null>(null);
+
+  const handleNoteSave = (note: string) => {
+    try {
+      updateMediaNote(item.id, note);
+      // Note: We don't update local state here as the parent will re-render
+    } catch (error) {
+      console.error('Error saving note:', error);
+    }
+  };
+
+  const handleNoteUpdate = (note: string) => {
+    try {
+      updateMediaNote(item.id, note);
+      // Note: We don't update local state here as the parent will re-render
+    } catch (error) {
+      console.error('Error updating note:', error);
+    }
+  };
   const [isGeneratingVariants, setIsGeneratingVariants] = useState(false);
 
   useEffect(() => {
@@ -209,6 +228,17 @@ function MediaItemComponent({
             </View>
           </View>
         )}
+        
+        {/* Note Encouragement */}
+        <NoteEncouragement
+          mediaId={item.id}
+          hasNote={!!item.note}
+          currentNote={item.note || ''}
+          onNoteSave={handleNoteSave}
+          onNoteUpdate={handleNoteUpdate}
+          mediaType={item.type}
+          showPrompt={!item.note}
+        />
       </View>
     </TouchableOpacity>
   );
