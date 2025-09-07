@@ -18,7 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Project, createProject, getProjects, deleteProject } from '../../lib/db';
+import { Project, createProject, getProjects, deleteProject, getMediaByProject } from '../../lib/db';
 import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -29,7 +29,27 @@ export default function ProjectsList() {
   const insets = useSafeAreaInsets();
   const [projects, setProjects] = useState<Project[]>([]);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', client: '', location: '' });
+  const [form, setForm] = useState({ name: '', client: '', location: '', search: '' });
+  
+  // Filter projects based on search term
+  const filteredProjects = projects.filter(p => {
+    const searchTerm = form.search?.toLowerCase() || '';
+    
+    // Search in basic project fields
+    const basicMatch = p.name.toLowerCase().includes(searchTerm) ||
+                      p.client?.toLowerCase().includes(searchTerm) ||
+                      p.location?.toLowerCase().includes(searchTerm);
+    
+    if (basicMatch) return true;
+    
+    // Search in media comments/notes
+    const mediaItems = getMediaByProject(p.id);
+    const mediaMatch = mediaItems.some(media => 
+      media.note?.toLowerCase().includes(searchTerm)
+    );
+    
+    return mediaMatch;
+  });
   
   // Animation values for dynamic header
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -87,7 +107,7 @@ export default function ProjectsList() {
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setShowCreate(false);
-      setForm({ name: '', client: '', location: '' });
+      setForm({ name: '', client: '', location: '', search: '' });
       loadProjects();
     } catch (error) {
       Alert.alert('Error', 'Failed to create project');
@@ -355,13 +375,47 @@ export default function ProjectsList() {
         </View>
       </Animated.View>
 
+      {/* Animated Search Bar */}
+      <Animated.View style={{
+        position: 'absolute',
+        top: insets.top + 100, // Below the animated header
+        left: 16,
+        right: 16,
+        zIndex: 999,
+        backgroundColor: '#0B0F14',
+        paddingVertical: 8,
+        opacity: headerOpacity,
+      }}>
+        <TextInput
+          style={{
+            backgroundColor: '#1F2A37',
+            borderRadius: 10,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            color: '#F8FAFC',
+            fontSize: 16,
+            borderWidth: 1,
+            borderColor: '#374151',
+          }}
+          placeholder="Search projects..."
+          placeholderTextColor="#64748B"
+          value={form.search || ''}
+          onChangeText={(text) => setForm((prev) => ({ ...prev, search: text }))}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
+          selectTextOnFocus={true}
+        />
+      </Animated.View>
+
       <FlatList
         ref={flatListRef}
-        data={projects}
+        data={filteredProjects}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
           padding: 16, 
-          paddingTop: insets.top + 120, // Header height + safe area
+          paddingTop: insets.top + 160, // Header height + search bar + safe area
           paddingBottom: insets.bottom + 80, // Safe area + some bottom padding
           minHeight: '100%'
         }}
@@ -385,6 +439,7 @@ export default function ProjectsList() {
             <Text style={{ color: '#64748B', fontSize: 14, textAlign: 'center' }}>
               Create your first construction project to get started
             </Text>
+
           </View>
         )}
       />
