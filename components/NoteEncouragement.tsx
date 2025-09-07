@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface NoteEncouragementProps {
   mediaId: string;
@@ -39,6 +40,7 @@ export default function NoteEncouragement({
   const [noteText, setNoteText] = useState(currentNote);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [pulseAnim] = useState(new Animated.Value(1));
+  const insets = useSafeAreaInsets();
 
   // Quick note suggestions based on media type
   const quickNotes = {
@@ -131,7 +133,7 @@ export default function NoteEncouragement({
     return (
       <View style={{
         position: 'absolute',
-        top: 8,
+        top: insets.top + 10, // Position below status bar with safe area
         right: 8,
         zIndex: 10,
       }}>
