@@ -457,6 +457,8 @@ export default function MediaDetail() {
   const [fileExists, setFileExists] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showNotePrompt, setShowNotePrompt] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const textInputRef = useRef<TextInput>(null);
 
   React.useEffect(() => {
     if (!mediaId) return;
@@ -713,6 +715,7 @@ export default function MediaDetail() {
 
           {/* Media Preview */}
           <ScrollView 
+            ref={scrollViewRef}
             style={{ flex: 1 }}
             contentContainerStyle={{ flexGrow: 1 }}
             keyboardShouldPersistTaps="handled"
@@ -994,6 +997,7 @@ export default function MediaDetail() {
               {isEditingNote ? (
                 <View>
                   <TextInput
+                    ref={textInputRef}
                     style={{
                       backgroundColor: '#1F2A37',
                       borderRadius: 12,
@@ -1014,6 +1018,12 @@ export default function MediaDetail() {
                     autoFocus
                     returnKeyType="default"
                     blurOnSubmit={false}
+                    onFocus={() => {
+                      // Auto-scroll to bottom when TextInput is focused
+                      setTimeout(() => {
+                        scrollViewRef.current?.scrollToEnd({ animated: true });
+                      }, 100);
+                    }}
                   />
                   <View style={{ 
                     flexDirection: 'row', 
@@ -1067,7 +1077,13 @@ export default function MediaDetail() {
                     borderWidth: 1,
                     borderColor: 'transparent',
                   }}
-                  onPress={() => setIsEditingNote(true)}
+                  onPress={() => {
+                    setIsEditingNote(true);
+                    // Auto-scroll to bottom when Add Note is tapped
+                    setTimeout(() => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
+                    }, 100);
+                  }}
                   activeOpacity={0.7}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
