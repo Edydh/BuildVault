@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { migrate } from '../lib/db';
 import { ensureRootDir } from '../lib/files';
 import { AuthProvider } from '../lib/AuthContext';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -17,15 +18,17 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <AuthProvider>
-          <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
-            <StatusBar style="light" />
-            <Stack screenOptions={{ headerShown: false }} />
-          </View>
-        </AuthProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <AuthProvider>
+            <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
+              <StatusBar style="light" />
+              <Stack screenOptions={{ headerShown: false }} />
+            </View>
+          </AuthProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }

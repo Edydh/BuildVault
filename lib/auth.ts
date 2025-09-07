@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform, Alert } from 'react-native';
 import { supabase } from './supabase';
 import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, User } from './db';
+import { ErrorHandler, withErrorHandling } from './errorHandler';
 
 export interface AuthResult {
   success: boolean;
@@ -26,7 +27,7 @@ export class AuthService {
       return this.currentUser;
     }
 
-    try {
+    return withErrorHandling(async () => {
       // Try to get user from local storage
       const userId = await SecureStore.getItemAsync('currentUserId');
       if (userId) {
@@ -36,11 +37,8 @@ export class AuthService {
           return user;
         }
       }
-    } catch (error) {
-      console.error('Error getting current user:', error);
-    }
-
-    return null;
+      return null;
+    }, 'Get current user', false);
   }
 
   async signInWithApple(): Promise<AuthResult> {
@@ -125,12 +123,13 @@ export class AuthService {
         };
       }
 
-      // Log actual errors
-      console.error('Apple Sign-In error:', error);
+      // Log actual errors with error handling
+      const appError = ErrorHandler.handle(error, 'Apple Sign-In');
+      console.error('Apple Sign-In error:', appError);
       
       return {
         success: false,
-        error: error.message || 'Apple Sign-In failed'
+        error: appError.userMessage || 'Apple Sign-In failed'
       };
     }
   }
