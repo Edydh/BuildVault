@@ -3,15 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
-  TextInput,
-  Modal,
-  Alert,
   Animated,
-  Dimensions,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -20,70 +12,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 interface NoteEncouragementProps {
   mediaId: string;
   hasNote: boolean;
-  currentNote?: string;
-  onNoteSave: (note: string) => void;
-  onNoteUpdate: (note: string) => void;
   mediaType: 'photo' | 'video' | 'doc';
-  showPrompt?: boolean;
-  onPromptDismiss?: () => void;
+  onAddNotePress?: () => void;
 }
-
-const { width: screenWidth } = Dimensions.get('window');
 
 export default function NoteEncouragement({
   mediaId,
   hasNote,
-  currentNote = '',
-  onNoteSave,
-  onNoteUpdate,
   mediaType,
-  showPrompt = false,
-  onPromptDismiss,
+  onAddNotePress,
 }: NoteEncouragementProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [noteText, setNoteText] = useState(currentNote);
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [pulseAnim] = useState(new Animated.Value(1));
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const insets = useSafeAreaInsets();
-
-  // Quick note suggestions based on media type
-  const quickNotes = {
-    photo: [
-      'Progress shot',
-      'Before work',
-      'After completion',
-      'Issue found',
-      'Quality check',
-      'Safety concern',
-      'Material delivery',
-      'Equipment setup',
-    ],
-    video: [
-      'Process recording',
-      'Safety demonstration',
-      'Issue documentation',
-      'Progress update',
-      'Quality inspection',
-      'Equipment operation',
-      'Team meeting',
-      'Site walkthrough',
-    ],
-    doc: [
-      'Permit document',
-      'Safety checklist',
-      'Quality report',
-      'Invoice',
-      'Contract',
-      'Specification',
-      'Drawing',
-      'Certificate',
-    ],
-  };
 
   // Pulse animation for visual indicator
   useEffect(() => {
-    if (!hasNote && showPrompt) {
+    if (!hasNote) {
       const pulse = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -101,60 +45,16 @@ export default function NoteEncouragement({
       pulse.start();
       return () => pulse.stop();
     }
-  }, [hasNote, showPrompt]);
+  }, [hasNote]);
 
-  // Keyboard event listeners
-  useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
-      setKeyboardVisible(true);
-    });
-    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardVisible(false);
-    });
-
-    return () => {
-      keyboardDidShowListener?.remove();
-      keyboardDidHideListener?.remove();
-    };
-  }, []);
-
-  const handleSaveNote = () => {
-    if (noteText.trim()) {
-      if (hasNote) {
-        onNoteUpdate(noteText.trim());
-      } else {
-        onNoteSave(noteText.trim());
-      }
-      setIsEditing(false);
-      setShowQuickAdd(false);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-  };
-
-  const handleQuickNote = (note: string) => {
-    setNoteText(note);
-    Keyboard.dismiss();
-    handleSaveNote();
-  };
-
-  const dismissKeyboard = () => {
-    Keyboard.dismiss();
-  };
-
-  const handleEdit = () => {
-    setNoteText(currentNote);
-    setIsEditing(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handleCancel = () => {
-    setNoteText(currentNote);
-    setIsEditing(false);
-    setShowQuickAdd(false);
+  const handleAddNotePress = () => {
+    // Navigate to media detail view instead of showing modal
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onAddNotePress?.();
   };
 
   // Visual indicator for media without notes
-  if (!hasNote && !isEditing && !showQuickAdd) {
+  if (!hasNote) {
     return (
       <View style={{
         position: 'absolute',
@@ -166,7 +66,7 @@ export default function NoteEncouragement({
           transform: [{ scale: pulseAnim }],
         }}>
           <TouchableOpacity
-            onPress={() => setShowQuickAdd(true)}
+            onPress={handleAddNotePress}
             style={{
               backgroundColor: '#F59E0B',
               borderRadius: 20,
@@ -196,337 +96,7 @@ export default function NoteEncouragement({
     );
   }
 
-  // Quick add modal
-  if (showQuickAdd) {
-    return (
-      <Modal
-        visible={showQuickAdd}
-        transparent
-        animationType="fade"
-        onRequestClose={handleCancel}
-      >
-        <KeyboardAvoidingView
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            justifyContent: 'center',
-            alignItems: 'center',
-            padding: 20,
-          }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        >
-          <ScrollView
-            contentContainerStyle={{
-              flexGrow: 1,
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={{
-              backgroundColor: '#1F2A37',
-              borderRadius: 16,
-              padding: 24,
-              width: '100%',
-              maxWidth: 400,
-              maxHeight: keyboardVisible ? '80%' : '90%',
-            }}>
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              marginBottom: 16,
-            }}>
-              <Ionicons 
-                name={mediaType === 'photo' ? 'camera' : mediaType === 'video' ? 'videocam' : 'document'} 
-                size={24} 
-                color="#3B82F6" 
-              />
-              <Text style={{
-                color: '#F8FAFC',
-                fontSize: 18,
-                fontWeight: 'bold',
-                marginLeft: 12,
-              }}>
-                Add Note to {mediaType === 'photo' ? 'Photo' : mediaType === 'video' ? 'Video' : 'Document'}
-              </Text>
-            </View>
+  // If media has a note, don't show any indicator
+  return null;
 
-            <Text style={{
-              color: '#94A3B8',
-              fontSize: 14,
-              marginBottom: 16,
-              lineHeight: 20,
-            }}>
-              Notes help you find this media later when searching. Choose a quick note or write your own:
-            </Text>
-
-            {/* Quick note suggestions */}
-            <View style={{
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              marginBottom: 16,
-            }}>
-              {quickNotes[mediaType].map((note, index) => (
-                <TouchableOpacity
-                  key={index}
-                  onPress={() => handleQuickNote(note)}
-                  style={{
-                    backgroundColor: '#374151',
-                    borderRadius: 20,
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    marginRight: 8,
-                    marginBottom: 8,
-                  }}
-                >
-                  <Text style={{
-                    color: '#F8FAFC',
-                    fontSize: 12,
-                  }}>
-                    {note}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Custom note input */}
-            <View style={{ marginBottom: 16 }}>
-              <TextInput
-                style={{
-                  backgroundColor: '#374151',
-                  borderRadius: 8,
-                  padding: 12,
-                  color: '#F8FAFC',
-                  fontSize: 16,
-                  minHeight: 80,
-                  textAlignVertical: 'top',
-                }}
-                placeholder="Or write your own note..."
-                placeholderTextColor="#6B7280"
-                value={noteText}
-                onChangeText={setNoteText}
-                multiline
-                autoFocus
-                returnKeyType="done"
-                onSubmitEditing={dismissKeyboard}
-                blurOnSubmit={false}
-              />
-              <TouchableOpacity
-                onPress={dismissKeyboard}
-                style={{
-                  position: 'absolute',
-                  top: 8,
-                  right: 8,
-                  padding: 4,
-                }}
-              >
-                <Ionicons name="keyboard" size={16} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Action buttons */}
-            <View style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-            }}>
-              <TouchableOpacity
-                onPress={handleCancel}
-                style={{
-                  backgroundColor: '#374151',
-                  borderRadius: 8,
-                  paddingHorizontal: 16,
-                  paddingVertical: 10,
-                  flex: 1,
-                  marginRight: 8,
-                }}
-              >
-                <Text style={{
-                  color: '#F8FAFC',
-                  fontSize: 16,
-                  fontWeight: '600',
-                  textAlign: 'center',
-                }}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={handleSaveNote}
-                disabled={!noteText.trim()}
-                style={{
-                  backgroundColor: noteText.trim() ? '#3B82F6' : '#374151',
-                  borderRadius: 8,
-                  paddingHorizontal: 16,
-                  paddingVertical: 10,
-                  flex: 1,
-                  marginLeft: 8,
-                }}
-              >
-                <Text style={{
-                  color: '#FFFFFF',
-                  fontSize: 16,
-                  fontWeight: '600',
-                  textAlign: 'center',
-                }}>
-                  Save Note
-                </Text>
-              </TouchableOpacity>
-            </View>
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </Modal>
-    );
-  }
-
-  // Note display and edit
-  return (
-    <KeyboardAvoidingView
-      style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        padding: 16,
-      }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-    >
-      {isEditing ? (
-        <View>
-          <View style={{ marginBottom: 12 }}>
-            <TextInput
-              style={{
-                backgroundColor: '#374151',
-                borderRadius: 8,
-                padding: 12,
-                color: '#F8FAFC',
-                fontSize: 16,
-                minHeight: 60,
-                textAlignVertical: 'top',
-              }}
-              placeholder="Add a note to help with searching..."
-              placeholderTextColor="#6B7280"
-              value={noteText}
-              onChangeText={setNoteText}
-              multiline
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={dismissKeyboard}
-              blurOnSubmit={false}
-            />
-            <TouchableOpacity
-              onPress={dismissKeyboard}
-              style={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                padding: 4,
-              }}
-            >
-              <Ionicons name="keyboard" size={16} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
-          <View style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-          }}>
-            <TouchableOpacity
-              onPress={handleCancel}
-              style={{
-                backgroundColor: '#374151',
-                borderRadius: 8,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-              }}
-            >
-              <Text style={{
-                color: '#F8FAFC',
-                fontSize: 14,
-                fontWeight: '600',
-              }}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={handleSaveNote}
-              disabled={!noteText.trim()}
-              style={{
-                backgroundColor: noteText.trim() ? '#3B82F6' : '#374151',
-                borderRadius: 8,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-              }}
-            >
-              <Text style={{
-                color: '#FFFFFF',
-                fontSize: 14,
-                fontWeight: '600',
-              }}>
-                Save
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <View>
-          {hasNote ? (
-            <View>
-              <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                marginBottom: 8,
-              }}>
-                <Ionicons name="document-text" size={16} color="#10B981" />
-                <Text style={{
-                  color: '#10B981',
-                  fontSize: 14,
-                  fontWeight: '600',
-                  marginLeft: 6,
-                }}>
-                  Note Added
-                </Text>
-                <TouchableOpacity
-                  onPress={handleEdit}
-                  style={{ marginLeft: 'auto' }}
-                >
-                  <Ionicons name="create-outline" size={16} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-              <Text style={{
-                color: '#F8FAFC',
-                fontSize: 14,
-                lineHeight: 20,
-              }}>
-                {currentNote}
-              </Text>
-            </View>
-          ) : (
-            <TouchableOpacity
-              onPress={() => setShowQuickAdd(true)}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 12,
-              }}
-            >
-              <Ionicons name="add-circle-outline" size={20} color="#F59E0B" />
-              <Text style={{
-                color: '#F59E0B',
-                fontSize: 16,
-                fontWeight: '600',
-                marginLeft: 8,
-              }}>
-                Add Note for Better Search
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-    </KeyboardAvoidingView>
-  );
 }

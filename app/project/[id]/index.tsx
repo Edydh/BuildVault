@@ -22,6 +22,7 @@ import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
+import NoteEncouragement from '../../../components/NoteEncouragement';
 
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -1025,6 +1026,14 @@ export default function ProjectDetail() {
             </Text>
           )}
         </View>
+        
+        {/* Note Encouragement */}
+        <NoteEncouragement
+          mediaId={item.id}
+          hasNote={!!item.note}
+          mediaType={item.type}
+          onAddNotePress={handlePress}
+        />
       </TouchableOpacity>
     );
   };
@@ -1165,6 +1174,14 @@ export default function ProjectDetail() {
         </View>
         <Ionicons name="chevron-forward" size={20} color="#64748B" />
       </View>
+      
+      {/* Note Encouragement */}
+      <NoteEncouragement
+        mediaId={item.id}
+        hasNote={!!item.note}
+        mediaType={item.type}
+        onAddNotePress={handlePress}
+      />
     </TouchableOpacity>
   );
   };
