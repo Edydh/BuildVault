@@ -38,7 +38,7 @@ export default function CaptureScreen() {
 
   // Zoom functions with smooth animation
   const zoomIn = useCallback(() => {
-    const newZoom = Math.min(2, zoom + 0.05);
+    const newZoom = Math.min(1, zoom + 0.05);
     setZoom(newZoom);
     lastScale.current = newZoom;
     
@@ -214,12 +214,12 @@ export default function CaptureScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else if (event.nativeEvent.state === State.ACTIVE) {
       const newScale = lastScale.current * event.nativeEvent.scale;
-      const clampedScale = Math.max(0, Math.min(2, newScale));
+      const clampedScale = Math.max(0, Math.min(1, newScale));
       setZoom(clampedScale);
       scale.setValue(clampedScale);
     } else if (event.nativeEvent.state === State.END || event.nativeEvent.state === State.CANCELLED) {
       const newScale = lastScale.current * event.nativeEvent.scale;
-      const clampedScale = Math.max(0, Math.min(2, newScale));
+      const clampedScale = Math.max(0, Math.min(1, newScale));
       lastScale.current = clampedScale;
       setZoom(clampedScale);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -327,7 +327,7 @@ export default function CaptureScreen() {
               facing={facing}
               flash={flash}
               mode={mode === 'video' ? 'video' : 'picture'}
-              zoom={zoom}
+              zoom={Math.max(0, Math.min(1, zoom))}
               onCameraReady={() => {
                 console.log('Camera is ready');
                 setCameraReady(true);
@@ -400,9 +400,9 @@ export default function CaptureScreen() {
               marginBottom: 10,
             }}
             onPress={zoomIn}
-            disabled={zoom >= 2}
+            disabled={zoom >= 1}
           >
-            <Ionicons name="add" size={24} color={zoom >= 2 ? "#64748B" : "#F8FAFC"} />
+            <Ionicons name="add" size={24} color={zoom >= 1 ? "#64748B" : "#F8FAFC"} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -516,7 +516,7 @@ export default function CaptureScreen() {
                       
                       // Add smoothing and bounds checking
                       const progress = Math.max(0, Math.min(1, touchX / sliderWidth));
-                      const newZoom = progress * 2; // 0 to 2x zoom
+                      const newZoom = progress; // 0 to 1 normalized zoom
                       
                       // Smooth the zoom changes to prevent jerkiness
                       setZoom(newZoom);
@@ -568,7 +568,7 @@ export default function CaptureScreen() {
                 paddingHorizontal: 6,
                 paddingVertical: 2,
                 borderRadius: 4,
-              }}>3x</Text>
+              }}>2x</Text>
             </View>
           </View>
         )}

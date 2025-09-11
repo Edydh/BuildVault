@@ -1,0 +1,64 @@
+diff --git a/node_modules/expo-camera/ios/Current/CameraSessionManager.swift b/node_modules/expo-camera/ios/Current/CameraSessionManager.swift
+index eaee86a..0eca105 100644
+--- a/node_modules/expo-camera/ios/Current/CameraSessionManager.swift
++++ b/node_modules/expo-camera/ios/Current/CameraSessionManager.swift
+@@ -195,15 +195,40 @@ class CameraSessionManager: NSObject {
+       return
+     }
+ 
++    // Normalize and clamp incoming zoom to 0...1
++    let normalized = delegate.zoom.isFinite ? max(0.0, min(1.0, delegate.zoom)) : 0.0
++
++    // Determine available zoom range
++    let minZoom: CGFloat
++    let maxZoom: CGFloat
++    if #available(iOS 13.0, *) {
++      minZoom = max(1.0, device.minAvailableVideoZoomFactor)
++      maxZoom = max(minZoom, device.maxAvailableVideoZoomFactor)
++    } else {
++      minZoom = 1.0
++      maxZoom = max(minZoom, device.activeFormat.videoMaxZoomFactor)
++    }
++
++    // Map normalized (0..1) to available range using exponential curve
++    let target = minZoom * pow(maxZoom / minZoom, normalized)
++    let clampedTarget = min(max(target, minZoom), maxZoom)
++
+     do {
+       try device.lockForConfiguration()
+-      let minZoom = 1.0
+-      device.videoZoomFactor = minZoom * pow(device.activeFormat.videoMaxZoomFactor / minZoom, delegate.zoom)
++      defer { device.unlockForConfiguration() }
++
++      if device.isRampingVideoZoom {
++        device.cancelVideoZoomRamp()
++      }
++
++      if abs(device.videoZoomFactor - clampedTarget) > 0.01 {
++        device.videoZoomFactor = clampedTarget
++        // Alternatively ramp smoothly:
++        // device.ramp(toVideoZoomFactor: clampedTarget, withRate: 8.0)
++      }
+     } catch {
+       log.info("\(#function): \(error.localizedDescription)")
+     }
+-
+-    device.unlockForConfiguration()
+   }
+ 
+   func getAvailableLenses() -> [String] {
+diff --git a/node_modules/expo-camera/ios/Current/CameraView.swift b/node_modules/expo-camera/ios/Current/CameraView.swift
+index f4de759..2cbec92 100644
+--- a/node_modules/expo-camera/ios/Current/CameraView.swift
++++ b/node_modules/expo-camera/ios/Current/CameraView.swift
+@@ -122,7 +122,9 @@ public class CameraView: ExpoView, EXAppLifecycleListener, EXCameraInterface, Ca
+ 
+   var zoom: CGFloat = 0 {
+     didSet {
+-      sessionManager.updateZoom()
++      sessionQueue.async {
++        self.sessionManager.updateZoom()
++      }
+     }
+   }
+ 
