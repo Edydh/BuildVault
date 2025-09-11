@@ -53,7 +53,7 @@ export default function Settings() {
         projects: any[];
       } = {
         exportDate: new Date().toISOString(),
-        version: '1.0.0',
+        version: '1.0.1',
         projects: []
       };
 
@@ -141,7 +141,7 @@ export default function Settings() {
   const handleAbout = () => {
     Alert.alert(
       'About BuildVault',
-      'BuildVault v1.0.0\n\nA comprehensive construction project management app for organizing projects, capturing media, and managing documentation.\n\n© 2025 uniQubit\nBuilt with React Native & Expo',
+      'BuildVault v1.0.1\n\nA comprehensive construction project management app for organizing projects, capturing media, and managing documentation.\n\n© 2025 uniQubit\nBuilt with React Native & Expo',
       [{ text: 'OK' }]
     );
   };
@@ -380,7 +380,7 @@ export default function Settings() {
         <SettingItem
           icon="information-circle"
           title="About BuildVault"
-          subtitle="Version 1.0.0"
+          subtitle="Version 1.0.1"
           onPress={handleAbout}
         />
 
