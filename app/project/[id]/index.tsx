@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,9 @@ import {
   FlatList,
   TextInput,
   ScrollView,
+  Animated,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { Image } from 'react-native';
@@ -27,6 +29,7 @@ import NoteEncouragement from '../../../components/NoteEncouragement';
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [project, setProject] = useState<Project | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -37,6 +40,28 @@ export default function ProjectDetail() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+
+  // Animation values for dynamic header (match Projects/Settings pattern)
+  const headerOpacity = useRef(new Animated.Value(1)).current;
+  const [headerHeight, setHeaderHeight] = useState<number>(0);
+  const topOverlayHeight = headerHeight > 0 ? headerHeight : insets.top + 160;
+
+  const handleScroll = (event: any) => {
+    try {
+      const offsetY = event.nativeEvent.contentOffset.y;
+      const fadeStart = 50;
+      const fadeEnd = 150;
+      if (offsetY > fadeStart) {
+        const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
+        const opacity = Math.max(0, 1 - progress);
+        headerOpacity.setValue(opacity);
+      } else {
+        headerOpacity.setValue(1);
+      }
+    } catch (e) {
+      headerOpacity.setValue(1);
+    }
+  };
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -1196,76 +1221,19 @@ export default function ProjectDetail() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
-      {/* Header */}
-      <View style={{ padding: 16, paddingTop: 60, paddingBottom: 20 }}>
-        {isSelectionMode ? (
-          <View style={{
-            position: 'absolute',
-            top: 60,
-            left: 16,
-            flexDirection: 'row',
-            alignItems: 'center',
-            zIndex: 1,
-          }}>
-            <TouchableOpacity
-              onPress={toggleSelectionMode}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: '#101826',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginRight: 8,
-              }}
-            >
-              <Ionicons name="close" size={20} color="#F8FAFC" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={selectedItems.size === media.length ? clearSelection : selectAllItems}
-              style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: '#101826',
-            justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <Ionicons 
-                name={selectedItems.size === media.length ? "square-outline" : "checkbox"} 
-                size={20} 
-                color="#F8FAFC" 
-              />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={{
-            position: 'absolute',
-            top: 60,
-            left: 16,
-            flexDirection: 'row',
-            alignItems: 'center',
-            zIndex: 1,
-          }}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: '#101826',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginRight: 8,
-          }}
-        >
-          <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
-        </TouchableOpacity>
-            {media.length > 0 && (
+      {/* Header (animated opacity, overlay) */}
+      <Animated.View 
+        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+        style={{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, opacity: headerOpacity, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: '#0B0F14', pointerEvents: 'box-none' }}
+      >
+        <View style={{ pointerEvents: 'auto' }}>
+        {/* Top action bar: left and right clusters, no absolute positioning */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {isSelectionMode ? (
               <>
                 <TouchableOpacity
-                  onPress={toggleViewMode}
+                  onPress={toggleSelectionMode}
                   style={{
                     width: 40,
                     height: 40,
@@ -1276,14 +1244,10 @@ export default function ProjectDetail() {
                     marginRight: 8,
                   }}
                 >
-                  <Ionicons 
-                    name={viewMode === 'list' ? 'grid' : 'list'} 
-                    size={20} 
-                    color="#F8FAFC" 
-                  />
+                  <Ionicons name="close" size={20} color="#F8FAFC" />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={toggleSelectionMode}
+                  onPress={selectedItems.size === media.length ? clearSelection : selectAllItems}
                   style={{
                     width: 40,
                     height: 40,
@@ -1293,14 +1257,128 @@ export default function ProjectDetail() {
                     alignItems: 'center',
                   }}
                 >
-                  <Ionicons name="checkbox-outline" size={20} color="#F8FAFC" />
+                  <Ionicons 
+                    name={selectedItems.size === media.length ? 'square-outline' : 'checkbox'}
+                    size={20}
+                    color="#F8FAFC"
+                  />
                 </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={() => router.back()}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: '#101826',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: 8,
+                  }}
+                >
+                  <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
+                </TouchableOpacity>
+                {media.length > 0 && (
+                  <>
+                    <TouchableOpacity
+                      onPress={toggleViewMode}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: '#101826',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginRight: 8,
+                      }}
+                    >
+                      <Ionicons 
+                        name={viewMode === 'list' ? 'grid' : 'list'}
+                        size={20}
+                        color="#F8FAFC"
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={toggleSelectionMode}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: '#101826',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Ionicons name="checkbox-outline" size={20} color="#F8FAFC" />
+                    </TouchableOpacity>
+                  </>
+                )}
               </>
             )}
           </View>
-        )}
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {isSelectionMode ? (
+              <>
+                <TouchableOpacity
+                  onPress={handleShareSelected}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: selectedItems.size > 0 ? '#3B82F6' : '#1F2A37',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: 8,
+                  }}
+                  disabled={selectedItems.size === 0}
+                >
+                  <Ionicons 
+                    name="share"
+                    size={20}
+                    color={selectedItems.size > 0 ? '#FFFFFF' : '#64748B'}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDeleteSelected}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: selectedItems.size > 0 ? '#EF4444' : '#1F2A37',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                  disabled={selectedItems.size === 0}
+                >
+                  <Ionicons 
+                    name="trash"
+                    size={20}
+                    color={selectedItems.size > 0 ? '#FFFFFF' : '#64748B'}
+                  />
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity
+                onPress={handleShareProject}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: '#101826',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons name="share" size={20} color="#F8FAFC" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
 
-        <View style={{ alignItems: 'center', flex: 1 }}>
+        {/* Title and description */}
+        <View style={{ alignItems: 'center', marginTop: 12 }}>
           <Text style={{ color: '#F8FAFC', fontSize: 24, fontWeight: 'bold' }}>
             {isSelectionMode ? `${selectedItems.size} Selected` : project.name}
           </Text>
@@ -1312,190 +1390,121 @@ export default function ProjectDetail() {
           <Text style={{ color: '#94A3B8', fontSize: 14, marginTop: 4 }}>
             {isSelectionMode 
               ? 'Tap items to select • Use buttons to share or delete' 
-              : `Project Details • ${viewMode === 'list' ? 'List' : 'Grid'} View`
-            }
+              : `Project Details • ${viewMode === 'list' ? 'List' : 'Grid'} View`}
           </Text>
         </View>
-
-        {isSelectionMode ? (
-          <View style={{
-            position: 'absolute',
-            top: 60,
-            right: 16,
-            flexDirection: 'row',
-            alignItems: 'center',
-            zIndex: 1,
-          }}>
-            <TouchableOpacity
-              onPress={handleShareSelected}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: selectedItems.size > 0 ? '#3B82F6' : '#1F2A37',
-                justifyContent: 'center',
+          {/* Folder Management inside header */}
+          {!isSelectionMode && (
+            <View style={{ marginTop: 12 }}>
+              {/* Folder Selector */}
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  paddingRight: 16 
+                }}
+                style={{ marginBottom: 12 }}
+                pointerEvents="auto"
+              >
+                <TouchableOpacity
+                  onPress={() => handleSelectFolder(null)}
+                  style={{
+                    backgroundColor: currentFolder === null ? '#FF7A1A' : '#1F2A37',
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    marginRight: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="home" size={16} color={currentFolder === null ? '#0B0F14' : '#F8FAFC'} />
+                  <Text style={{ 
+                    color: currentFolder === null ? '#0B0F14' : '#F8FAFC', 
+                    fontSize: 12, 
+                    fontWeight: '600',
+                    marginLeft: 4 
+                  }}>
+                    All Media
+                  </Text>
+                </TouchableOpacity>
+                {folders.map(folder => (
+                  <TouchableOpacity
+                    key={folder.id}
+                    onPress={() => handleSelectFolder(folder.id)}
+                    style={{
+                      backgroundColor: currentFolder === folder.id ? '#FF7A1A' : '#1F2A37',
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 20,
+                      marginRight: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Ionicons name="folder" size={16} color={currentFolder === folder.id ? '#0B0F14' : '#F8FAFC'} />
+                    <Text style={{ 
+                      color: currentFolder === folder.id ? '#0B0F14' : '#F8FAFC', 
+                      fontSize: 12, 
+                      fontWeight: '600',
+                      marginLeft: 4 
+                    }}>
+                      {folder.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  onPress={() => setShowFolderModal(true)}
+                  style={{
+                    backgroundColor: '#1F2A37',
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: '#FF7A1A',
+                    borderStyle: 'dashed',
+                  }}
+                >
+                  <Ionicons name="add" size={16} color="#FF7A1A" />
+                  <Text style={{ color: '#FF7A1A', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
+                    New Folder
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
+              {/* Current Folder Indicator */}
+              <View style={{ 
+                backgroundColor: '#1F2A37', 
+                paddingHorizontal: 12, 
+                paddingVertical: 8, 
+                borderRadius: 12,
+                flexDirection: 'row',
                 alignItems: 'center',
-                marginRight: 8,
-              }}
-              disabled={selectedItems.size === 0}
-            >
-              <Ionicons 
-                name="share" 
-                size={20} 
-                color={selectedItems.size > 0 ? '#FFFFFF' : '#64748B'} 
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleDeleteSelected}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: selectedItems.size > 0 ? '#EF4444' : '#1F2A37',
                 justifyContent: 'center',
-                alignItems: 'center',
-              }}
-              disabled={selectedItems.size === 0}
-            >
-              <Ionicons 
-                name="trash" 
-                size={20} 
-                color={selectedItems.size > 0 ? '#FFFFFF' : '#64748B'} 
-              />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity
-            onPress={handleShareProject}
-            style={{
-              position: 'absolute',
-              top: 60,
-              right: 16,
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: '#101826',
-              justifyContent: 'center',
-              alignItems: 'center',
-              zIndex: 1,
-            }}
-          >
-            <Ionicons name="share" size={20} color="#F8FAFC" />
-          </TouchableOpacity>
-        )}
-      </View>
+              }}>
+                <Ionicons name="camera" size={14} color="#FF7A1A" />
+                <Text style={{ color: '#94A3B8', fontSize: 12, marginLeft: 6 }}>
+                  New media will be saved to: <Text style={{ color: '#FF7A1A', fontWeight: '600' }}>
+                    {currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media'}
+                  </Text>
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+      </Animated.View>
 
       {/* Media List/Grid */}
-      {/* Folder Management */}
-      {!isSelectionMode && (
-        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-          {/* Folder Selector */}
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ 
-              flexDirection: 'row', 
-              alignItems: 'center', 
-              paddingRight: 16 
-            }}
-            style={{ marginBottom: 12 }}
-          >
-            <TouchableOpacity
-              onPress={() => handleSelectFolder(null)}
-              style={{
-                backgroundColor: currentFolder === null ? '#FF7A1A' : '#1F2A37',
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 20,
-                marginRight: 8,
-                flexDirection: 'row',
-                alignItems: 'center',
-              }}
-            >
-              <Ionicons name="home" size={16} color={currentFolder === null ? '#0B0F14' : '#F8FAFC'} />
-              <Text style={{ 
-                color: currentFolder === null ? '#0B0F14' : '#F8FAFC', 
-                fontSize: 12, 
-                fontWeight: '600',
-                marginLeft: 4 
-              }}>
-                All Media
-              </Text>
-            </TouchableOpacity>
-            
-            {folders.map(folder => (
-              <TouchableOpacity
-                key={folder.id}
-                onPress={() => handleSelectFolder(folder.id)}
-                style={{
-                  backgroundColor: currentFolder === folder.id ? '#FF7A1A' : '#1F2A37',
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 20,
-                  marginRight: 8,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="folder" size={16} color={currentFolder === folder.id ? '#0B0F14' : '#F8FAFC'} />
-                <Text style={{ 
-                  color: currentFolder === folder.id ? '#0B0F14' : '#F8FAFC', 
-                  fontSize: 12, 
-                  fontWeight: '600',
-                  marginLeft: 4 
-                }}>
-                  {folder.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-            
-            <TouchableOpacity
-              onPress={() => setShowFolderModal(true)}
-              style={{
-                backgroundColor: '#1F2A37',
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 20,
-                flexDirection: 'row',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: '#FF7A1A',
-                borderStyle: 'dashed',
-              }}
-            >
-              <Ionicons name="add" size={16} color="#FF7A1A" />
-              <Text style={{ color: '#FF7A1A', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
-                New Folder
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-          
-          {/* Current Folder Indicator */}
-          <View style={{ 
-            backgroundColor: '#1F2A37', 
-            paddingHorizontal: 12, 
-            paddingVertical: 8, 
-            borderRadius: 12,
-            marginTop: 8,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <Ionicons name="camera" size={14} color="#FF7A1A" />
-            <Text style={{ color: '#94A3B8', fontSize: 12, marginLeft: 6 }}>
-              New media will be saved to: <Text style={{ color: '#FF7A1A', fontWeight: '600' }}>
-                {currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media'}
-              </Text>
-            </Text>
-          </View>
-        </View>
-      )}
 
       <FlatList
         data={media}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
-          padding: 16, 
+          paddingHorizontal: 16, 
+          paddingTop: topOverlayHeight,
           paddingBottom: 100,
         }}
         numColumns={viewMode === 'grid' ? 2 : 1}
@@ -1503,6 +1512,8 @@ export default function ProjectDetail() {
         renderItem={({ item }) => 
           viewMode === 'grid' ? <MediaCardGrid item={item} /> : <MediaCard item={item} />
         }
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         ListEmptyComponent={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
             <Ionicons name="images" size={64} color="#1F2A37" style={{ marginBottom: 20 }} />
