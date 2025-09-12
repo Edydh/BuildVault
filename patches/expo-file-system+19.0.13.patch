@@ -1,0 +1,13 @@
+diff --git a/node_modules/expo-file-system/android/src/main/AndroidManifest.xml b/node_modules/expo-file-system/android/src/main/AndroidManifest.xml
+index 051a4f6..6be1baf 100644
+--- a/node_modules/expo-file-system/android/src/main/AndroidManifest.xml
++++ b/node_modules/expo-file-system/android/src/main/AndroidManifest.xml
+@@ -3,7 +3,7 @@
+     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+     <application>
+-        <provider tools:replace="android:authorities" android:name=".FileSystemFileProvider" android:authorities="${applicationId}.FileSystemFileProvider" android:exported="false" android:grantUriPermissions="true">
++        <provider tools:replace="android:authorities" android:name="expo.modules.filesystem.legacy.FileSystemFileProvider" android:authorities="${applicationId}.FileSystemFileProvider" android:exported="false" android:grantUriPermissions="true">
+             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_system_provider_paths" />
+         </provider>
+     </application>
