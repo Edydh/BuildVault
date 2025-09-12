@@ -27,13 +27,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Subscribe to Supabase auth state changes
     const { data: subscription } = supabase.auth.onAuthStateChange(async (event, session) => {
       try {
+        console.log('Supabase auth state change:', event, session?.user ? 'with user' : 'no user');
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           if (session?.user) {
             const synced = await authService.upsertUserFromSupabase(session.user);
             setUser(synced);
           } else {
-            const currentUser = await authService.getCurrentUser();
-            setUser(currentUser);
+            // Don't immediately fetch local user, let the sign-in flow handle it
+            console.log('Session without user, skipping local user fetch');
           }
         }
         if (event === 'SIGNED_OUT') {
@@ -87,7 +88,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.log('Apple Sign-In result:', result.success ? 'Success' : 'Failed', result.error || '');
       
       if (result.success && result.user) {
-        console.log('Setting user in AuthContext:', result.user.name);
+        console.log('Setting user in AuthContext:', result.user.name || 'Apple User');
         setUser(result.user);
         
         // Force a small delay to ensure state is updated
@@ -116,7 +117,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.log('Google Sign-In result:', result.success ? 'Success' : 'Failed', result.error || '');
       
       if (result.success && result.user) {
-        console.log('Setting user in AuthContext:', result.user.name);
+        console.log('Setting user in AuthContext:', result.user.name || 'Google User');
         setUser(result.user);
         
         // Force a small delay to ensure state is updated

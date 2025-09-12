@@ -6,6 +6,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, User } from './db';
 import { ErrorHandler, withErrorHandling } from './errorHandler';
+import * as Crypto from 'expo-crypto';
 
 export interface AuthResult {
   success: boolean;
@@ -67,12 +68,14 @@ export class AuthService {
 
       // Request Apple Sign-In with nonce for Supabase verification
       const rawNonce = Math.random().toString(36).slice(2);
+      const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+      
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
-        nonce: rawNonce,
+        nonce: hashedNonce,
       });
 
       if (!credential.user || !credential.identityToken) {
@@ -81,9 +84,10 @@ export class AuthService {
 
       // For native Apple Sign-In, we'll create the user locally first, then try to sync with Supabase
       const email = credential.email || `${credential.user}@privaterelay.appleid.com`;
-      const name = credential.fullName
-        ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
-        : 'Apple User';
+      const fullNameParts = [];
+      if (credential.fullName?.givenName) fullNameParts.push(credential.fullName.givenName);
+      if (credential.fullName?.familyName) fullNameParts.push(credential.fullName.familyName);
+      const name = fullNameParts.length > 0 ? fullNameParts.join(' ') : 'Apple User';
 
       // Create or update local user
       let user = getUserByProviderId(credential.user, 'apple');
@@ -105,10 +109,11 @@ export class AuthService {
       // Try to sync with Supabase (optional - app works without this)
       try {
         console.log('Attempting to sync Apple user with Supabase');
+        console.log('Using raw nonce for Supabase:', rawNonce);
         const { data, error } = await supabase.auth.signInWithIdToken({
           provider: 'apple',
           token: credential.identityToken,
-          nonce: rawNonce,
+          nonce: rawNonce, // Use raw nonce for Supabase, hashed nonce was for Apple
         });
 
         if (error) {
@@ -205,6 +210,8 @@ export class AuthService {
             if (sessionData.session?.user) {
               // Create/update local user from Supabase session
               const user = await this.upsertUserFromSupabase(sessionData.session.user);
+              this.currentUser = user;
+              await this.storeUserSession(user);
               return { success: true, user };
             }
           }
@@ -223,6 +230,8 @@ export class AuthService {
 
           if (sessionData.session?.user) {
             const user = await this.upsertUserFromSupabase(sessionData.session.user);
+            this.currentUser = user;
+            await this.storeUserSession(user);
             return { success: true, user };
           }
         }
@@ -239,6 +248,13 @@ export class AuthService {
 
   async upsertUserFromSupabase(supabaseUser: any): Promise<User> {
     // Sync Supabase user into local DB so the rest of the app can work unchanged
+    console.log('Upserting user from Supabase:', {
+      id: supabaseUser.id,
+      email: supabaseUser.email,
+      metadata: supabaseUser.user_metadata,
+      provider: supabaseUser.app_metadata?.provider
+    });
+    
     const email = supabaseUser.email || `${supabaseUser.id}@user.local`;
     const name = supabaseUser.user_metadata?.full_name || 
                  supabaseUser.user_metadata?.name || 
@@ -246,11 +262,16 @@ export class AuthService {
                  'User';
     const providerId = supabaseUser.id;
     const provider = supabaseUser.app_metadata?.provider || 'supabase';
+    
+    console.log('Creating/updating local user:', { email, name, provider, providerId });
+    
     let user = getUserByProviderId(providerId, provider);
     if (!user) {
       user = createUser({ email, name, provider, providerId, avatar: null });
+      console.log('Created new local user:', user.name);
     } else {
       updateUserLastLogin(user.id);
+      console.log('Updated existing local user:', user.name);
     }
     this.currentUser = user;
     await this.storeUserSession(user);
