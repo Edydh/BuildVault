@@ -62,7 +62,7 @@ This document tracks the implementation of Apple ID and Google Sign-In authentic
   - Privacy Policy: [https://sites.google.com/view/buildvault-legal-privacy/](https://sites.google.com/view/buildvault-legal-privacy/)
   - Terms of Service: [https://sites.google.com/view/buildvault-legal-terms/](https://sites.google.com/view/buildvault-legal-terms/)
 
-## 🔄 Current Status (January 2025)
+## 🔄 Current Status (September 2025)
 
 ### **Working Features:**
 - ✅ **Apple Sign-In** - Fully functional on iOS devices
@@ -86,9 +86,34 @@ This document tracks the implementation of Apple ID and Google Sign-In authentic
 - ⚠️ **Supabase in Expo Go** - Disabled due to redirect issues
 - ⚠️ **Development Mode** - Using local authentication for now
 
+## 🟠 Active Issue: Apple Sign-In users not registered in Supabase (TestFlight)
+
+- **Symptom:** Users can sign in with Apple on TestFlight, but no corresponding user appears in Supabase Auth/users.
+- **Most likely causes:**
+  - Production build is still using the local-auth path instead of Supabase for Apple.
+  - Supabase Apple provider is not fully configured (Services ID, Team ID, Key ID, private key, redirect URL).
+  - The app is not exchanging the Apple identity token with Supabase (missing `supabase.auth.signInWithIdToken({ provider: 'apple', token, nonce })`).
+  - Nonce mismatch or missing SHA-256 hashed nonce when generating the Apple request.
+- **Immediate diagnostics:**
+  - Add temporary logging/telemetry around the Apple sign-in path to confirm which flow runs in TestFlight.
+  - Check Supabase Auth logs for attempted Apple sign-ins and errors.
+  - Verify TestFlight build has correct environment flags and Supabase creds bundled.
+  - Confirm Apple return/redirect URL is whitelisted in both Apple and Supabase.
+- **Fix plan:**
+  - Ensure production builds route Apple sign-in through Supabase (not local auth).
+  - Implement/verify token exchange via `supabase.auth.signInWithIdToken({ provider: 'apple', token: identityToken, nonce })` with hashed nonce.
+  - Complete Supabase Apple provider setup (Services ID, Key ID, Team ID, private key, redirect URL) and validate.
+  - Re-test on TestFlight and confirm user creation in Supabase.
+
 ## 📋 Remaining Tasks for Production
 
 ### **High Priority - Production Authentication**
+
+ - [ ] Fix Apple Sign-In Supabase user registration in TestFlight
+   - Ensure production uses Supabase path for Apple (env/config switch)
+   - Exchange Apple identity token with Supabase (`signInWithIdToken`) using nonce
+   - Complete/verify Supabase Apple provider configuration (Services ID, Team ID, Key ID, private key, redirect URL)
+   - Validate user record appears in Supabase after Apple sign-in
 
 #### 1. **TestFlight/Production Build**
 - [ ] **Enable Supabase Authentication**
@@ -190,6 +215,7 @@ AuthContext → AuthService → Supabase Auth → SQLite Database → SecureStor
 ### **Pending Tests:**
 - [ ] Google OAuth with Supabase (production)
 - [ ] Apple Sign-In with Supabase (production)
+- [ ] Apple TestFlight sign-in creates Supabase user record
 - [ ] Cross-platform authentication consistency
 - [ ] Session persistence with Supabase
 - [ ] Error handling for network issues
@@ -275,6 +301,6 @@ AuthContext → AuthService → Supabase Auth → SQLite Database → SecureStor
 - Local authentication is sufficient for development
 - Production builds require different authentication strategy
 
-**Last Updated**: January 11, 2025  
-**Status**: Development authentication complete, Production setup pending  
-**Next Milestone**: TestFlight build with Supabase authentication
+**Last Updated**: September 12, 2025  
+**Status**: TestFlight ongoing; Apple ID users not registered in Supabase  
+**Next Milestone**: Resolve Apple Supabase registration and validate in TestFlight
