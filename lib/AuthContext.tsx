@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { router } from 'expo-router';
 import { authService, AuthResult } from './auth';
 import { User } from './db';
+import { supabase } from './supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -22,6 +23,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     checkAuthState();
+    // Subscribe to Supabase auth state changes
+    const { data: subscription } = supabase.auth.onAuthStateChange(async (event, session) => {
+      try {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          const currentUser = await authService.getCurrentUser();
+          setUser(currentUser);
+        }
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+        }
+      } catch (e) {
+        console.log('Auth state change handler error:', e);
+      }
+    });
+
+    return () => {
+      subscription?.subscription?.unsubscribe();
+    };
   }, []);
 
   // Debug: Track user state changes

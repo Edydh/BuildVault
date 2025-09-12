@@ -80,14 +80,26 @@ export class AuthService {
         };
       }
 
-      // For Expo Go: Use local authentication without Supabase
+      // For Expo Go or local: Use local authentication but also try Supabase exchange when possible
       // Extract user information
       const email = credential.email || 'no-email@privaterelay.appleid.com';
       const name = credential.fullName 
         ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
         : 'Apple User';
 
-      // Check if user already exists in our database
+      // Attempt to establish Supabase session using Apple identity token if available
+      try {
+        if (credential.identityToken) {
+          await supabase.auth.signInWithIdToken({
+            provider: 'apple',
+            token: credential.identityToken,
+          });
+        }
+      } catch (e) {
+        console.log('Supabase Apple sign-in exchange failed (non-fatal):', e);
+      }
+
+      // Check if user already exists in our local database
       let user = getUserByProviderId(credential.user, 'apple');
       
       if (!user) {
