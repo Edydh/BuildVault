@@ -20,7 +20,7 @@ import * as Sharing from 'expo-sharing';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { MediaItem, getMediaById, updateMediaNote, deleteMedia } from '../../../../lib/db';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { cleanupImageVariants } from '../../../../lib/imageOptimization';
 import NoteEncouragement from '../../../../components/NoteEncouragement';

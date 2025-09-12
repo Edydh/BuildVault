@@ -83,9 +83,11 @@ export function migrate() {
     // Add folder_id column to media table if it doesn't exist
     try {
       db.execSync(`ALTER TABLE media ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL`);
-    } catch (error) {
+    } catch (error: any) {
       // Column already exists, ignore error - this is expected
-      console.log('folder_id column already exists or error adding it:', error);
+      if (!error?.message?.includes('duplicate column name')) {
+        console.log('Unexpected error adding folder_id column:', error);
+      }
     }
   }, 'Database migration', false); // Don't show alert for expected errors
 }

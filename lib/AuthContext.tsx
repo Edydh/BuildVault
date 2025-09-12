@@ -69,8 +69,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const currentUser = await authService.getCurrentUser();
       console.log('Current user (local):', currentUser ? 'Found' : 'Not found');
       
-      // Only set user if we don't already have one (prevent overriding fresh sign-in)
-      if (!user || currentUser) {
+      // Only update user state if it's actually different
+      if (currentUser?.id !== user?.id) {
         setUser(currentUser);
       }
     } catch (error) {
