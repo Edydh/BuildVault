@@ -20,8 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Project, createProject, getProjects, deleteProject, getMediaByProject } from '../../lib/db';
 import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
-import * as FileSystem from 'expo-file-system';
-import { documentDirectory } from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
 
@@ -150,7 +149,7 @@ export default function ProjectsList() {
 
       // Create export file
       const exportFileName = `BuildVault_Project_${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_Summary_${new Date().toISOString().split('T')[0]}.json`;
-      const exportPath = documentDirectory + exportFileName;
+      const exportPath = FileSystem.documentDirectory + exportFileName;
       
       await FileSystem.writeAsStringAsync(exportPath, JSON.stringify(projectData, null, 2));
 
@@ -181,7 +180,7 @@ export default function ProjectsList() {
       
       // Create a project folder structure
       const projectFolderName = `BuildVault_Project_${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}`;
-      const projectFolderPath = documentDirectory + projectFolderName + '/';
+      const projectFolderPath = FileSystem.documentDirectory + projectFolderName + '/';
       
       // Create project folder
       await FileSystem.makeDirectoryAsync(projectFolderPath, { intermediates: true });

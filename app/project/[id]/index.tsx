@@ -19,8 +19,7 @@ import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, cre
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
-import * as FileSystem from 'expo-file-system';
-import { documentDirectory } from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LazyImage from '../../../components/LazyImage';
@@ -127,7 +126,7 @@ export default function ProjectDetail() {
             
             // Move thumbnail to project directory
             const thumbFilename = `thumb_${video.id}.jpg`;
-            const mediaDir = `${documentDirectory}buildvault/${id}/media/`;
+            const mediaDir = `${FileSystem.documentDirectory}buildvault/${id}/media/`;
             const thumbFileUri = mediaDir + thumbFilename;
             
             await FileSystem.moveAsync({
@@ -274,7 +273,7 @@ export default function ProjectDetail() {
 
       // Create export file
       const exportFileName = `BuildVault_Project_${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_Summary_${new Date().toISOString().split('T')[0]}.json`;
-      const exportPath = documentDirectory + exportFileName;
+      const exportPath = FileSystem.documentDirectory + exportFileName;
       
       await FileSystem.writeAsStringAsync(exportPath, JSON.stringify(projectData, null, 2));
 
@@ -303,7 +302,7 @@ export default function ProjectDetail() {
       
       // Create a project folder structure
       const projectFolderName = `BuildVault_Project_${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}`;
-      const projectFolderPath = documentDirectory + projectFolderName + '/';
+      const projectFolderPath = FileSystem.documentDirectory + projectFolderName + '/';
       
       // Create project folder
       await FileSystem.makeDirectoryAsync(projectFolderPath, { intermediates: true });
