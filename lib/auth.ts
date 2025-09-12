@@ -48,21 +48,24 @@ export class AuthService {
       // Check if Apple Sign-In is available
       const isAvailable = await AppleAuthentication.isAvailableAsync();
       if (!isAvailable) {
-        // For development/testing, create a mock user
-        console.log('Apple Sign-In not available, creating mock user for development');
-        const mockUser = createUser({
-          email: 'dev@buildvault.app',
-          name: 'Development User',
-          provider: 'apple',
-          providerId: 'dev-user-123',
-          avatar: null,
-        });
-        await this.storeUserSession(mockUser);
-        this.currentUser = mockUser;
-        return { success: true, user: mockUser };
+        // Only use mock in Expo Go for development
+        if (__DEV__ && Platform.OS === 'ios') {
+          console.log('Apple Sign-In not available in Expo Go, creating mock user');
+          const mockUser = createUser({
+            email: 'dev@buildvault.app',
+            name: 'Development User',
+            provider: 'apple',
+            providerId: 'dev-user-123',
+            avatar: null,
+          });
+          await this.storeUserSession(mockUser);
+          this.currentUser = mockUser;
+          return { success: true, user: mockUser };
+        }
+        return { success: false, error: 'Apple Sign-In is not available on this device' };
       }
 
-      // Request Apple Sign-In with nonce for later verification
+      // Request Apple Sign-In with nonce for Supabase verification
       const rawNonce = Math.random().toString(36).slice(2);
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
@@ -72,50 +75,30 @@ export class AuthService {
         nonce: rawNonce,
       });
 
-      if (!credential.user) {
-        return { success: false, error: 'Failed to get user ID from Apple' };
+      if (!credential.user || !credential.identityToken) {
+        return { success: false, error: 'Failed to get credentials from Apple' };
       }
 
-      // Attempt Supabase session using Apple identity token when available
-      try {
-        if (credential.identityToken) {
-          const { error } = await supabase.auth.signInWithIdToken({
-            provider: 'apple',
-            token: credential.identityToken,
-            nonce: rawNonce,
-          });
-          if (error) {
-            console.log('Supabase Apple sign-in exchange error:', error.message);
-          }
-        } else {
-          console.log('Apple identityToken not present; cannot create Supabase session.');
-        }
-      } catch (e) {
-        console.log('Supabase Apple sign-in exchange failed (non-fatal):', e);
+      // Sign in with Supabase using the Apple identity token
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+        nonce: rawNonce,
+      });
+
+      if (error) {
+        console.error('Supabase Apple sign-in error:', error);
+        return { success: false, error: error.message };
       }
 
-      // Extract display info (Apple may not provide email on subsequent logins)
-      const email = credential.email || undefined;
-      const name = credential.fullName
-        ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
-        : 'Apple User';
-
-      // Sync to local DB (keeps app working even if offline)
-      let user = getUserByProviderId(credential.user, 'apple');
-      if (!user) {
-        user = createUser({
-          email: email || 'apple-user@unknown',
-          name,
-          provider: 'apple',
-          providerId: credential.user,
-          avatar: null,
-        });
-      } else {
-        updateUserLastLogin(user.id);
+      if (!data.session?.user) {
+        return { success: false, error: 'Failed to create session' };
       }
 
-      await this.storeUserSession(user);
-      this.currentUser = user;
+      // Create/update local user from Supabase session
+      const supabaseUser = data.session.user;
+      const user = await this.upsertUserFromSupabase(supabaseUser);
+      
       return { success: true, user };
     } catch (error: any) {
       // Handle user cancellation gracefully (not an error)
@@ -129,34 +112,83 @@ export class AuthService {
     }
   }
 
-  async signInWithGoogle(): Promise<void> {
+  async signInWithGoogle(): Promise<AuthResult> {
     try {
-      // Use Supabase Auth with Google in-app browser flow
-      const redirectTo = AuthSession.makeRedirectUri({ scheme: 'buildvault', path: 'auth/callback' });
+      // Create redirect URI for native app
+      const redirectTo = AuthSession.makeRedirectUri({
+        scheme: 'buildvault',
+        path: 'auth/callback',
+      });
+      
+      console.log('Google OAuth redirect URI:', redirectTo);
+
+      // Start OAuth flow with Supabase
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
-          skipBrowserRedirect: true,
+          skipBrowserRedirect: true, // We'll handle the redirect manually
         },
       });
-      if (error) throw error;
-      if (data?.url) {
-        // Launch the auth session and wait for redirect back to our scheme
-        await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-      } else {
-        console.log('Supabase returned no URL for Google OAuth start');
+
+      if (error) {
+        console.error('Supabase Google OAuth error:', error);
+        return { success: false, error: error.message };
       }
-    } catch (e) {
-      console.log('Google sign-in error:', e);
-      Alert.alert('Google Sign-In Failed', 'Please try again.');
+
+      if (!data?.url) {
+        return { success: false, error: 'No OAuth URL returned' };
+      }
+
+      // Open the OAuth URL in an auth session
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectTo
+      );
+
+      if (result.type === 'success' && result.url) {
+        // Extract the hash fragment from the redirect URL
+        const url = new URL(result.url);
+        const hashParams = new URLSearchParams(url.hash.substring(1));
+        const access_token = hashParams.get('access_token');
+        const refresh_token = hashParams.get('refresh_token');
+
+        if (access_token && refresh_token) {
+          // Set the session in Supabase
+          const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+
+          if (sessionError) {
+            console.error('Failed to set session:', sessionError);
+            return { success: false, error: sessionError.message };
+          }
+
+          if (sessionData.session?.user) {
+            // Create/update local user from Supabase session
+            const user = await this.upsertUserFromSupabase(sessionData.session.user);
+            return { success: true, user };
+          }
+        }
+      } else if (result.type === 'cancel') {
+        return { success: false, error: 'USER_CANCELED' };
+      }
+
+      return { success: false, error: 'Authentication failed' };
+    } catch (e: any) {
+      console.error('Google sign-in error:', e);
+      return { success: false, error: e.message || 'Google Sign-In failed' };
     }
   }
 
   async upsertUserFromSupabase(supabaseUser: any): Promise<User> {
     // Sync Supabase user into local DB so the rest of the app can work unchanged
-    const email = supabaseUser.email || 'no-email@user';
-    const name = supabaseUser.user_metadata?.name || 'Authenticated User';
+    const email = supabaseUser.email || `${supabaseUser.id}@user.local`;
+    const name = supabaseUser.user_metadata?.full_name || 
+                 supabaseUser.user_metadata?.name || 
+                 supabaseUser.email?.split('@')[0] || 
+                 'User';
     const providerId = supabaseUser.id;
     const provider = supabaseUser.app_metadata?.provider || 'supabase';
     let user = getUserByProviderId(providerId, provider);

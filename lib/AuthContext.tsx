@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   signInWithApple: () => Promise<AuthResult>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<AuthResult>;
   signOut: () => Promise<void>;
 }
 
@@ -109,8 +109,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const signInWithGoogle = async () => {
-    await authService.signInWithGoogle();
+  const signInWithGoogle = async (): Promise<AuthResult> => {
+    try {
+      console.log('Starting Google Sign-In...');
+      const result = await authService.signInWithGoogle();
+      console.log('Google Sign-In result:', result.success ? 'Success' : 'Failed', result.error || '');
+      
+      if (result.success && result.user) {
+        console.log('Setting user in AuthContext:', result.user.name);
+        setUser(result.user);
+        
+        // Force a small delay to ensure state is updated
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log('User state should be updated now');
+        
+        // Force navigation to main app
+        console.log('Forcing navigation to main app...');
+        router.replace('/(tabs)');
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Google Sign-In error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Google Sign-In failed'
+      };
+    }
   };
 
 

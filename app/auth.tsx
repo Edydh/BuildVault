@@ -44,10 +44,26 @@ export default function AuthScreen() {
   };
 
   const handleGoogleSignIn = async () => {
+    setIsLoading(true);
     try {
-      await signInWithGoogle();
-    } catch (e) {
-      console.log('Google sign-in failed', e);
+      const result = await signInWithGoogle();
+      
+      if (!result.success) {
+        // Check if it's a user cancellation
+        if (result.error === 'USER_CANCELED') {
+          console.log('User canceled Google Sign-In');
+          // No alert needed - user intentionally canceled
+        } else {
+          console.error('Google Sign-In error:', result.error);
+          Alert.alert('Sign In Failed', result.error || 'Google Sign-In failed. Please try again.');
+        }
+      }
+      // If successful, the AuthContext will update and redirect
+    } catch (error: any) {
+      console.error('Google Sign-In error:', error);
+      Alert.alert('Sign In Failed', error.message || 'Google Sign-In failed. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
