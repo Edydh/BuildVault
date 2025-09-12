@@ -2,6 +2,8 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { Platform, Alert } from 'react-native';
 import { supabase } from './supabase';
+import * as AuthSession from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
 import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, User } from './db';
 import { ErrorHandler, withErrorHandling } from './errorHandler';
 
@@ -55,97 +57,118 @@ export class AuthService {
           providerId: 'dev-user-123',
           avatar: null,
         });
-        
         await this.storeUserSession(mockUser);
         this.currentUser = mockUser;
-        
-        return {
-          success: true,
-          user: mockUser,
-        };
+        return { success: true, user: mockUser };
       }
 
-      // Request Apple Sign-In
+      // Request Apple Sign-In with nonce for later verification
+      const rawNonce = Math.random().toString(36).slice(2);
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
+        nonce: rawNonce,
       });
 
       if (!credential.user) {
-        return {
-          success: false,
-          error: 'Failed to get user ID from Apple'
-        };
+        return { success: false, error: 'Failed to get user ID from Apple' };
       }
 
-      // For Expo Go or local: Use local authentication but also try Supabase exchange when possible
-      // Extract user information
-      const email = credential.email || 'no-email@privaterelay.appleid.com';
-      const name = credential.fullName 
-        ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
-        : 'Apple User';
-
-      // Attempt to establish Supabase session using Apple identity token if available
+      // Attempt Supabase session using Apple identity token when available
       try {
         if (credential.identityToken) {
-          await supabase.auth.signInWithIdToken({
+          const { error } = await supabase.auth.signInWithIdToken({
             provider: 'apple',
             token: credential.identityToken,
+            nonce: rawNonce,
           });
+          if (error) {
+            console.log('Supabase Apple sign-in exchange error:', error.message);
+          }
+        } else {
+          console.log('Apple identityToken not present; cannot create Supabase session.');
         }
       } catch (e) {
         console.log('Supabase Apple sign-in exchange failed (non-fatal):', e);
       }
 
-      // Check if user already exists in our local database
+      // Extract display info (Apple may not provide email on subsequent logins)
+      const email = credential.email || undefined;
+      const name = credential.fullName
+        ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
+        : 'Apple User';
+
+      // Sync to local DB (keeps app working even if offline)
       let user = getUserByProviderId(credential.user, 'apple');
-      
       if (!user) {
-        // Create new user
         user = createUser({
-          email,
+          email: email || 'apple-user@unknown',
           name,
           provider: 'apple',
           providerId: credential.user,
           avatar: null,
         });
       } else {
-        // Update last login
         updateUserLastLogin(user.id);
       }
 
-      // Store user session
       await this.storeUserSession(user);
       this.currentUser = user;
-
-      return {
-        success: true,
-        user,
-      };
-
+      return { success: true, user };
     } catch (error: any) {
       // Handle user cancellation gracefully (not an error)
       if (error.code === 'ERR_CANCELED' || error.message?.includes('canceled')) {
         console.log('Apple Sign-In was canceled by user');
-        return {
-          success: false,
-          error: 'USER_CANCELED'
-        };
+        return { success: false, error: 'USER_CANCELED' };
       }
-
-      // Log actual errors with error handling
       const appError = ErrorHandler.handle(error, 'Apple Sign-In');
       console.error('Apple Sign-In error:', appError);
-      
-      return {
-        success: false,
-        error: appError.userMessage || 'Apple Sign-In failed'
-      };
+      return { success: false, error: appError.userMessage || 'Apple Sign-In failed' };
     }
   }
 
+  async signInWithGoogle(): Promise<void> {
+    try {
+      // Use Supabase Auth with Google in-app browser flow
+      const redirectTo = AuthSession.makeRedirectUri({ scheme: 'buildvault', path: 'auth/callback' });
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+        },
+      });
+      if (error) throw error;
+      if (data?.url) {
+        // Launch the auth session and wait for redirect back to our scheme
+        await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      } else {
+        console.log('Supabase returned no URL for Google OAuth start');
+      }
+    } catch (e) {
+      console.log('Google sign-in error:', e);
+      Alert.alert('Google Sign-In Failed', 'Please try again.');
+    }
+  }
+
+  async upsertUserFromSupabase(supabaseUser: any): Promise<User> {
+    // Sync Supabase user into local DB so the rest of the app can work unchanged
+    const email = supabaseUser.email || 'no-email@user';
+    const name = supabaseUser.user_metadata?.name || 'Authenticated User';
+    const providerId = supabaseUser.id;
+    const provider = supabaseUser.app_metadata?.provider || 'supabase';
+    let user = getUserByProviderId(providerId, provider);
+    if (!user) {
+      user = createUser({ email, name, provider, providerId, avatar: null });
+    } else {
+      updateUserLastLogin(user.id);
+    }
+    this.currentUser = user;
+    await this.storeUserSession(user);
+    return user;
+  }
 
   async signOut(): Promise<void> {
     try {
@@ -156,12 +179,8 @@ export class AuthService {
         // Ignore Supabase errors in development
         console.log('Supabase signout error (ignored):', error);
       }
-      
-      // Clear secure storage
       await SecureStore.deleteItemAsync('currentUserId');
       await SecureStore.deleteItemAsync('userSession');
-      
-      // Clear current user
       this.currentUser = null;
     } catch (error) {
       console.error('Sign out error:', error);
@@ -182,7 +201,6 @@ export class AuthService {
 
   private async loadUserFromStorage(userId: string): Promise<User | null> {
     try {
-      // Load user from database using the getUserById function (synchronous)
       const user = getUserById(userId);
       return user;
     } catch (error) {

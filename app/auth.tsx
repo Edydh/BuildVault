@@ -18,7 +18,7 @@ const { width, height } = Dimensions.get('window');
 
 export default function AuthScreen() {
   const router = useRouter();
-  const { signInWithApple } = useAuth();
+  const { signInWithApple, signInWithGoogle } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   const handleAppleSignIn = async () => {
@@ -39,6 +39,14 @@ export default function AuthScreen() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithGoogle();
+    } catch (e) {
+      console.log('Google sign-in failed', e);
     }
   };
 
@@ -83,6 +91,16 @@ export default function AuthScreen() {
                 <Text style={styles.buttonText}>Continue with Apple</Text>
               </>
             )}
+          </TouchableOpacity>
+
+          {/* Google Sign In */}
+          <TouchableOpacity
+            style={[styles.signInButton, styles.googleButton]}
+            onPress={handleGoogleSignIn}
+            disabled={isLoading}
+          >
+            <Ionicons name="logo-google" size={20} color="#0B0F14" />
+            <Text style={[styles.buttonText, { color: '#0B0F14' }]}>Continue with Google</Text>
           </TouchableOpacity>
         </View>
 
@@ -175,6 +193,11 @@ const styles = StyleSheet.create({
   },
   appleButton: {
     backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  googleButton: {
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#374151',
   },

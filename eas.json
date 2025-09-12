@@ -14,15 +14,5 @@
     "production": {
       "autoIncrement": true
     }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "appleId": "edydhm@icloud.com",
-        "ascAppId": "6751867299",
-        "appleTeamId": "U3KFL78946",
-        "autoSubmit": true
-      }
-    }
   }
 }

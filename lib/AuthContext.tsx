@@ -8,6 +8,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   signInWithApple: () => Promise<AuthResult>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -27,8 +28,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const { data: subscription } = supabase.auth.onAuthStateChange(async (event, session) => {
       try {
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          const currentUser = await authService.getCurrentUser();
-          setUser(currentUser);
+          if (session?.user) {
+            const synced = await authService.upsertUserFromSupabase(session.user);
+            setUser(synced);
+          } else {
+            const currentUser = await authService.getCurrentUser();
+            setUser(currentUser);
+          }
         }
         if (event === 'SIGNED_OUT') {
           setUser(null);
@@ -51,8 +57,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const checkAuthState = async () => {
     try {
       console.log('Checking auth state...');
+      // Prefer Supabase session if present
+      const { data } = await supabase.auth.getSession();
+      if (data.session?.user) {
+        const synced = await authService.upsertUserFromSupabase(data.session.user);
+        console.log('Current user (supabase):', synced ? 'Found' : 'Not found');
+        setUser(synced);
+        return;
+      }
+
       const currentUser = await authService.getCurrentUser();
-      console.log('Current user:', currentUser ? 'Found' : 'Not found');
+      console.log('Current user (local):', currentUser ? 'Found' : 'Not found');
       
       // Only set user if we don't already have one (prevent overriding fresh sign-in)
       if (!user || currentUser) {
@@ -94,6 +109,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  const signInWithGoogle = async () => {
+    await authService.signInWithGoogle();
+  };
+
 
   const signOut = async () => {
     try {
@@ -109,6 +128,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     user,
     isLoading,
     signInWithApple,
+    signInWithGoogle,
     signOut,
   };
 
