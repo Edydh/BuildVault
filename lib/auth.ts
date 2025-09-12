@@ -79,26 +79,51 @@ export class AuthService {
         return { success: false, error: 'Failed to get credentials from Apple' };
       }
 
-      // Sign in with Supabase using the Apple identity token
-      const { data, error } = await supabase.auth.signInWithIdToken({
-        provider: 'apple',
-        token: credential.identityToken,
-        nonce: rawNonce,
-      });
+      // For native Apple Sign-In, we'll create the user locally first, then try to sync with Supabase
+      const email = credential.email || `${credential.user}@privaterelay.appleid.com`;
+      const name = credential.fullName
+        ? `${credential.fullName.givenName || ''} ${credential.fullName.familyName || ''}`.trim()
+        : 'Apple User';
 
-      if (error) {
-        console.error('Supabase Apple sign-in error:', error);
-        return { success: false, error: error.message };
+      // Create or update local user
+      let user = getUserByProviderId(credential.user, 'apple');
+      if (!user) {
+        user = createUser({
+          email,
+          name,
+          provider: 'apple',
+          providerId: credential.user,
+          avatar: null,
+        });
+      } else {
+        updateUserLastLogin(user.id);
       }
 
-      if (!data.session?.user) {
-        return { success: false, error: 'Failed to create session' };
+      await this.storeUserSession(user);
+      this.currentUser = user;
+
+      // Try to sync with Supabase (optional - app works without this)
+      try {
+        console.log('Attempting to sync Apple user with Supabase');
+        const { data, error } = await supabase.auth.signInWithIdToken({
+          provider: 'apple',
+          token: credential.identityToken,
+          nonce: rawNonce,
+        });
+
+        if (error) {
+          console.log('Supabase sync failed (non-fatal):', error.message);
+          // App continues to work with local user
+        } else if (data.session?.user) {
+          console.log('Successfully synced with Supabase');
+          // Update local user with Supabase data if needed
+          await this.upsertUserFromSupabase(data.session.user);
+        }
+      } catch (syncError) {
+        console.log('Supabase sync error (non-fatal):', syncError);
+        // App continues to work with local user
       }
 
-      // Create/update local user from Supabase session
-      const supabaseUser = data.session.user;
-      const user = await this.upsertUserFromSupabase(supabaseUser);
-      
       return { success: true, user };
     } catch (error: any) {
       // Handle user cancellation gracefully (not an error)
@@ -148,11 +173,11 @@ export class AuthService {
       );
 
       console.log('OAuth result type:', result.type);
-      if (result.url) {
+      if ('url' in result && result.url) {
         console.log('OAuth result URL:', result.url);
       }
 
-      if (result.type === 'success' && result.url) {
+      if (result.type === 'success' && 'url' in result && result.url) {
         // Parse the redirect URL to extract tokens
         const url = new URL(result.url);
         console.log('Parsing redirect URL:', url.toString());
