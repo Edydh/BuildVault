@@ -173,7 +173,7 @@ export default function NotePrompt({
                   padding: 12,
                   marginRight: 16,
                 }}>
-                  <Ionicons name={mediaInfo.icon} size={24} color="#FFFFFF" />
+                  <Ionicons name={mediaInfo.icon as any} size={24} color="#FFFFFF" />
                 </View>
               </Animated.View>
               <View style={{ flex: 1 }}>

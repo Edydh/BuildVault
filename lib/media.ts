@@ -38,8 +38,6 @@ export async function makeVideoThumb(
     const { uri: thumbUri, width, height } = await VideoThumbnails.getThumbnailAsync(uri, {
       time: opts.time,
       quality: opts.quality,
-      width: opts.width,
-      height: opts.height,
     });
 
     // Get file size

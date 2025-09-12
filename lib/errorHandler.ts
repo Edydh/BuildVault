@@ -186,7 +186,7 @@ export class ErrorHandler {
         [
           { text: 'OK', style: 'default' },
           ...(error.severity === ErrorSeverity.CRITICAL ? 
-            [{ text: 'Restart App', style: 'destructive' }] : [])
+            [{ text: 'Restart App', style: 'destructive' as const }] : [])
         ]
       );
     }

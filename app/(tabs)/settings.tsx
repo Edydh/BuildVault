@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
+import { documentDirectory } from 'expo-file-system/legacy';
 import { getProjects, deleteProject, getMediaByProject } from '../../lib/db';
 import { deleteProjectDir } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
@@ -73,7 +74,7 @@ export default function Settings() {
 
       // Create export file
       const exportFileName = `BuildVault_Export_${new Date().toISOString().split('T')[0]}.json`;
-      const exportPath = FileSystem.documentDirectory + exportFileName;
+      const exportPath = documentDirectory + exportFileName;
       
       await FileSystem.writeAsStringAsync(exportPath, JSON.stringify(exportData, null, 2));
 

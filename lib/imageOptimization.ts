@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system';
+import { documentDirectory } from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 import * as ImageManipulator from 'expo-image-manipulator';
 
@@ -55,7 +56,7 @@ export async function generateImageVariants(
 ): Promise<ImageVariants> {
   try {
     // Create project media directory if it doesn't exist
-    const projectDir = `${FileSystem.documentDirectory}projects/${projectId}/media/`;
+    const projectDir = `${documentDirectory}projects/${projectId}/media/`;
     await FileSystem.makeDirectoryAsync(projectDir, { intermediates: true });
 
     // Create variants directory
@@ -181,7 +182,7 @@ export function getSharingUri(
  */
 export async function checkImageVariantsExist(mediaId: string, projectId: string): Promise<boolean> {
   try {
-    const variantsDir = `${FileSystem.documentDirectory}projects/${projectId}/media/${mediaId}/`;
+    const variantsDir = `${documentDirectory}projects/${projectId}/media/${mediaId}/`;
     const thumbnailExists = await FileSystem.getInfoAsync(`${variantsDir}thumbnail.jpg`);
     const previewExists = await FileSystem.getInfoAsync(`${variantsDir}preview.jpg`);
     const fullExists = await FileSystem.getInfoAsync(`${variantsDir}full.jpg`);
@@ -196,7 +197,7 @@ export async function checkImageVariantsExist(mediaId: string, projectId: string
  * Get image variants for existing media item
  */
 export async function getImageVariants(mediaId: string, projectId: string, originalUri: string): Promise<ImageVariants> {
-  const variantsDir = `${FileSystem.documentDirectory}projects/${projectId}/media/${mediaId}/`;
+  const variantsDir = `${documentDirectory}projects/${projectId}/media/${mediaId}/`;
   
   return {
     original: originalUri,
@@ -211,7 +212,7 @@ export async function getImageVariants(mediaId: string, projectId: string, origi
  */
 export async function cleanupImageVariants(mediaId: string, projectId: string): Promise<void> {
   try {
-    const variantsDir = `${FileSystem.documentDirectory}projects/${projectId}/media/${mediaId}/`;
+    const variantsDir = `${documentDirectory}projects/${projectId}/media/${mediaId}/`;
     const dirInfo = await FileSystem.getInfoAsync(variantsDir);
     if (dirInfo.exists) {
       await FileSystem.deleteAsync(variantsDir, { idempotent: true });

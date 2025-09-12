@@ -1158,11 +1158,8 @@ export default function MediaDetail() {
           <NoteEncouragement
             mediaId={media.id}
             hasNote={!!media.note}
-            currentNote={media.note || ''}
-            onNoteSave={handleNoteSave}
-            onNoteUpdate={handleNoteUpdate}
             mediaType={media.type}
-            showPrompt={!media.note}
+            onAddNotePress={() => setShowNotePrompt(true)}
           />
 
           <NotePrompt

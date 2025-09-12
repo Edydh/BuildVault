@@ -1,7 +1,8 @@
 import * as FileSystem from 'expo-file-system';
+import { documentDirectory } from 'expo-file-system/legacy';
 import { makeVideoThumb, VideoThumbnailResult, generateSmartVideoThumbnail } from './media';
 
-const ROOT_DIR = FileSystem.documentDirectory + 'buildvault/';
+const ROOT_DIR = documentDirectory + 'buildvault/';
 
 export async function ensureRootDir() {
   const dirInfo = await FileSystem.getInfoAsync(ROOT_DIR);
