@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
+import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -108,9 +109,9 @@ export default function AuthScreen() {
         <View style={styles.privacyContainer}>
           <Text style={styles.privacyText}>
             By signing in, you agree to our{' '}
-            <Text style={styles.linkText}>Terms of Service</Text>
+            <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}>Terms of Service</Text>
             {' '}and{' '}
-            <Text style={styles.linkText}>Privacy Policy</Text>
+            <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}>Privacy Policy</Text>
           </Text>
         </View>
       </View>
