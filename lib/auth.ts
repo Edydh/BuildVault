@@ -114,11 +114,9 @@ export class AuthService {
 
   async signInWithGoogle(): Promise<AuthResult> {
     try {
-      // Create redirect URI for native app
-      const redirectTo = AuthSession.makeRedirectUri({
-        scheme: 'buildvault',
-        path: 'auth/callback',
-      });
+      // For native apps, we need to use a different approach
+      // Use the native Google Sign-In flow instead of OAuth web flow
+      const redirectTo = 'buildvault://auth/callback';
       
       console.log('Google OAuth redirect URI:', redirectTo);
 
@@ -140,33 +138,65 @@ export class AuthService {
         return { success: false, error: 'No OAuth URL returned' };
       }
 
+      console.log('Opening OAuth URL:', data.url);
+      console.log('Expected redirect to:', redirectTo);
+
       // Open the OAuth URL in an auth session
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
         redirectTo
       );
 
+      console.log('OAuth result type:', result.type);
+      if (result.url) {
+        console.log('OAuth result URL:', result.url);
+      }
+
       if (result.type === 'success' && result.url) {
-        // Extract the hash fragment from the redirect URL
+        // Parse the redirect URL to extract tokens
         const url = new URL(result.url);
-        const hashParams = new URLSearchParams(url.hash.substring(1));
-        const access_token = hashParams.get('access_token');
-        const refresh_token = hashParams.get('refresh_token');
+        console.log('Parsing redirect URL:', url.toString());
+        
+        // Check for hash fragment (access_token, refresh_token)
+        if (url.hash) {
+          const hashParams = new URLSearchParams(url.hash.substring(1));
+          const access_token = hashParams.get('access_token');
+          const refresh_token = hashParams.get('refresh_token');
 
-        if (access_token && refresh_token) {
-          // Set the session in Supabase
-          const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-            access_token,
-            refresh_token,
-          });
+          console.log('Found tokens:', { access_token: !!access_token, refresh_token: !!refresh_token });
 
+          if (access_token && refresh_token) {
+            // Set the session in Supabase
+            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+              access_token,
+              refresh_token,
+            });
+
+            if (sessionError) {
+              console.error('Failed to set session:', sessionError);
+              return { success: false, error: sessionError.message };
+            }
+
+            if (sessionData.session?.user) {
+              // Create/update local user from Supabase session
+              const user = await this.upsertUserFromSupabase(sessionData.session.user);
+              return { success: true, user };
+            }
+          }
+        }
+        
+        // Check for query parameters (code-based flow)
+        const code = url.searchParams.get('code');
+        if (code) {
+          console.log('Found authorization code, exchanging for session');
+          const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
+          
           if (sessionError) {
-            console.error('Failed to set session:', sessionError);
+            console.error('Failed to exchange code for session:', sessionError);
             return { success: false, error: sessionError.message };
           }
 
           if (sessionData.session?.user) {
-            // Create/update local user from Supabase session
             const user = await this.upsertUserFromSupabase(sessionData.session.user);
             return { success: true, user };
           }
