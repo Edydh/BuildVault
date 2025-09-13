@@ -220,7 +220,7 @@ function VideoPlayer({ uri }: { uri: string }) {
         borderRadius: 12,
       }}
       contentFit="contain"
-      allowsFullscreen
+      fullscreenOptions={{ enable: true }}
       allowsPictureInPicture
       showsTimecodes={true}
     />
