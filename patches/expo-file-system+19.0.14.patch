@@ -1,7 +1,7 @@
-diff --git a/node_modules/expo-file-system/android/src/main/AndroidManifest.xml b/node_modules/expo-file-system/android/src/main/AndroidManifest.xml
+diff --git a/node_modules/expo-file-system/android/src/main/java/expo/modules/filesystem/AndroidManifest.xml b/node_modules/expo-file-system/android/src/main/java/expo/modules/filesystem/AndroidManifest.xml
 index 051a4f6..6be1baf 100644
---- a/node_modules/expo-file-system/android/src/main/AndroidManifest.xml
-+++ b/node_modules/expo-file-system/android/src/main/AndroidManifest.xml
+--- a/node_modules/expo-file-system/android/src/main/java/expo/modules/filesystem/AndroidManifest.xml
++++ b/node_modules/expo-file-system/android/src/main/java/expo/modules/filesystem/AndroidManifest.xml
 @@ -3,7 +3,7 @@
      <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
      <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
