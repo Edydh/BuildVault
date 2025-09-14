@@ -85,11 +85,18 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
       Extrapolate.CLAMP
     );
 
-    // Fade out header when scrolling down
+    // Fade out and translate header when scrolling down
     const opacity = interpolate(
       scrollY.value,
       [0, 50, 150],
       [1, 1, 0],
+      Extrapolate.CLAMP
+    );
+
+    const translateY = interpolate(
+      scrollY.value,
+      [0, 50, 150],
+      [0, 0, -100],
       Extrapolate.CLAMP
     );
 
@@ -102,6 +109,7 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
 
     return {
       opacity,
+      transform: [{ translateY }],
     };
   });
 
@@ -234,6 +242,11 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
 
 const styles = StyleSheet.create({
   container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
     borderBottomWidth: 1,
     borderBottomColor: 'transparent',
     overflow: 'hidden',

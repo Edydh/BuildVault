@@ -350,7 +350,7 @@ export default function ProjectsList() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
           padding: 16, 
-          paddingTop: 16, // GlassHeader handles safe area
+          paddingTop: insets.top + 120, // Header height + search bar + spacing
           paddingBottom: insets.bottom + 100, // Tab bar + safe area
         }}
         renderItem={({ item }) => <ProjectCard project={item} />}
