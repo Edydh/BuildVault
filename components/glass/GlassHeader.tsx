@@ -85,10 +85,11 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
       Extrapolate.CLAMP
     );
 
+    // Fade out header when scrolling down
     const opacity = interpolate(
       scrollY.value,
-      [0, 50],
-      [transparent ? 0 : 0.7, 1],
+      [0, 50, 150],
+      [1, 1, 0],
       Extrapolate.CLAMP
     );
 

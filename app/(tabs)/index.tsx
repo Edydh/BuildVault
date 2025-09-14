@@ -9,7 +9,6 @@ import {
   FlatList,
   TouchableWithoutFeedback,
   Keyboard,
-  Animated,
   StatusBar,
   KeyboardAvoidingView,
   Platform,
@@ -24,7 +23,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { GlassHeader, GlassCard } from '../../components/glass';
-import { useSharedValue } from 'react-native-reanimated';
+import Animated, { useSharedValue } from 'react-native-reanimated';
 
 export default function ProjectsList() {
   const router = useRouter();
@@ -345,7 +344,7 @@ export default function ProjectsList() {
         transparent={false}
       />
 
-      <FlatList
+      <Animated.FlatList
         ref={flatListRef}
         data={filteredProjects}
         keyExtractor={(item) => item.id}
@@ -356,7 +355,7 @@ export default function ProjectsList() {
         }}
         renderItem={({ item }) => <ProjectCard project={item} />}
         onScroll={handleScroll}
-        scrollEventThrottle={16}
+        scrollEventThrottle={1}
         showsVerticalScrollIndicator={true}
         nestedScrollEnabled={true}
         removeClippedSubviews={false}
