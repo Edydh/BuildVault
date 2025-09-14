@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/AuthContext';
 import { Redirect } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
+import { CustomTabBar } from '../../components/glass/CustomTabBar';
 
 export default function TabLayout() {
   const { user, isLoading } = useAuth();
@@ -34,14 +35,8 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
-        tabBarActiveTintColor: '#FF7A1A',
-        tabBarInactiveTintColor: '#64748B',
-        tabBarStyle: {
-          backgroundColor: '#101826',
-          borderTopColor: '#1E293B',
-          borderTopWidth: 1,
-        },
         headerStyle: {
           backgroundColor: '#101826',
         },

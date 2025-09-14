@@ -23,6 +23,8 @@ import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { GlassHeader, GlassCard } from '../../components/glass';
+import { useSharedValue } from 'react-native-reanimated';
 
 export default function ProjectsList() {
   const router = useRouter();
@@ -52,8 +54,7 @@ export default function ProjectsList() {
   });
   
   // Animation values for dynamic header
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const headerOpacity = useRef(new Animated.Value(1)).current;
+  const scrollY = useSharedValue(0);
   const flatListRef = useRef<FlatList>(null);
 
   const loadProjects = useCallback(() => {
@@ -68,26 +69,8 @@ export default function ProjectsList() {
 
   // Handle scroll events for dynamic header and tab bar
   const handleScroll = (event: any) => {
-    try {
-      const offsetY = event.nativeEvent.contentOffset.y;
-      
-      // Calculate opacity based on scroll position
-      // Start fading at 50px, fully transparent at 150px
-      const fadeStart = 50;
-      const fadeEnd = 150;
-      
-      if (offsetY > fadeStart) {
-        const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
-        const opacity = Math.max(0, 1 - progress);
-        
-        headerOpacity.setValue(opacity);
-      } else {
-        headerOpacity.setValue(1);
-      }
-    } catch (error) {
-      // Fallback: keep header visible if there's an error
-      headerOpacity.setValue(1);
-    }
+    'worklet';
+    scrollY.value = event.nativeEvent.contentOffset.y;
   };
 
   const handleCreateProject = async () => {
@@ -314,100 +297,53 @@ export default function ProjectsList() {
 
   const ProjectCard = ({ project }: { project: Project }) => (
     <TouchableOpacity
-      style={{
-        backgroundColor: '#101826',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#1F2A37',
-      }}
       onPress={() => {
         router.push(`/project/${project.id}`);
       }}
       onLongPress={() => handleProjectOptions(project)}
-      activeOpacity={0.7}
+      activeOpacity={0.9}
+      style={{ marginBottom: 12 }}
     >
-      <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600', marginBottom: 4 }}>
-        {project.name}
-      </Text>
-      {project.client && (
-        <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 2 }}>
-          Client: {project.client}
+      <GlassCard
+        intensity={60}
+        gradient={true}
+        animated={true}
+        style={{ padding: 16 }}
+      >
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600', marginBottom: 4 }}>
+          {project.name}
         </Text>
-      )}
-      {project.location && (
-        <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 8 }}>
-          Location: {project.location}
+        {project.client && (
+          <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 2 }}>
+            Client: {project.client}
+          </Text>
+        )}
+        {project.location && (
+          <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 8 }}>
+            Location: {project.location}
+          </Text>
+        )}
+        <Text style={{ color: '#64748B', fontSize: 12 }}>
+          Created {formatDate(project.created_at)}
         </Text>
-      )}
-      <Text style={{ color: '#64748B', fontSize: 12 }}>
-        Created {formatDate(project.created_at)}
-      </Text>
+      </GlassCard>
     </TouchableOpacity>
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0B0F14' }} pointerEvents="box-none">
-      <StatusBar barStyle="light-content" backgroundColor="#0B0F14" translucent />
-      <Animated.View 
-        style={{ 
-          padding: 16, 
-          paddingTop: insets.top + 16, 
-          paddingBottom: 20,
-          opacity: headerOpacity,
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 1000,
-          backgroundColor: '#0B0F14',
-          pointerEvents: 'none',
+    <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      
+      <GlassHeader
+        title="BuildVault"
+        scrollY={scrollY}
+        search={{
+          value: form.search || '',
+          onChange: (text) => setForm((prev) => ({ ...prev, search: text })),
+          placeholder: 'Search projects...',
         }}
-      >
-        <View style={{ pointerEvents: 'auto' }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 'bold' }}>
-            BuildVault
-          </Text>
-          <Text style={{ color: '#94A3B8', fontSize: 16, marginTop: 4 }}>
-            Construction Project Manager
-          </Text>
-        </View>
-      </Animated.View>
-
-      {/* Animated Search Bar */}
-      <Animated.View style={{
-        position: 'absolute',
-        top: insets.top + 100, // Below the animated header
-        left: 16,
-        right: 16,
-        zIndex: 999,
-        backgroundColor: '#0B0F14',
-        paddingVertical: 8,
-        opacity: headerOpacity,
-      }}>
-        <TextInput
-          style={{
-            backgroundColor: '#1F2A37',
-            borderRadius: 10,
-            paddingVertical: 12,
-            paddingHorizontal: 16,
-            color: '#F8FAFC',
-            fontSize: 16,
-            borderWidth: 1,
-            borderColor: '#374151',
-          }}
-          placeholder="Search projects..."
-          placeholderTextColor="#64748B"
-          value={form.search || ''}
-          onChangeText={(text) => setForm((prev) => ({ ...prev, search: text }))}
-          returnKeyType="search"
-          autoCorrect={false}
-          autoCapitalize="none"
-          clearButtonMode="while-editing"
-          selectTextOnFocus={true}
-        />
-      </Animated.View>
+        transparent={false}
+      />
 
       <FlatList
         ref={flatListRef}
@@ -415,9 +351,8 @@ export default function ProjectsList() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
           padding: 16, 
-          paddingTop: insets.top + 160, // Header height + search bar + safe area
-          paddingBottom: insets.bottom + 80, // Safe area + some bottom padding
-          minHeight: '100%'
+          paddingTop: 16, // GlassHeader handles safe area
+          paddingBottom: insets.bottom + 100, // Tab bar + safe area
         }}
         renderItem={({ item }) => <ProjectCard project={item} />}
         onScroll={handleScroll}
