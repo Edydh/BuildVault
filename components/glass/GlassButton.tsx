@@ -112,25 +112,25 @@ export const GlassButton: React.FC<GlassButtonProps> = ({
   // Variant colors
   const variantColors = {
     primary: {
-      gradient: ['rgba(255, 122, 26, 0.3)', 'rgba(255, 122, 26, 0.1)'],
+      gradient: ['rgba(255, 122, 26, 0.3)', 'rgba(255, 122, 26, 0.1)'] as const,
       text: '#FF7A1A',
       icon: '#FF7A1A',
       border: 'rgba(255, 122, 26, 0.3)',
     },
     secondary: {
-      gradient: ['rgba(148, 163, 184, 0.2)', 'rgba(148, 163, 184, 0.05)'],
+      gradient: ['rgba(148, 163, 184, 0.2)', 'rgba(148, 163, 184, 0.05)'] as const,
       text: '#94A3B8',
       icon: '#94A3B8',
       border: 'rgba(148, 163, 184, 0.2)',
     },
     danger: {
-      gradient: ['rgba(239, 68, 68, 0.3)', 'rgba(239, 68, 68, 0.1)'],
+      gradient: ['rgba(239, 68, 68, 0.3)', 'rgba(239, 68, 68, 0.1)'] as const,
       text: '#EF4444',
       icon: '#EF4444',
       border: 'rgba(239, 68, 68, 0.3)',
     },
     success: {
-      gradient: ['rgba(34, 197, 94, 0.3)', 'rgba(34, 197, 94, 0.1)'],
+      gradient: ['rgba(34, 197, 94, 0.3)', 'rgba(34, 197, 94, 0.1)'] as const,
       text: '#22C55E',
       icon: '#22C55E',
       border: 'rgba(34, 197, 94, 0.3)',
