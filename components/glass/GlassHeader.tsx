@@ -130,7 +130,17 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
     onBack?.();
   };
 
-  const glassColors = isDark
+  const glassColors = Platform.OS === 'android'
+    ? {
+        // Android: More opaque dark backgrounds
+        background: 'rgba(11, 15, 20, 0.98)',
+        gradient: ['rgba(255, 255, 255, 0.02)', 'rgba(255, 255, 255, 0)'],
+        text: '#F8FAFC',
+        subtext: '#94A3B8',
+        searchBg: 'rgba(16, 24, 38, 0.95)',
+        searchBorder: 'rgba(30, 41, 59, 0.5)',
+      }
+    : isDark
     ? {
         background: 'rgba(11, 15, 20, 0.8)',
         gradient: ['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0)'],
@@ -158,8 +168,8 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
       ]}
     >
       <AnimatedBlurView
-        intensity={scrollY ? undefined : maxBlur}
-        tint={isDark ? 'dark' : 'light'}
+        intensity={Platform.OS === 'android' ? 30 : (scrollY ? undefined : maxBlur)}
+        tint={Platform.OS === 'android' ? 'dark' : (isDark ? 'dark' : 'light')}
         style={StyleSheet.absoluteFillObject}
       />
       

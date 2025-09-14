@@ -78,15 +78,25 @@ export const GlassCard: React.FC<GlassCardProps> = ({
       : `rgba(255, 255, 255, ${interpolate(borderOpacity.value, [0, 1], [0, 0.3])})`,
   }));
 
-  // Glass effect colors based on theme
-  const glassColors = isDark
+  // Glass effect colors based on theme - Android needs darker backgrounds
+  const glassColors = Platform.OS === 'android'
     ? {
+        // Android: Use darker, more opaque backgrounds since blur is less effective
+        background: glassTint || 'rgba(16, 24, 38, 0.95)',
+        gradientStart: 'rgba(255, 255, 255, 0.03)',
+        gradientEnd: 'rgba(255, 255, 255, 0)',
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+      }
+    : isDark
+    ? {
+        // iOS Dark mode
         background: glassTint || 'rgba(16, 24, 38, 0.7)',
         gradientStart: 'rgba(255, 255, 255, 0.05)',
         gradientEnd: 'rgba(255, 255, 255, 0.01)',
         borderColor: 'rgba(255, 255, 255, 0.1)',
       }
     : {
+        // iOS Light mode
         background: glassTint || 'rgba(255, 255, 255, 0.7)',
         gradientStart: 'rgba(255, 255, 255, 0.3)',
         gradientEnd: 'rgba(255, 255, 255, 0.1)',
@@ -129,8 +139,8 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   return (
     <Animated.View style={[containerStyle, animatedStyle]} {...rest}>
       <AnimatedBlurView
-        intensity={intensity}
-        tint={defaultTint}
+        intensity={Platform.OS === 'android' ? intensity * 0.5 : intensity}
+        tint={Platform.OS === 'android' ? 'dark' : defaultTint}
         style={[styles.blurView, { borderRadius }]}
       >
         {gradient && (

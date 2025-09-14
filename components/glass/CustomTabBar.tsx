@@ -56,7 +56,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
       <BlurView
-        intensity={90}
+        intensity={Platform.OS === 'android' ? 30 : 90}
         tint="dark"
         style={StyleSheet.absoluteFillObject}
       />
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(30, 41, 59, 0.5)',
     overflow: 'hidden',
-    backgroundColor: 'rgba(16, 24, 38, 0.9)',
+    backgroundColor: Platform.OS === 'android' ? 'rgba(16, 24, 38, 0.98)' : 'rgba(16, 24, 38, 0.9)',
   },
   tabsContainer: {
     flexDirection: 'row',
