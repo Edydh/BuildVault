@@ -385,7 +385,7 @@ export default function ProjectsList() {
         style={{
           position: 'absolute',
           right: 20,
-          bottom: insets.bottom + 20, // Proper safe area + some bottom padding
+          bottom: insets.bottom + 90, // Tab bar height (70) + spacing (20)
           backgroundColor: '#FF7A1A',
           width: 60,
           height: 60,

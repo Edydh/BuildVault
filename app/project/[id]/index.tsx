@@ -1532,7 +1532,7 @@ export default function ProjectDetail() {
         style={{
           position: 'absolute',
           right: 20,
-          bottom: 20,
+          bottom: insets.bottom + 30, // Safe area + spacing to avoid device overlap
           backgroundColor: '#FF7A1A',
           width: 60,
           height: 60,
