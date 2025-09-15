@@ -40,6 +40,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
   // Reset form when project changes
   useEffect(() => {
     if (project) {
+      console.log('EditProjectModal - Loading project:', project);
       setForm({
         name: project.name || '',
         client: project.client || '',
@@ -133,8 +134,20 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                 </TouchableOpacity>
               </View>
 
+              {/* Debug Info */}
+              <Text style={{ color: '#F8FAFC', marginBottom: 10 }}>
+                Debug: {project?.name} - Form: {form.name}
+              </Text>
+
               {/* Form */}
-              <GlassCard style={{ padding: 20, marginBottom: 20 }}>
+              <View style={{ 
+                backgroundColor: 'rgba(16, 24, 38, 0.9)', 
+                borderRadius: 16, 
+                padding: 20, 
+                marginBottom: 20,
+                borderWidth: 1,
+                borderColor: 'rgba(100, 116, 139, 0.3)',
+              }}>
                 <View style={{ marginBottom: 20 }}>
                   <Text
                     style={{
@@ -152,13 +165,14 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                     placeholder="Enter project name"
                     placeholderTextColor="#64748B"
                     style={{
-                      backgroundColor: 'rgba(30, 41, 59, 0.5)',
+                      backgroundColor: 'rgba(30, 41, 59, 0.8)',
                       borderRadius: 12,
                       padding: 16,
                       fontSize: 16,
                       color: '#F8FAFC',
-                      borderWidth: 1,
-                      borderColor: 'rgba(100, 116, 139, 0.3)',
+                      borderWidth: 2,
+                      borderColor: '#64748B',
+                      minHeight: 50,
                     }}
                     autoCapitalize="words"
                     returnKeyType="next"
@@ -182,13 +196,14 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                     placeholder="Enter client name"
                     placeholderTextColor="#64748B"
                     style={{
-                      backgroundColor: 'rgba(30, 41, 59, 0.5)',
+                      backgroundColor: 'rgba(30, 41, 59, 0.8)',
                       borderRadius: 12,
                       padding: 16,
                       fontSize: 16,
                       color: '#F8FAFC',
-                      borderWidth: 1,
-                      borderColor: 'rgba(100, 116, 139, 0.3)',
+                      borderWidth: 2,
+                      borderColor: '#64748B',
+                      minHeight: 50,
                     }}
                     autoCapitalize="words"
                     returnKeyType="next"
@@ -212,20 +227,21 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                     placeholder="Enter project location"
                     placeholderTextColor="#64748B"
                     style={{
-                      backgroundColor: 'rgba(30, 41, 59, 0.5)',
+                      backgroundColor: 'rgba(30, 41, 59, 0.8)',
                       borderRadius: 12,
                       padding: 16,
                       fontSize: 16,
                       color: '#F8FAFC',
-                      borderWidth: 1,
-                      borderColor: 'rgba(100, 116, 139, 0.3)',
+                      borderWidth: 2,
+                      borderColor: '#64748B',
+                      minHeight: 50,
                     }}
                     autoCapitalize="words"
                     returnKeyType="done"
                     onSubmitEditing={handleSave}
                   />
                 </View>
-              </GlassCard>
+              </View>
 
               {/* Actions */}
               <View
