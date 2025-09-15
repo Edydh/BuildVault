@@ -8,6 +8,7 @@ import { migrate } from '../lib/db';
 import { ensureRootDir } from '../lib/files';
 import { AuthProvider } from '../lib/AuthContext';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { GlassThemeProvider } from '../components/glass';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -21,12 +22,14 @@ export default function RootLayout() {
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <AuthProvider>
-            <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
-              <StatusBar style="light" />
-              <Stack screenOptions={{ headerShown: false }} />
-            </View>
-          </AuthProvider>
+          <GlassThemeProvider>
+            <AuthProvider>
+              <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
+                <StatusBar style="light" />
+                <Stack screenOptions={{ headerShown: false }} />
+              </View>
+            </AuthProvider>
+          </GlassThemeProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, ViewProps, StyleSheet, Platform, useColorScheme } from 'react-native';
+import { View, ViewProps, StyleSheet, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
@@ -10,6 +10,7 @@ import Animated, {
   interpolate,
   Easing,
 } from 'react-native-reanimated';
+import { useGlassMorphism } from './GlassThemeProvider';
 
 interface GlassCardProps extends ViewProps {
   children?: React.ReactNode;
@@ -37,9 +38,8 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   style,
   ...rest
 }) => {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-  const defaultTint = tint || (isDark ? 'dark' : 'light');
+  const glassTheme = useGlassMorphism(intensity);
+  const defaultTint = tint || glassTheme.tint;
   
   // Animation values
   const scale = useSharedValue(0.95);
@@ -47,7 +47,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   const borderOpacity = useSharedValue(0);
 
   useEffect(() => {
-    if (animated) {
+    if (animated && glassTheme.enableAnimations) {
       scale.value = withSpring(1, {
         damping: 15,
         stiffness: 150,
@@ -65,7 +65,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({
       opacity.value = 1;
       borderOpacity.value = 1;
     }
-  }, [animated]);
+  }, [animated, glassTheme.enableAnimations]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -73,42 +73,25 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   }));
 
   const borderStyle = useAnimatedStyle(() => ({
-    borderColor: isDark 
-      ? `rgba(255, 255, 255, ${interpolate(borderOpacity.value, [0, 1], [0, 0.1])})` 
-      : `rgba(255, 255, 255, ${interpolate(borderOpacity.value, [0, 1], [0, 0.3])})`,
+    borderColor: glassTheme.colors.borderColor,
   }));
 
-  // Glass effect colors based on theme - Android needs darker backgrounds
-  const glassColors = Platform.OS === 'android'
+  // Use theme colors or fallback to glassTint
+  const glassColors = glassTint 
     ? {
-        // Android: Use darker, more opaque backgrounds since blur is less effective
-        background: glassTint || 'rgba(16, 24, 38, 0.95)',
-        gradientStart: 'rgba(255, 255, 255, 0.03)',
-        gradientEnd: 'rgba(255, 255, 255, 0)',
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        background: glassTint,
+        gradientStart: glassTheme.colors.gradientStart,
+        gradientEnd: glassTheme.colors.gradientEnd,
+        borderColor: glassTheme.colors.borderColor,
       }
-    : isDark
-    ? {
-        // iOS Dark mode
-        background: glassTint || 'rgba(16, 24, 38, 0.7)',
-        gradientStart: 'rgba(255, 255, 255, 0.05)',
-        gradientEnd: 'rgba(255, 255, 255, 0.01)',
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-      }
-    : {
-        // iOS Light mode
-        background: glassTint || 'rgba(255, 255, 255, 0.7)',
-        gradientStart: 'rgba(255, 255, 255, 0.3)',
-        gradientEnd: 'rgba(255, 255, 255, 0.1)',
-        borderColor: 'rgba(255, 255, 255, 0.3)',
-      };
+    : glassTheme.colors;
 
   const shadowStyle = shadowEnabled
     ? Platform.select({
         ios: {
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: isDark ? 0.3 : 0.1,
+          shadowOpacity: 0.2,
           shadowRadius: 16,
         },
         android: {
@@ -139,8 +122,8 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   return (
     <Animated.View style={[containerStyle, animatedStyle]} {...rest}>
       <AnimatedBlurView
-        intensity={Platform.OS === 'android' ? intensity * 0.5 : intensity}
-        tint={Platform.OS === 'android' ? 'dark' : defaultTint}
+        intensity={glassTheme.blurIntensity}
+        tint={defaultTint as any}
         style={[styles.blurView, { borderRadius }]}
       >
         {gradient && (

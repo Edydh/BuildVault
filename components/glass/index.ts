@@ -2,6 +2,8 @@ export { GlassCard } from './GlassCard';
 export { GlassButton } from './GlassButton';
 export { GlassHeader } from './GlassHeader';
 export { GlassTabBar } from './GlassTabBar';
+export { GlassThemeProvider, useGlassTheme, useGlassMorphism } from './GlassThemeProvider';
+export type { GlassIntensity, GlassTint } from './GlassThemeProvider';
 
 // Re-export types
 export type { default as GlassCard } from './GlassCard';
