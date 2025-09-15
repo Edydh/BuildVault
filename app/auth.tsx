@@ -263,6 +263,8 @@ const styles = StyleSheet.create({
   linkText: {
     color: '#FF7A1A',
     fontWeight: '600',
+    textDecorationLine: 'underline',
+    textDecorationColor: '#FF7A1A',
   },
   footer: {
     alignItems: 'center',
