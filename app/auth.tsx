@@ -10,6 +10,7 @@ import {
   ImageBackground,
   StatusBar,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
@@ -141,18 +142,26 @@ export default function AuthScreen() {
               />
             </View>
 
-            {/* Privacy Notice */}
-            <GlassCard style={styles.privacyCard} intensity={80}>
-              <Text style={styles.privacyText}>
-                By signing in, you agree to our{' '}
-                <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}>
-                  Terms of Service
-                </Text>
-                {' '}and{' '}
-                <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}>
-                  Privacy Policy
-                </Text>
+            {/* Legal Links */}
+            <GlassCard style={styles.legalCard} intensity={80}>
+              <Text style={styles.legalText}>
+                By signing in, you agree to our:
               </Text>
+              <View style={styles.legalLinks}>
+                <TouchableOpacity 
+                  style={styles.legalButton}
+                  onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}
+                >
+                  <Text style={styles.legalButtonText}>Terms of Service</Text>
+                </TouchableOpacity>
+                <Text style={styles.legalSeparator}>and</Text>
+                <TouchableOpacity 
+                  style={styles.legalButton}
+                  onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}
+                >
+                  <Text style={styles.legalButtonText}>Privacy Policy</Text>
+                </TouchableOpacity>
+              </View>
             </GlassCard>
           </View>
 
@@ -251,30 +260,41 @@ const styles = StyleSheet.create({
   authButton: {
     width: '100%',
   },
-  privacyCard: {
+  legalCard: {
     padding: 20,
     alignItems: 'center',
     marginTop: 16,
     marginBottom: 8,
   },
-  privacyText: {
+  legalText: {
     fontSize: 16,
     color: '#FFFFFF',
     textAlign: 'center',
-    lineHeight: 22,
+    marginBottom: 16,
     fontWeight: '600',
   },
-  linkText: {
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  legalButton: {
+    backgroundColor: '#FF6B35',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  legalButtonText: {
     color: '#000000',
     fontWeight: '800',
-    textDecorationLine: 'underline',
-    textDecorationColor: '#000000',
-    fontSize: 16,
-    backgroundColor: '#FF6B35',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
-    overflow: 'hidden',
+    fontSize: 14,
+  },
+  legalSeparator: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
   },
   footer: {
     alignItems: 'center',
