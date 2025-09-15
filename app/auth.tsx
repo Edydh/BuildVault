@@ -157,7 +157,7 @@ export default function AuthScreen() {
           </View>
 
           {/* Footer */}
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
             <Text style={styles.footerText}>
               Built with ❤️ © 2025 uniQubit
             </Text>
@@ -267,12 +267,16 @@ const styles = StyleSheet.create({
   footer: {
     alignItems: 'center',
     marginTop: 'auto',
-    paddingTop: 20,
+    paddingTop: 24,
+    paddingHorizontal: 16,
   },
   footerText: {
     fontSize: 14,
     color: '#64748B',
     textAlign: 'center',
     fontWeight: '500',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 });
