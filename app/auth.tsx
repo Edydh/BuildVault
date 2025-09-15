@@ -142,7 +142,7 @@ export default function AuthScreen() {
             </View>
 
             {/* Privacy Notice */}
-            <GlassCard style={[styles.privacyCard, { backgroundColor: 'rgba(255, 0, 0, 0.3)' }]} intensity={80}>
+            <GlassCard style={styles.privacyCard} intensity={80}>
               <Text style={styles.privacyText}>
                 By signing in, you agree to our{' '}
                 <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}>
@@ -258,22 +258,23 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   privacyText: {
-    fontSize: 14,
-    color: '#E2E8F0',
+    fontSize: 16,
+    color: '#FFFFFF',
     textAlign: 'center',
-    lineHeight: 20,
-    fontWeight: '500',
+    lineHeight: 22,
+    fontWeight: '600',
   },
   linkText: {
-    color: '#FFA500',
-    fontWeight: '700',
+    color: '#000000',
+    fontWeight: '800',
     textDecorationLine: 'underline',
-    textDecorationColor: '#FFA500',
-    fontSize: 14,
-    backgroundColor: 'rgba(255, 165, 0, 0.1)',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
+    textDecorationColor: '#000000',
+    fontSize: 16,
+    backgroundColor: '#FF6B35',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    overflow: 'hidden',
   },
   footer: {
     alignItems: 'center',
