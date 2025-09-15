@@ -118,6 +118,32 @@ export function createProject(data: Omit<Project, 'id' | 'created_at'>): Project
   }, 'Create project');
 }
 
+export function updateProject(id: string, data: Partial<Omit<Project, 'id' | 'created_at'>>): void {
+  return withErrorHandlingSync(() => {
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (data.name !== undefined) {
+      updates.push('name = ?');
+      values.push(data.name);
+    }
+    if (data.client !== undefined) {
+      updates.push('client = ?');
+      values.push(data.client || null);
+    }
+    if (data.location !== undefined) {
+      updates.push('location = ?');
+      values.push(data.location || null);
+    }
+
+    if (updates.length === 0) return;
+
+    values.push(id);
+    const query = `UPDATE projects SET ${updates.join(', ')} WHERE id = ?`;
+    db.runSync(query, values);
+  }, 'Update project');
+}
+
 export function deleteProject(id: string) {
   return withErrorHandlingSync(() => {
     db.runSync('DELETE FROM projects WHERE id = ?', [id]);

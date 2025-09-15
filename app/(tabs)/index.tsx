@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Project, createProject, getProjects, deleteProject, getMediaByProject } from '../../lib/db';
+import { Project, createProject, getProjects, deleteProject, updateProject, getMediaByProject } from '../../lib/db';
 import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -25,12 +25,16 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { GlassHeader, GlassCard } from '../../components/glass';
 import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
+import EditProjectModal from '../../components/EditProjectModal';
+import ProjectCard from '../../components/ProjectCard';
 
 export default function ProjectsList() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [projects, setProjects] = useState<Project[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [form, setForm] = useState({ name: '', client: '', location: '', search: '' });
   
   // Filter projects based on search term
@@ -95,6 +99,27 @@ export default function ProjectsList() {
     } catch (error) {
       Alert.alert('Error', 'Failed to create project');
     }
+  };
+
+  const handleEditProject = (project: Project) => {
+    setEditingProject(project);
+    setShowEdit(true);
+  };
+
+  const handleUpdateProject = (id: string, data: { name: string; client?: string; location?: string }) => {
+    try {
+      updateProject(id, data);
+      loadProjects();
+      setShowEdit(false);
+      setEditingProject(null);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update project');
+    }
+  };
+
+  const handleCloseEditModal = () => {
+    setShowEdit(false);
+    setEditingProject(null);
   };
 
   const handleShareProject = async (project: Project) => {
@@ -295,40 +320,6 @@ export default function ProjectsList() {
     return new Date(timestamp).toLocaleDateString();
   };
 
-  const ProjectCard = ({ project }: { project: Project }) => (
-    <TouchableOpacity
-      onPress={() => {
-        router.push(`/project/${project.id}`);
-      }}
-      onLongPress={() => handleProjectOptions(project)}
-      activeOpacity={0.9}
-      style={{ marginBottom: 12 }}
-    >
-      <GlassCard
-        intensity={60}
-        gradient={true}
-        animated={true}
-        style={{ padding: 16 }}
-      >
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600', marginBottom: 4 }}>
-          {project.name}
-        </Text>
-        {project.client && (
-          <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 2 }}>
-            Client: {project.client}
-          </Text>
-        )}
-        {project.location && (
-          <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 8 }}>
-            Location: {project.location}
-          </Text>
-        )}
-        <Text style={{ color: '#64748B', fontSize: 12 }}>
-          Created {formatDate(project.created_at)}
-        </Text>
-      </GlassCard>
-    </TouchableOpacity>
-  );
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
@@ -354,7 +345,14 @@ export default function ProjectsList() {
           paddingTop: insets.top + 120, // Header height + search bar + spacing
           paddingBottom: insets.bottom + 100, // Tab bar + safe area
         }}
-        renderItem={({ item }) => <ProjectCard project={item} />}
+        renderItem={({ item }) => (
+          <ProjectCard 
+            project={item} 
+            onPress={() => router.push(`/project/${item.id}`)}
+            onLongPress={() => handleProjectOptions(item)}
+            onEdit={() => handleEditProject(item)}
+          />
+        )}
         onScroll={handleScroll}
         scrollEventThrottle={1}
         showsVerticalScrollIndicator={true}
@@ -546,6 +544,14 @@ export default function ProjectsList() {
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Edit Project Modal */}
+      <EditProjectModal
+        visible={showEdit}
+        project={editingProject}
+        onClose={handleCloseEditModal}
+        onSave={handleUpdateProject}
+      />
     </View>
   );
 }
