@@ -40,7 +40,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
   // Reset form when project changes
   useEffect(() => {
     if (project) {
-      console.log('EditProjectModal - Loading project:', project);
       setForm({
         name: project.name || '',
         client: project.client || '',
@@ -133,11 +132,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                   <Ionicons name="close" size={24} color="#94A3B8" />
                 </TouchableOpacity>
               </View>
-
-              {/* Debug Info */}
-              <Text style={{ color: '#F8FAFC', marginBottom: 10 }}>
-                Debug: {project?.name} - Form: {form.name}
-              </Text>
 
               {/* Form */}
               <View style={{ 
@@ -254,19 +248,17 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                 <GlassButton
                   variant="secondary"
                   size="large"
+                  title="Cancel"
                   onPress={handleClose}
                   style={{ flex: 1 }}
-                >
-                  Cancel
-                </GlassButton>
+                />
                 <GlassButton
                   variant="primary"
                   size="large"
+                  title="Save Changes"
                   onPress={handleSave}
                   style={{ flex: 1 }}
-                >
-                  Save Changes
-                </GlassButton>
+                />
               </View>
             </View>
           </KeyboardAvoidingView>
