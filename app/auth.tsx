@@ -107,7 +107,7 @@ export default function AuthScreen() {
 
           {/* Main Content */}
           <View style={styles.mainContent}>
-            <GlassCard style={styles.welcomeCard} intensity={60}>
+            <GlassCard style={styles.welcomeCard} intensity={30}>
               <Text style={styles.welcomeText}>Welcome to BuildVault</Text>
               <Text style={styles.descriptionText}>
                 Sign in to access your construction projects and documentation
@@ -142,7 +142,7 @@ export default function AuthScreen() {
             </View>
 
             {/* Privacy Notice */}
-            <GlassCard style={styles.privacyCard} intensity={40}>
+            <GlassCard style={styles.privacyCard} intensity={20}>
               <Text style={styles.privacyText}>
                 By signing in, you agree to our{' '}
                 <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}>
