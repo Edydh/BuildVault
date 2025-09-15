@@ -10,7 +10,6 @@ import {
   ImageBackground,
   StatusBar,
   Platform,
-  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
@@ -144,23 +143,27 @@ export default function AuthScreen() {
 
             {/* Legal Notice */}
             <GlassCard style={styles.legalNoticeCard} intensity={80}>
-              <View style={styles.legalLinksRow}>
-                <Text
-                  style={styles.legalLink}
-                  onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}
-                >
-                  Terms of Service
-                </Text>
-                <Text style={styles.legalSeparator}>•</Text>
-                <Text
-                  style={styles.legalLink}
-                  onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}
-                >
-                  Privacy Policy
-                </Text>
-              </View>
+              <Text style={styles.legalNoticeText}>By signing in, you agree to:</Text>
             </GlassCard>
           </View>
+          {/* Inline legal links above footer (no card) */}
+          <View style={styles.inlineLegalRow}>
+            <Text
+              style={styles.inlineLegalLink}
+              onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}
+            >
+              Terms of Service
+            </Text>
+            <Text style={styles.inlineLegalSeparator}>•</Text>
+            <Text
+              style={styles.inlineLegalLink}
+              onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}
+            >
+              Privacy Policy
+            </Text>
+          </View>
+          
+
 
           {/* Footer */}
           <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
@@ -265,20 +268,28 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
   },
-  legalLinksRow: {
+  legalNoticeText: {
+    fontSize: 14,
+    color: '#E2E8F0',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  inlineLegalRow: {
+    marginTop: 8,
+    marginBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
   },
-  legalLink: {
+  inlineLegalLink: {
     color: '#FFA500',
     fontWeight: '700',
     textDecorationLine: 'underline',
     textDecorationColor: '#FFA500',
     fontSize: 14,
   },
-  legalSeparator: {
+  inlineLegalSeparator: {
     color: '#94A3B8',
     fontSize: 14,
   },
