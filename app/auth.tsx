@@ -2,18 +2,22 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   Alert,
   StyleSheet,
   Dimensions,
   ActivityIndicator,
   Image,
+  ImageBackground,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuth } from '../lib/AuthContext';
+import { GlassCard, GlassButton } from '../components/glass';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
@@ -21,6 +25,7 @@ export default function AuthScreen() {
   const router = useRouter();
   const { signInWithApple, signInWithGoogle } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const handleAppleSignIn = async () => {
     setIsLoading(true);
@@ -48,9 +53,8 @@ export default function AuthScreen() {
     try {
       const result = await signInWithGoogle();
       
-      if (!result.success) {
-        // Check if it's a user cancellation
-        if (result.error === 'USER_CANCELED') {
+      if (result?.error) {
+        if (result.error.includes('CANCELED') || result.error.includes('canceled')) {
           console.log('User canceled Google Sign-In');
           // No alert needed - user intentionally canceled
         } else {
@@ -59,6 +63,7 @@ export default function AuthScreen() {
         }
       }
       // If successful, the AuthContext will update and redirect
+      
     } catch (error: any) {
       console.error('Google Sign-In error:', error);
       Alert.alert('Sign In Failed', error.message || 'Google Sign-In failed. Please try again.');
@@ -67,77 +72,94 @@ export default function AuthScreen() {
     }
   };
 
-
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.logoContainer}>
-          <Image 
-            source={require('../assets/icon.png')} 
-            style={styles.appIcon}
-            resizeMode="contain"
-          />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      
+      {/* Fullscreen Construction Background */}
+      <ImageBackground
+        source={require('../assets/bg-construction-dark.png')}
+        style={styles.backgroundImage}
+        resizeMode="cover"
+      >
+        {/* Dark Overlay for Better Text Readability */}
+        <LinearGradient
+          colors={['rgba(11, 15, 20, 0.7)', 'rgba(11, 15, 20, 0.8)', 'rgba(11, 15, 20, 0.9)']}
+          style={StyleSheet.absoluteFillObject}
+        />
+
+        {/* Content Container */}
+        <View style={[styles.contentContainer, { paddingTop: insets.top + 40 }]}>
+          
+          {/* Logo Section */}
+          <View style={styles.logoSection}>
+            <View style={styles.logoContainer}>
+              <Image
+                source={require('../assets/icon.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.title}>🏗️ BuildVault</Text>
+            <Text style={styles.subtitle}>Construction Project Documentation</Text>
+          </View>
+
+          {/* Main Content */}
+          <View style={styles.mainContent}>
+            <GlassCard style={styles.welcomeCard} intensity={60}>
+              <Text style={styles.welcomeText}>Welcome to BuildVault</Text>
+              <Text style={styles.descriptionText}>
+                Sign in to access your construction projects and documentation
+              </Text>
+            </GlassCard>
+
+            {/* Authentication Buttons */}
+            <View style={styles.buttonContainer}>
+              <GlassButton
+                variant="secondary"
+                size="large"
+                title="Continue with Apple"
+                icon="logo-apple"
+                onPress={handleAppleSignIn}
+                disabled={isLoading}
+                style={styles.authButton}
+                loading={isLoading}
+              />
+
+              <GlassButton
+                variant="primary"
+                size="large"
+                title="Continue with Google"
+                icon="logo-google"
+                onPress={handleGoogleSignIn}
+                disabled={isLoading}
+                style={styles.authButton}
+              />
+            </View>
+
+            {/* Privacy Notice */}
+            <GlassCard style={styles.privacyCard} intensity={40}>
+              <Text style={styles.privacyText}>
+                By signing in, you agree to our{' '}
+                <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}>
+                  Terms of Service
+                </Text>
+                {' '}and{' '}
+                <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}>
+                  Privacy Policy
+                </Text>
+              </Text>
+            </GlassCard>
+          </View>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              Built with ❤️ © 2025 uniQubit
+            </Text>
+          </View>
         </View>
-        <Text style={styles.title}>BuildVault</Text>
-        <Text style={styles.subtitle}>Construction Project Documentation</Text>
-      </View>
-
-      {/* Content */}
-      <View style={styles.content}>
-        <Text style={styles.welcomeText}>
-          Welcome to BuildVault
-        </Text>
-        <Text style={styles.descriptionText}>
-          Sign in to access your construction projects and documentation
-        </Text>
-
-        {/* Sign In Button */}
-        <View style={styles.buttonContainer}>
-          {/* Apple Sign In */}
-          <TouchableOpacity
-            style={[styles.signInButton, styles.appleButton]}
-            onPress={handleAppleSignIn}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
-                <Text style={styles.buttonText}>Continue with Apple</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* Google Sign In */}
-          <TouchableOpacity
-            style={[styles.signInButton, styles.googleButton]}
-            onPress={handleGoogleSignIn}
-            disabled={isLoading}
-          >
-            <Ionicons name="logo-google" size={20} color="#0B0F14" />
-            <Text style={[styles.buttonText, { color: '#0B0F14' }]}>Continue with Google</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Privacy Notice */}
-        <View style={styles.privacyContainer}>
-          <Text style={styles.privacyText}>
-            By signing in, you agree to our{' '}
-            <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}>Terms of Service</Text>
-            {' '}and{' '}
-            <Text style={styles.linkText} onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}>Privacy Policy</Text>
-          </Text>
-        </View>
-      </View>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Built with ❤️ © 2025 uniQubit
-        </Text>
-      </View>
+      </ImageBackground>
     </View>
   );
 }
@@ -147,11 +169,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0B0F14',
   },
-  header: {
+  backgroundImage: {
     flex: 1,
-    justifyContent: 'center',
+    width: '100%',
+    height: '100%',
+  },
+  contentContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+  },
+  logoSection: {
     alignItems: 'center',
-    paddingTop: 60,
+    marginTop: 60,
+    marginBottom: 40,
   },
   logoContainer: {
     width: 120,
@@ -161,88 +192,83 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 122, 26, 0.3)',
   },
-  appIcon: {
+  logo: {
     width: 80,
     height: 80,
   },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 36,
+    fontWeight: '800',
     color: '#F8FAFC',
     marginBottom: 8,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#94A3B8',
+    fontSize: 18,
+    color: '#CBD5E1',
     textAlign: 'center',
+    fontWeight: '500',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  content: {
+  mainContent: {
     flex: 1,
-    paddingHorizontal: 32,
     justifyContent: 'center',
+    gap: 24,
+  },
+  welcomeCard: {
+    padding: 24,
+    alignItems: 'center',
   },
   welcomeText: {
-    fontSize: 24,
-    fontWeight: '600',
+    fontSize: 28,
+    fontWeight: '700',
     color: '#F8FAFC',
     textAlign: 'center',
     marginBottom: 12,
   },
   descriptionText: {
     fontSize: 16,
-    color: '#94A3B8',
+    color: '#CBD5E1',
     textAlign: 'center',
-    marginBottom: 48,
     lineHeight: 24,
   },
   buttonContainer: {
     gap: 16,
   },
-  signInButton: {
-    flexDirection: 'row',
+  authButton: {
+    width: '100%',
+  },
+  privacyCard: {
+    padding: 20,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    gap: 12,
-  },
-  appleButton: {
-    backgroundColor: '#000000',
-    borderWidth: 1,
-    borderColor: '#374151',
-  },
-  googleButton: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#374151',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  privacyContainer: {
-    marginTop: 32,
-    paddingHorizontal: 16,
   },
   privacyText: {
-    fontSize: 12,
-    color: '#64748B',
+    fontSize: 14,
+    color: '#94A3B8',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 20,
   },
   linkText: {
     color: '#FF7A1A',
-    textDecorationLine: 'underline',
+    fontWeight: '600',
   },
   footer: {
-    paddingBottom: 40,
     alignItems: 'center',
+    marginTop: 'auto',
+    paddingTop: 20,
   },
   footerText: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#64748B',
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });
