@@ -174,16 +174,16 @@ export const GlassThemeProvider: React.FC<{ children: ReactNode }> = ({ children
       };
     }
 
-    // Android needs more opaque backgrounds
+    // Android needs more opaque backgrounds - force dark theme for consistency
     if (isAndroid) {
       return {
-        background: isDark ? 'rgba(16, 24, 38, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        background: 'rgba(16, 24, 38, 0.95)',  // Always use dark background on Android
         backgroundOpacity: 0.95,
-        gradientStart: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)',
+        gradientStart: 'rgba(255, 255, 255, 0.03)',
         gradientEnd: 'rgba(255, 255, 255, 0)',
-        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-        textPrimary: isDark ? '#F8FAFC' : '#0F172A',
-        textSecondary: isDark ? '#94A3B8' : '#64748B',
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        textPrimary: '#F8FAFC',
+        textSecondary: '#94A3B8',
       };
     }
 

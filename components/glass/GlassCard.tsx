@@ -39,7 +39,8 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   ...rest
 }) => {
   const glassTheme = useGlassMorphism(intensity);
-  const defaultTint = tint || glassTheme.tint;
+  // Force dark tint on Android for better visibility
+  const defaultTint = Platform.OS === 'android' ? 'dark' : (tint || glassTheme.tint);
   
   // Animation values
   const scale = useSharedValue(0.95);
@@ -84,7 +85,12 @@ export const GlassCard: React.FC<GlassCardProps> = ({
         gradientEnd: glassTheme.colors.gradientEnd,
         borderColor: glassTheme.colors.borderColor,
       }
-    : glassTheme.colors;
+    : {
+        background: glassTheme.colors.background,
+        gradientStart: glassTheme.colors.gradientStart,
+        gradientEnd: glassTheme.colors.gradientEnd,
+        borderColor: glassTheme.colors.borderColor,
+      };
 
   const shadowStyle = shadowEnabled
     ? Platform.select({
