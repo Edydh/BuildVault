@@ -142,26 +142,11 @@ export default function AuthScreen() {
               />
             </View>
 
-            {/* Legal Links */}
-            <GlassCard style={styles.legalCard} intensity={80}>
-              <Text style={styles.legalText}>
-                By signing in, you agree to our:
+            {/* Legal Notice */}
+            <GlassCard style={styles.legalNoticeCard} intensity={80}>
+              <Text style={styles.legalNoticeText}>
+                By signing in, you agree to our terms and privacy policy
               </Text>
-              <View style={styles.legalLinks}>
-                <TouchableOpacity 
-                  style={styles.legalButton}
-                  onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}
-                >
-                  <Text style={styles.legalButtonText}>Terms of Service</Text>
-                </TouchableOpacity>
-                <Text style={styles.legalSeparator}>and</Text>
-                <TouchableOpacity 
-                  style={styles.legalButton}
-                  onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}
-                >
-                  <Text style={styles.legalButtonText}>Privacy Policy</Text>
-                </TouchableOpacity>
-              </View>
             </GlassCard>
           </View>
 
@@ -171,6 +156,25 @@ export default function AuthScreen() {
               Built with ❤️ © 2025 uniQubit
             </Text>
           </View>
+
+          {/* Legal Links - Separate Card at Bottom */}
+          <GlassCard style={styles.legalLinksCard} intensity={80}>
+            <Text style={styles.legalLinksTitle}>Legal</Text>
+            <View style={styles.legalLinksContainer}>
+              <TouchableOpacity 
+                style={styles.legalLinkButton}
+                onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}
+              >
+                <Text style={styles.legalLinkText}>Terms of Service</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.legalLinkButton}
+                onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}
+              >
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
+          </GlassCard>
         </View>
       </ImageBackground>
     </View>
@@ -260,41 +264,47 @@ const styles = StyleSheet.create({
   authButton: {
     width: '100%',
   },
-  legalCard: {
-    padding: 20,
+  legalNoticeCard: {
+    padding: 16,
     alignItems: 'center',
     marginTop: 16,
     marginBottom: 8,
   },
-  legalText: {
+  legalNoticeText: {
+    fontSize: 14,
+    color: '#E2E8F0',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  legalLinksCard: {
+    padding: 16,
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  legalLinksTitle: {
     fontSize: 16,
     color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    marginBottom: 12,
   },
-  legalLinks: {
-    flexDirection: 'row',
+  legalLinksContainer: {
+    flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
     gap: 8,
   },
-  legalButton: {
+  legalLinkButton: {
     backgroundColor: '#FF6B35',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 8,
+    minWidth: 140,
+    alignItems: 'center',
   },
-  legalButtonText: {
+  legalLinkText: {
     color: '#000000',
-    fontWeight: '800',
+    fontWeight: '700',
     fontSize: 14,
-  },
-  legalSeparator: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '500',
   },
   footer: {
     alignItems: 'center',
