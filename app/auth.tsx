@@ -144,9 +144,21 @@ export default function AuthScreen() {
 
             {/* Legal Notice */}
             <GlassCard style={styles.legalNoticeCard} intensity={80}>
-              <Text style={styles.legalNoticeText}>
-                By signing in, you agree to our terms and privacy policy
-              </Text>
+              <View style={styles.legalLinksRow}>
+                <Text
+                  style={styles.legalLink}
+                  onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}
+                >
+                  Terms of Service
+                </Text>
+                <Text style={styles.legalSeparator}>•</Text>
+                <Text
+                  style={styles.legalLink}
+                  onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}
+                >
+                  Privacy Policy
+                </Text>
+              </View>
             </GlassCard>
           </View>
 
@@ -157,24 +169,7 @@ export default function AuthScreen() {
             </Text>
           </View>
 
-          {/* Legal Links - Separate Card at Bottom */}
-          <GlassCard style={styles.legalLinksCard} intensity={80}>
-            <Text style={styles.legalLinksTitle}>Legal</Text>
-            <View style={styles.legalLinksContainer}>
-              <TouchableOpacity 
-                style={styles.legalLinkButton}
-                onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-terms/')}
-              >
-                <Text style={styles.legalLinkText}>Terms of Service</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.legalLinkButton}
-                onPress={() => Linking.openURL('https://sites.google.com/view/buildvault-legal-privacy/')}
-              >
-                <Text style={styles.legalLinkText}>Privacy Policy</Text>
-              </TouchableOpacity>
-            </View>
-          </GlassCard>
+          
         </View>
       </ImageBackground>
     </View>
@@ -270,40 +265,21 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
   },
-  legalNoticeText: {
+  legalLinksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  legalLink: {
+    color: '#FFA500',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+    textDecorationColor: '#FFA500',
     fontSize: 14,
-    color: '#E2E8F0',
-    textAlign: 'center',
-    fontWeight: '500',
   },
-  legalLinksCard: {
-    padding: 16,
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  legalLinksTitle: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    fontWeight: '700',
-    marginBottom: 12,
-  },
-  legalLinksContainer: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 8,
-  },
-  legalLinkButton: {
-    backgroundColor: '#FF6B35',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    minWidth: 140,
-    alignItems: 'center',
-  },
-  legalLinkText: {
-    color: '#000000',
-    fontWeight: '700',
+  legalSeparator: {
+    color: '#94A3B8',
     fontSize: 14,
   },
   footer: {
