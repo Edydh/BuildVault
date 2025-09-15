@@ -110,7 +110,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({
     styles.container,
     {
       borderRadius,
-      backgroundColor: glassColors.background,
+      backgroundColor: Platform.OS === 'android' ? 'rgba(16, 24, 38, 0.95)' : glassColors.background,
     },
     shadowStyle,
     style,
@@ -128,13 +128,16 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   return (
     <Animated.View style={[containerStyle, animatedStyle]} {...rest}>
       <AnimatedBlurView
-        intensity={glassTheme.blurIntensity}
-        tint={defaultTint as any}
+        intensity={Platform.OS === 'android' ? 20 : glassTheme.blurIntensity}
+        tint="dark"
         style={[styles.blurView, { borderRadius }]}
       >
         {gradient && (
           <AnimatedLinearGradient
-            colors={[glassColors.gradientStart, glassColors.gradientEnd]}
+            colors={Platform.OS === 'android' 
+              ? ['rgba(16, 24, 38, 0.9)', 'rgba(16, 24, 38, 0.7)']
+              : [glassColors.gradientStart, glassColors.gradientEnd]
+            }
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={[styles.gradient, { borderRadius }]}
