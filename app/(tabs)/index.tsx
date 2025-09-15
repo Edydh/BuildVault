@@ -270,6 +270,10 @@ export default function ProjectsList() {
       [
         { text: 'Cancel', style: 'cancel' },
         {
+          text: 'Edit Project',
+          onPress: () => handleEditProject(project),
+        },
+        {
           text: 'Share Project',
           onPress: () => handleShareProject(project),
         },
@@ -350,7 +354,6 @@ export default function ProjectsList() {
             project={item} 
             onPress={() => router.push(`/project/${item.id}`)}
             onLongPress={() => handleProjectOptions(item)}
-            onEdit={() => handleEditProject(item)}
           />
         )}
         onScroll={handleScroll}
