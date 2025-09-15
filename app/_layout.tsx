@@ -22,14 +22,14 @@ export default function RootLayout() {
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <GlassThemeProvider>
-            <AuthProvider>
+          <AuthProvider>
+            <GlassThemeProvider>
               <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
                 <StatusBar style="light" />
                 <Stack screenOptions={{ headerShown: false }} />
               </View>
-            </AuthProvider>
-          </GlassThemeProvider>
+            </GlassThemeProvider>
+          </AuthProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

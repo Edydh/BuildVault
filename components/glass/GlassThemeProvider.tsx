@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Platform, Appearance, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Device from 'expo-device';
 
 // Types
 export type GlassIntensity = 'low' | 'medium' | 'high' | 'adaptive';
@@ -69,21 +68,17 @@ export const GlassThemeProvider: React.FC<{ children: ReactNode }> = ({ children
   // Check device performance capabilities
   useEffect(() => {
     const checkDevicePerformance = async () => {
+      // Simplified performance detection without expo-device
       if (Platform.OS === 'ios') {
         // iOS devices generally handle blur well
-        const modelName = Device.modelName || '';
-        // Older devices (iPhone 8 and below) get reduced effects
-        const isOlderDevice = modelName.includes('iPhone 6') || 
-                             modelName.includes('iPhone 7') || 
-                             modelName.includes('iPhone 8') ||
-                             modelName.includes('iPhone SE');
-        setIsHighPerformance(!isOlderDevice);
+        // Assume high performance for iOS 13+ (which is our minimum)
+        setIsHighPerformance(true);
       } else {
-        // Android: Check RAM and API level
-        const totalMemory = Device.totalMemory || 0;
+        // Android: Check API level
         const apiLevel = Platform.Version;
-        // Consider high performance if 4GB+ RAM and API 31+ (Android 12+)
-        setIsHighPerformance(totalMemory >= 4000000000 && apiLevel >= 31);
+        // Consider high performance if API 31+ (Android 12+)
+        // This is a reasonable assumption for modern Android devices
+        setIsHighPerformance(apiLevel >= 31);
       }
     };
 
