@@ -23,7 +23,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { GlassHeader, GlassCard } from '../../components/glass';
-import Animated, { useSharedValue } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
+import { useScrollContext } from '../../components/glass/ScrollContext';
 
 export default function ProjectsList() {
   const router = useRouter();
@@ -53,7 +54,7 @@ export default function ProjectsList() {
   });
   
   // Animation values for dynamic header
-  const scrollY = useSharedValue(0);
+  const { scrollY } = useScrollContext();
   const flatListRef = useRef<FlatList>(null);
 
   const loadProjects = useCallback(() => {

@@ -4,6 +4,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { Redirect } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { CustomTabBar } from '../../components/glass/CustomTabBar';
+import { ScrollProvider } from '../../components/glass/ScrollContext';
 
 export default function TabLayout() {
   const { user, isLoading } = useAuth();
@@ -34,36 +35,38 @@ export default function TabLayout() {
   console.log('TabLayout - Rendering tabs for user:', user.name);
 
   return (
-    <Tabs
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: '#101826',
-        },
-        headerTintColor: '#F8FAFC',
-        headerTitleStyle: {
-          fontWeight: '600',
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Projects',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="folder" size={size} color={color} />
-          ),
+    <ScrollProvider>
+      <Tabs
+        tabBar={(props) => <CustomTabBar {...props} />}
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: '#101826',
+          },
+          headerTintColor: '#F8FAFC',
+          headerTitleStyle: {
+            fontWeight: '600',
+          },
         }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings" size={size} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Projects',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="folder" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: 'Settings',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="settings" size={size} color={color} />
+            ),
+          }}
+        />
+      </Tabs>
+    </ScrollProvider>
   );
 }

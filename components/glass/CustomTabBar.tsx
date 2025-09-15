@@ -9,14 +9,18 @@ import Animated, {
   useSharedValue,
   withSpring,
   withTiming,
+  interpolate,
+  Extrapolate,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { useScrollContext } from './ScrollContext';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { scrollY } = useScrollContext();
   
   // Animation values for each tab
   const tabScales: Record<string, Animated.SharedValue<number>> = {};
@@ -53,8 +57,32 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
     });
   };
 
+  // Animate tab bar based on scroll
+  const animatedTabBarStyle = useAnimatedStyle(() => {
+    // Start hiding after 100px scroll, fully hidden at 200px
+    const opacity = interpolate(
+      scrollY.value,
+      [0, 100, 200],
+      [1, 1, 0],
+      Extrapolate.CLAMP
+    );
+
+    // Slide down as it fades
+    const translateY = interpolate(
+      scrollY.value,
+      [0, 100, 200],
+      [0, 0, 100],
+      Extrapolate.CLAMP
+    );
+
+    return {
+      opacity,
+      transform: [{ translateY }],
+    };
+  });
+
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+    <Animated.View style={[styles.container, { paddingBottom: insets.bottom }, animatedTabBarStyle]}>
       <BlurView
         intensity={Platform.OS === 'android' ? 30 : 90}
         tint="dark"
@@ -136,7 +164,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
