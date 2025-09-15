@@ -9,6 +9,7 @@ import {
   Image,
   ImageBackground,
   StatusBar,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
@@ -100,7 +101,7 @@ export default function AuthScreen() {
                 resizeMode="contain"
               />
             </View>
-            <Text style={styles.title}>🏗️ BuildVault</Text>
+            <Text style={styles.title}>BuildVault</Text>
             <Text style={styles.subtitle}>Construction Project Documentation</Text>
           </View>
 
@@ -115,16 +116,19 @@ export default function AuthScreen() {
 
             {/* Authentication Buttons */}
             <View style={styles.buttonContainer}>
-              <GlassButton
-                variant="secondary"
-                size="large"
-                title="Continue with Apple"
-                icon="logo-apple"
-                onPress={handleAppleSignIn}
-                disabled={isLoading}
-                style={styles.authButton}
-                loading={isLoading}
-              />
+              {/* Apple Sign-In - Only show on iOS */}
+              {Platform.OS === 'ios' && (
+                <GlassButton
+                  variant="secondary"
+                  size="large"
+                  title="Continue with Apple"
+                  icon="logo-apple"
+                  onPress={handleAppleSignIn}
+                  disabled={isLoading}
+                  style={styles.authButton}
+                  loading={isLoading}
+                />
+              )}
 
               <GlassButton
                 variant="primary"
