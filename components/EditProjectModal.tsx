@@ -241,8 +241,9 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
               <View
                 style={{
                   flexDirection: 'row',
-                  gap: 12,
+                  gap: 16,
                   marginTop: 'auto',
+                  paddingHorizontal: 4,
                 }}
               >
                 <GlassButton
@@ -255,7 +256,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                 <GlassButton
                   variant="primary"
                   size="large"
-                  title="Save Changes"
+                  title="Save"
                   onPress={handleSave}
                   style={{ flex: 1 }}
                 />
