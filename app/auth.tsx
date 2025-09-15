@@ -107,12 +107,7 @@ export default function AuthScreen() {
 
           {/* Main Content */}
           <View style={styles.mainContent}>
-            <GlassCard style={styles.welcomeCard} intensity={30}>
-              <Text style={styles.welcomeText}>Welcome to BuildVault</Text>
-              <Text style={styles.descriptionText}>
-                Sign in to access your construction projects and documentation
-              </Text>
-            </GlassCard>
+            
 
             {/* Authentication Buttons */}
             <View style={styles.buttonContainer}>
@@ -142,9 +137,7 @@ export default function AuthScreen() {
             </View>
 
             {/* Legal Notice */}
-            <GlassCard style={styles.legalNoticeCard} intensity={80}>
-              <Text style={styles.legalNoticeText}>By signing in, you agree to:</Text>
-            </GlassCard>
+            
           </View>
           {/* Inline legal links above footer (no card) */}
           <View style={styles.inlineLegalRow}>
