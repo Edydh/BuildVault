@@ -40,6 +40,12 @@ export default function ProjectDetail() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [actionSheet, setActionSheet] = useState<{
+    visible: boolean;
+    title?: string;
+    message?: string;
+    actions?: { label: string; onPress: () => void; destructive?: boolean }[];
+  }>({ visible: false });
 
   // Animation values for dynamic header (match Projects/Settings pattern)
   const headerOpacity = useRef(new Animated.Value(1)).current;
