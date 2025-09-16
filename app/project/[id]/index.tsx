@@ -814,40 +814,46 @@ export default function ProjectDetail() {
     };
 
     return (
-      <TouchableOpacity
+      <GlassCard
         style={{
-          backgroundColor: isSelected ? '#1E3A8A' : '#101826',
-          borderRadius: 12,
-          padding: 8,
-          marginBottom: 8,
-          borderWidth: 2,
-          borderColor: isSelected ? '#3B82F6' : '#1F2A37',
           width: '48%', // Two columns with gap
           aspectRatio: 1, // Square aspect ratio
+          marginBottom: 8,
+          backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.2)' : undefined,
+          borderWidth: isSelected ? 1 : 0,
+          borderColor: isSelected ? '#3B82F6' : 'transparent',
         }}
-        onPress={handlePress}
-        onLongPress={() => {
-          if (!isSelectionMode) {
-            Alert.alert(
-              'Media Options',
-              'What would you like to do with this media?',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Move to Folder',
-                  onPress: () => handleMoveMedia(item),
-                },
-                {
-                  text: 'Delete',
-                  style: 'destructive',
-                  onPress: () => handleDeleteMedia(item),
-                },
-              ]
-            );
-          }
-        }}
-        activeOpacity={0.7}
+        intensity={60}
+        shadowEnabled={true}
       >
+        <TouchableOpacity
+          style={{
+            flex: 1,
+            padding: 8,
+          }}
+          onPress={handlePress}
+          onLongPress={() => {
+            if (!isSelectionMode) {
+              Alert.alert(
+                'Media Options',
+                'What would you like to do with this media?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Move to Folder',
+                    onPress: () => handleMoveMedia(item),
+                  },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => handleDeleteMedia(item),
+                  },
+                ]
+              );
+            }
+          }}
+          activeOpacity={0.7}
+        >
         <View style={{ flex: 1, position: 'relative' }}>
           {isSelectionMode && (
             <View style={{
@@ -1040,7 +1046,8 @@ export default function ProjectDetail() {
           mediaType={item.type}
           onAddNotePress={handlePress}
         />
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </GlassCard>
     );
   };
 
@@ -1064,38 +1071,43 @@ export default function ProjectDetail() {
     };
 
     return (
-    <TouchableOpacity
-      style={{
-          backgroundColor: isSelected ? '#1E3A8A' : '#101826',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
-          borderWidth: 2,
-          borderColor: isSelected ? '#3B82F6' : '#1F2A37',
+      <GlassCard
+        style={{
+          marginBottom: 12,
+          backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.2)' : undefined,
+          borderWidth: isSelected ? 1 : 0,
+          borderColor: isSelected ? '#3B82F6' : 'transparent',
         }}
-        onPress={handlePress}
-        onLongPress={() => {
-          if (!isSelectionMode) {
-            Alert.alert(
-              'Media Options',
-              'What would you like to do with this media?',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Move to Folder',
-                  onPress: () => handleMoveMedia(item),
-                },
-                {
-                  text: 'Delete',
-                  style: 'destructive',
-                  onPress: () => handleDeleteMedia(item),
-                },
-              ]
-            );
-          }
-        }}
-        activeOpacity={0.7}
+        intensity={60}
+        shadowEnabled={true}
       >
+        <TouchableOpacity
+          style={{
+            padding: 16,
+          }}
+          onPress={handlePress}
+          onLongPress={() => {
+            if (!isSelectionMode) {
+              Alert.alert(
+                'Media Options',
+                'What would you like to do with this media?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Move to Folder',
+                    onPress: () => handleMoveMedia(item),
+                  },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => handleDeleteMedia(item),
+                  },
+                ]
+              );
+            }
+          }}
+          activeOpacity={0.7}
+        >
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         {isSelectionMode && (
           <View style={{
@@ -1188,8 +1200,9 @@ export default function ProjectDetail() {
         mediaType={item.type}
         onAddNotePress={handlePress}
       />
-    </TouchableOpacity>
-  );
+        </TouchableOpacity>
+      </GlassCard>
+    );
   };
 
   if (!project) {
@@ -1389,90 +1402,119 @@ export default function ProjectDetail() {
                 style={{ marginBottom: 12 }}
                 pointerEvents="auto"
               >
-                <TouchableOpacity
-                  onPress={() => handleSelectFolder(null)}
+                <GlassCard
                   style={{
-                    backgroundColor: currentFolder === null ? '#FF7A1A' : '#1F2A37',
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 20,
                     marginRight: 8,
-                    flexDirection: 'row',
-                    alignItems: 'center',
+                    backgroundColor: currentFolder === null ? 'rgba(255, 122, 26, 0.2)' : undefined,
+                    borderWidth: currentFolder === null ? 1 : 0,
+                    borderColor: currentFolder === null ? '#FF7A1A' : 'transparent',
                   }}
+                  intensity={60}
+                  shadowEnabled={true}
                 >
-                  <Ionicons name="home" size={16} color={currentFolder === null ? '#0B0F14' : '#F8FAFC'} />
-                  <Text style={{ 
-                    color: currentFolder === null ? '#0B0F14' : '#F8FAFC', 
-                    fontSize: 12, 
-                    fontWeight: '600',
-                    marginLeft: 4 
-                  }}>
-                    All Media
-                  </Text>
-                </TouchableOpacity>
-                {folders.map(folder => (
                   <TouchableOpacity
-                    key={folder.id}
-                    onPress={() => handleSelectFolder(folder.id)}
+                    onPress={() => handleSelectFolder(null)}
                     style={{
-                      backgroundColor: currentFolder === folder.id ? '#FF7A1A' : '#1F2A37',
                       paddingHorizontal: 12,
                       paddingVertical: 8,
-                      borderRadius: 20,
-                      marginRight: 8,
                       flexDirection: 'row',
                       alignItems: 'center',
                     }}
                   >
-                    <Ionicons name="folder" size={16} color={currentFolder === folder.id ? '#0B0F14' : '#F8FAFC'} />
+                    <Ionicons name="home" size={16} color={currentFolder === null ? '#FF7A1A' : '#F8FAFC'} />
                     <Text style={{ 
-                      color: currentFolder === folder.id ? '#0B0F14' : '#F8FAFC', 
+                      color: currentFolder === null ? '#FF7A1A' : '#F8FAFC', 
                       fontSize: 12, 
                       fontWeight: '600',
                       marginLeft: 4 
                     }}>
-                      {folder.name}
+                      All Media
                     </Text>
                   </TouchableOpacity>
+                </GlassCard>
+                {folders.map(folder => (
+                  <GlassCard
+                    key={folder.id}
+                    style={{
+                      marginRight: 8,
+                      backgroundColor: currentFolder === folder.id ? 'rgba(255, 122, 26, 0.2)' : undefined,
+                      borderWidth: currentFolder === folder.id ? 1 : 0,
+                      borderColor: currentFolder === folder.id ? '#FF7A1A' : 'transparent',
+                    }}
+                    intensity={60}
+                    shadowEnabled={true}
+                  >
+                    <TouchableOpacity
+                      onPress={() => handleSelectFolder(folder.id)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Ionicons name="folder" size={16} color={currentFolder === folder.id ? '#FF7A1A' : '#F8FAFC'} />
+                      <Text style={{ 
+                        color: currentFolder === folder.id ? '#FF7A1A' : '#F8FAFC', 
+                        fontSize: 12, 
+                        fontWeight: '600',
+                        marginLeft: 4 
+                      }}>
+                        {folder.name}
+                      </Text>
+                    </TouchableOpacity>
+                  </GlassCard>
                 ))}
-                <TouchableOpacity
-                  onPress={() => setShowFolderModal(true)}
+                <GlassCard
                   style={{
-                    backgroundColor: '#1F2A37',
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 20,
-                    flexDirection: 'row',
-                    alignItems: 'center',
                     borderWidth: 1,
                     borderColor: '#FF7A1A',
-                    borderStyle: 'dashed',
+                    backgroundColor: 'rgba(255, 122, 26, 0.1)',
                   }}
+                  intensity={60}
+                  shadowEnabled={true}
                 >
-                  <Ionicons name="add" size={16} color="#FF7A1A" />
-                  <Text style={{ color: '#FF7A1A', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
-                    New Folder
-                  </Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setShowFolderModal(true)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Ionicons name="add" size={16} color="#FF7A1A" />
+                    <Text style={{ color: '#FF7A1A', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
+                      New Folder
+                    </Text>
+                  </TouchableOpacity>
+                </GlassCard>
               </ScrollView>
               {/* Current Folder Indicator */}
-              <View style={{ 
-                backgroundColor: '#1F2A37', 
-                paddingHorizontal: 12, 
-                paddingVertical: 8, 
-                borderRadius: 12,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-                <Ionicons name="camera" size={14} color="#FF7A1A" />
-                <Text style={{ color: '#94A3B8', fontSize: 12, marginLeft: 6 }}>
-                  New media will be saved to: <Text style={{ color: '#FF7A1A', fontWeight: '600' }}>
-                    {currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media'}
+              <GlassCard
+                style={{
+                  backgroundColor: 'rgba(255, 122, 26, 0.05)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 122, 26, 0.2)',
+                }}
+                intensity={40}
+                shadowEnabled={false}
+              >
+                <View style={{
+                  paddingHorizontal: 12, 
+                  paddingVertical: 8, 
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Ionicons name="camera" size={14} color="#FF7A1A" />
+                  <Text style={{ color: '#94A3B8', fontSize: 12, marginLeft: 6 }}>
+                    New media will be saved to: <Text style={{ color: '#FF7A1A', fontWeight: '600' }}>
+                      {currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media'}
+                    </Text>
                   </Text>
-                </Text>
-              </View>
+                </View>
+              </GlassCard>
             </View>
           )}
         </View>
