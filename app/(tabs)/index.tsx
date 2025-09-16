@@ -368,7 +368,7 @@ export default function ProjectsList() {
         icon="add"
         size={60}
         onPress={() => setShowCreate(true)}
-        style={{ position: 'absolute', right: 20, bottom: insets.bottom + 90 }}
+        style={{ position: 'absolute', right: 20, bottom: insets.bottom + 30 }}
       />
 
       <GlassModal visible={showCreate} onRequestClose={() => setShowCreate(false)}>

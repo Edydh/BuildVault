@@ -75,8 +75,9 @@ export const GlassTextInput: React.FC<GlassTextInputProps> = ({
         onSubmitEditing={onSubmitEditing}
         multiline={multiline}
         keyboardAppearance="dark"
-        selectionColor="#FF7A1A"
-        cursorColor="#FF7A1A"
+        selectionColor={Platform.OS === 'android' ? '#FF7A1A' : '#FF7A1A'}
+        cursorColor={Platform.OS === 'android' ? '#FF7A1A' : '#FF7A1A'}
+        underlineColorAndroid="transparent"
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
         {...rest}

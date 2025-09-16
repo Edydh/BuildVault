@@ -26,6 +26,8 @@ import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImage
 import SharingQualitySelector from '../../../components/SharingQualitySelector';
 import NotePrompt from '../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../components/NoteSettings';
+import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider } from '../../../components/glass';
+import { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -427,7 +429,7 @@ function FullScreenPhotoViewer({
   );
 }
 
-export default function PhotoGallery() {
+function PhotoGalleryContent() {
   const { id, initialIndex } = useLocalSearchParams<{ id: string; initialIndex: string }>();
   const router = useRouter();
   const [media, setMedia] = useState<MediaItem[]>([]);
@@ -439,7 +441,15 @@ export default function PhotoGallery() {
   const [showQualitySelector, setShowQualitySelector] = useState(false);
   const [sharingItem, setSharingItem] = useState<MediaItem | null>(null);
   const [showNotePrompt, setShowNotePrompt] = useState(false);
+  const [showDeleteSheet, setShowDeleteSheet] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const scrollY = useSharedValue(0);
+  
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
 
   // Load image variants for all photos
   const loadImageVariants = async (photos: MediaItem[]) => {
@@ -585,68 +595,62 @@ export default function PhotoGallery() {
   };
 
   const handleDelete = (mediaItem: MediaItem) => {
-    Alert.alert(
-      'Delete Photo',
-      'Are you sure you want to delete this photo? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Delete the physical file from file system
-              const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-              if (fileInfo.exists) {
-                await FileSystem.deleteAsync(mediaItem.uri, { idempotent: true });
-              }
-              
-              // Delete thumbnail if it exists
-              if (mediaItem.thumb_uri) {
-                const thumbInfo = await FileSystem.getInfoAsync(mediaItem.thumb_uri);
-                if (thumbInfo.exists) {
-                  await FileSystem.deleteAsync(mediaItem.thumb_uri, { idempotent: true });
-                }
-              }
-              
-              // Clean up image variants if it's a photo
-              if (mediaItem.type === 'photo' && id) {
-                await cleanupImageVariants(mediaItem.id, id);
-              }
-              
-              // Delete from database
-              const { deleteMedia } = await import('../../../lib/db');
-              deleteMedia(mediaItem.id);
-              
-              // Provide haptic feedback
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              
-              // Remove from local state
-              setMedia(prev => prev.filter(item => item.id !== mediaItem.id));
-              
-              // If this was the last photo, go back
-              if (media.length === 1) {
-                router.back();
-              } else {
-                // Adjust current index if needed
-                const newIndex = Math.min(currentIndex, media.length - 2);
-                setCurrentIndex(newIndex);
-                if (flatListRef.current) {
-                  flatListRef.current.scrollToIndex({
-                    index: newIndex,
-                    animated: true,
-                  });
-                }
-              }
-              
-            } catch (error) {
-              console.error('Error deleting photo:', error);
-              Alert.alert('Error', 'Failed to delete photo. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    setShowDeleteSheet(true);
+  };
+  
+  const confirmDelete = async () => {
+    const mediaItem = media[currentIndex];
+    if (!mediaItem) return;
+    
+    try {
+      // Delete the physical file from file system
+      const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
+      if (fileInfo.exists) {
+        await FileSystem.deleteAsync(mediaItem.uri, { idempotent: true });
+      }
+      
+      // Delete thumbnail if it exists
+      if (mediaItem.thumb_uri) {
+        const thumbInfo = await FileSystem.getInfoAsync(mediaItem.thumb_uri);
+        if (thumbInfo.exists) {
+          await FileSystem.deleteAsync(mediaItem.thumb_uri, { idempotent: true });
+        }
+      }
+      
+      // Clean up image variants if it's a photo
+      if (mediaItem.type === 'photo' && id) {
+        await cleanupImageVariants(mediaItem.id, id);
+      }
+      
+      // Delete from database
+      const { deleteMedia } = await import('../../../lib/db');
+      deleteMedia(mediaItem.id);
+      
+      // Provide haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      // Remove from local state
+      setMedia(prev => prev.filter(item => item.id !== mediaItem.id));
+      
+      // If this was the last photo, go back
+      if (media.length === 1) {
+        router.back();
+      } else {
+        // Adjust current index if needed
+        const newIndex = Math.min(currentIndex, media.length - 2);
+        setCurrentIndex(newIndex);
+        if (flatListRef.current) {
+          flatListRef.current.scrollToIndex({
+            index: newIndex,
+            animated: true,
+          });
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error deleting photo:', error);
+      Alert.alert('Error', 'Failed to delete photo. Please try again.');
+    }
   };
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
@@ -734,36 +738,40 @@ export default function PhotoGallery() {
           />
         )}
         
-        {/* Full-screen button overlay */}
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => {
-            setIsFullScreen(true);
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }}
-          style={{
-            position: 'absolute',
-            top: 120, // Below the header
-            right: 16,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            borderRadius: 25,
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.3,
-            shadowRadius: 4,
-            elevation: 4,
-          }}
-        >
-          <Ionicons name="expand" size={16} color="#FFFFFF" />
-          <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
-            Full Screen
-          </Text>
-        </TouchableOpacity>
+        {/* Full-screen button overlay with glass morphism */}
+        <View style={{
+          position: 'absolute',
+          top: 120, // Below the header
+          right: 16,
+        }}>
+          <GlassCard
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 25,
+            }}
+            intensity={60}
+            shadowEnabled={true}
+          >
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                setIsFullScreen(true);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Ionicons name="expand" size={16} color="#F8FAFC" />
+              <Text style={{ color: '#F8FAFC', fontSize: 12, fontWeight: '600' }}>
+                Full Screen
+              </Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
       </View>
     );
   };
@@ -798,69 +806,47 @@ export default function PhotoGallery() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
-      {/* Header */}
-      <View style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1000,
-        backgroundColor: 'rgba(11, 15, 20, 0.9)',
-        paddingTop: 60,
-        paddingHorizontal: 16,
-        paddingBottom: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: 'rgba(16, 24, 38, 0.8)',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-        >
-          <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
-        </TouchableOpacity>
-
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600' }}>
-          {currentIndex + 1} of {media.length}
-        </Text>
-
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TouchableOpacity
-            onPress={() => handleShare(media[currentIndex])}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: 'rgba(16, 24, 38, 0.8)',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <Ionicons name="share" size={20} color="#F8FAFC" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={() => handleDelete(media[currentIndex])}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: 'rgba(220, 38, 38, 0.8)',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <Ionicons name="trash" size={20} color="#F8FAFC" />
-          </TouchableOpacity>
-        </View>
-      </View>
+      {/* Glass Header */}
+      <GlassHeader
+        title={`${currentIndex + 1} of ${media.length}`}
+        onBack={() => router.back()}
+        scrollY={scrollY}
+        right={
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity
+              onPress={() => handleShare(media[currentIndex])}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: 'rgba(59, 130, 246, 0.3)',
+              }}
+            >
+              <Ionicons name="share" size={20} color="#3B82F6" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              onPress={() => handleDelete(media[currentIndex])}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: 'rgba(220, 38, 38, 0.3)',
+              }}
+            >
+              <Ionicons name="trash" size={20} color="#DC2626" />
+            </TouchableOpacity>
+          </View>
+        }
+      />
 
       {/* Photo Gallery */}
       <FlatList
@@ -882,20 +868,29 @@ export default function PhotoGallery() {
         style={{ flex: 1 }}
       />
 
-      {/* Bottom Controls */}
+      {/* Bottom Controls with Glass Card */}
       <KeyboardAvoidingView 
         style={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          backgroundColor: 'rgba(11, 15, 20, 0.9)',
         }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={{ paddingHorizontal: 16, paddingVertical: 20, paddingBottom: 40 }}>
+          <GlassCard
+            style={{
+              marginHorizontal: 0,
+              borderRadius: 0,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+            }}
+            intensity={80}
+            shadowEnabled={false}
+          >
+            <View style={{ paddingHorizontal: 16, paddingVertical: 20, paddingBottom: 40 }}>
             {/* Photo Info */}
             <View style={{ alignItems: 'center', marginBottom: 16 }}>
               {isEditingNote ? (
@@ -1038,7 +1033,8 @@ export default function PhotoGallery() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 4 }}
             />
-          </View>
+            </View>
+          </GlassCard>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
 
@@ -1080,6 +1076,37 @@ export default function PhotoGallery() {
           onNeverShowAgain={handleNeverShowAgain}
         />
       )}
+      
+      {/* Delete Confirmation Sheet */}
+      <GlassActionSheet
+        visible={showDeleteSheet}
+        onClose={() => setShowDeleteSheet(false)}
+        title="Delete Photo"
+        message="Are you sure you want to delete this photo? This action cannot be undone."
+        actions={[
+          {
+            title: 'Delete Photo',
+            style: 'destructive',
+            onPress: () => {
+              setShowDeleteSheet(false);
+              confirmDelete();
+            },
+          },
+          {
+            title: 'Cancel',
+            style: 'cancel',
+            onPress: () => setShowDeleteSheet(false),
+          },
+        ]}
+      />
     </View>
+  );
+}
+
+export default function PhotoGallery() {
+  return (
+    <ScrollProvider>
+      <PhotoGalleryContent />
+    </ScrollProvider>
   );
 }

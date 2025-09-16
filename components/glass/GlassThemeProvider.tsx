@@ -13,6 +13,7 @@ interface GlassThemeConfig {
   enableHaptics: boolean;
   reduceTransparency: boolean;
   adaptivePerformance: boolean;
+  quickPerformanceMode: boolean;
 }
 
 interface GlassThemeContextType {
@@ -45,6 +46,8 @@ const defaultConfig: GlassThemeConfig = {
   enableHaptics: true,
   reduceTransparency: false,
   adaptivePerformance: true,
+  // Quick performance flag for reduced effects
+  quickPerformanceMode: false,
 };
 
 // Intensity mappings
@@ -135,6 +138,11 @@ export const GlassThemeProvider: React.FC<{ children: ReactNode }> = ({ children
     // If reduce transparency is on, return minimal blur
     if (config.reduceTransparency) {
       return Platform.OS === 'ios' ? 10 : 5;
+    }
+
+    // Quick performance mode - heavily reduced effects
+    if (config.quickPerformanceMode) {
+      return Platform.OS === 'ios' ? 20 : 10;
     }
 
     // Get base intensity from config
@@ -234,8 +242,9 @@ export const useGlassMorphism = (intensity?: number) => {
   return {
     blurIntensity: getBlurIntensity(intensity),
     colors: getGlassColors(),
-    enableAnimations: config.enableAnimations,
-    enableHaptics: config.enableHaptics,
+    enableAnimations: config.enableAnimations && !config.quickPerformanceMode,
+    enableHaptics: config.enableHaptics && !config.quickPerformanceMode,
     tint: config.tint,
+    quickPerformanceMode: config.quickPerformanceMode,
   };
 };

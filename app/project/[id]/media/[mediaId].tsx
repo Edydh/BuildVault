@@ -26,6 +26,8 @@ import { cleanupImageVariants } from '../../../../lib/imageOptimization';
 import NoteEncouragement from '../../../../components/NoteEncouragement';
 import NotePrompt from '../../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../../components/NoteSettings';
+import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider } from '../../../../components/glass';
+import { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
 
 // ZoomableImage component
 function ZoomableImage({ uri }: { uri: string }) {
@@ -448,7 +450,7 @@ function FullScreenPhotoViewer({
   );
 }
 
-export default function MediaDetail() {
+function MediaDetailContent() {
   const { mediaId } = useLocalSearchParams<{ mediaId: string }>();
   const router = useRouter();
   const [media, setMedia] = useState<MediaItem | null>(null);
@@ -457,8 +459,17 @@ export default function MediaDetail() {
   const [fileExists, setFileExists] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showNotePrompt, setShowNotePrompt] = useState(false);
+  const [showDeleteSheet, setShowDeleteSheet] = useState(false);
+  const [showShareSheet, setShowShareSheet] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
+  const scrollY = useSharedValue(0);
+  
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
 
   React.useEffect(() => {
     if (!mediaId) return;
@@ -583,60 +594,51 @@ export default function MediaDetail() {
   };
 
   const handleDeleteMedia = () => {
+    setShowDeleteSheet(true);
+  };
+  
+  const confirmDelete = async () => {
     if (!media) return;
 
     const mediaTypeName = media.type === 'photo' ? 'photo' : 
                          media.type === 'video' ? 'video' : 'document';
     
-    Alert.alert(
-      'Delete Media',
-      `Are you sure you want to delete this ${mediaTypeName}? This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Delete the physical file from file system
-              const fileInfo = await FileSystem.getInfoAsync(media.uri);
-              if (fileInfo.exists) {
-                await FileSystem.deleteAsync(media.uri, { idempotent: true });
-              }
-              
-              // Delete thumbnail if it exists
-              if (media.thumb_uri) {
-                const thumbInfo = await FileSystem.getInfoAsync(media.thumb_uri);
-                if (thumbInfo.exists) {
-                  await FileSystem.deleteAsync(media.thumb_uri, { idempotent: true });
-                }
-              }
-              
-              // Clean up image variants if it's a photo
-              if (media.type === 'photo') {
-                // Get project ID from the media item's project_id
-                await cleanupImageVariants(media.id, media.project_id);
-              }
-              
-              // Delete from database
-              deleteMedia(media.id);
-              
-              // Provide haptic feedback
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              
-              Alert.alert('Success', `${mediaTypeName.charAt(0).toUpperCase() + mediaTypeName.slice(1)} deleted successfully!`);
-              
-              // Navigate back to project
-              router.back();
-              
-            } catch (error) {
-              console.error('Error deleting media:', error);
-              Alert.alert('Error', 'Failed to delete media. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    try {
+      // Delete the physical file from file system
+      const fileInfo = await FileSystem.getInfoAsync(media.uri);
+      if (fileInfo.exists) {
+        await FileSystem.deleteAsync(media.uri, { idempotent: true });
+      }
+      
+      // Delete thumbnail if it exists
+      if (media.thumb_uri) {
+        const thumbInfo = await FileSystem.getInfoAsync(media.thumb_uri);
+        if (thumbInfo.exists) {
+          await FileSystem.deleteAsync(media.thumb_uri, { idempotent: true });
+        }
+      }
+      
+      // Clean up image variants if it's a photo
+      if (media.type === 'photo') {
+        // Get project ID from the media item's project_id
+        await cleanupImageVariants(media.id, media.project_id);
+      }
+      
+      // Delete from database
+      deleteMedia(media.id);
+      
+      // Provide haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      Alert.alert('Success', `${mediaTypeName.charAt(0).toUpperCase() + mediaTypeName.slice(1)} deleted successfully!`);
+      
+      // Navigate back to project
+      router.back();
+      
+    } catch (error) {
+      console.error('Error deleting media:', error);
+      Alert.alert('Error', 'Failed to delete media. Please try again.');
+    }
   };
 
   if (!media) {
@@ -655,63 +657,66 @@ export default function MediaDetail() {
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={{ flex: 1 }}>
-          {/* Header */}
-          <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingTop: 60,
-            paddingHorizontal: 16,
-            paddingBottom: 20,
-          }}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: '#101826',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
-            </TouchableOpacity>
-
-            <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600' }}>
-              {media.type.charAt(0).toUpperCase() + media.type.slice(1)}
-            </Text>
-
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TouchableOpacity
-            onPress={handleShare}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: '#101826',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <Ionicons name="share" size={20} color="#F8FAFC" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={handleDeleteMedia}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: '#DC2626',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <Ionicons name="trash" size={20} color="#F8FAFC" />
-          </TouchableOpacity>
-        </View>
-          </View>
+          {/* Glass Header */}
+          <GlassHeader
+            title={media?.type.charAt(0).toUpperCase() + media?.type.slice(1) || 'Media'}
+            onBack={() => router.back()}
+            scrollY={scrollY}
+            right={
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => setShowShareSheet(true)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: 'rgba(59, 130, 246, 0.3)',
+                  }}
+                >
+                  <Ionicons name="share" size={20} color="#3B82F6" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  onPress={() => setShowDeleteSheet(true)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: 'rgba(220, 38, 38, 0.3)',
+                  }}
+                >
+                  <Ionicons name="trash" size={20} color="#DC2626" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  onPress={() => {
+                    // Info/details action
+                    Alert.alert('Media Info', `Created: ${new Date(media?.created_at || 0).toLocaleString()}\\nType: ${media?.type}\\nFile exists: ${fileExists ? 'Yes' : 'No'}`);
+                  }}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: 'rgba(148, 163, 184, 0.2)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: 'rgba(148, 163, 184, 0.3)',
+                  }}
+                >
+                  <Ionicons name="information-circle" size={20} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+            }
+          />
 
           {/* Media Preview */}
           <ScrollView 
@@ -719,6 +724,8 @@ export default function MediaDetail() {
             style={{ flex: 1 }}
             contentContainerStyle={{ flexGrow: 1 }}
             keyboardShouldPersistTaps="handled"
+            onScroll={scrollHandler}
+            scrollEventThrottle={16}
           >
             <View style={{
               flex: 1,
@@ -753,36 +760,40 @@ export default function MediaDetail() {
               enableLiveTextInteraction={true}
             />
             
-            {/* Full-screen button overlay */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => {
-                setIsFullScreen(true);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }}
-              style={{
-                position: 'absolute',
-                top: 12,
-                right: 12,
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                borderRadius: 25,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.3,
-                shadowRadius: 4,
-                elevation: 4,
-              }}
-            >
-              <Ionicons name="expand" size={16} color="#FFFFFF" />
-              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
-                Full Screen
-              </Text>
-            </TouchableOpacity>
+            {/* Full-screen button overlay with glass morphism */}
+            <View style={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+            }}>
+              <GlassCard
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 25,
+                }}
+                intensity={60}
+                shadowEnabled={true}
+              >
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setIsFullScreen(true);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Ionicons name="expand" size={16} color="#F8FAFC" />
+                  <Text style={{ color: '#F8FAFC', fontSize: 12, fontWeight: '600' }}>
+                    Full Screen
+                  </Text>
+                </TouchableOpacity>
+              </GlassCard>
+            </View>
           </View>
         ) : media.type === 'video' && fileExists && !media.uri.includes('placeholder') ? (
           <VideoPlayer uri={media.uri} />
@@ -988,11 +999,19 @@ export default function MediaDetail() {
         )}
       </View>
 
-            {/* Note Section */}
+            {/* Note Section with Glass Card */}
             <View style={{ padding: 16, paddingBottom: 40 }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
-                Notes
-              </Text>
+              <GlassCard
+                style={{
+                  padding: 16,
+                  borderRadius: 16,
+                }}
+                intensity={60}
+                shadowEnabled={true}
+              >
+                <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
+                  Notes
+                </Text>
 
               {isEditingNote ? (
                 <View>
@@ -1137,6 +1156,7 @@ export default function MediaDetail() {
                   </Text>
                 </TouchableOpacity>
               </View>
+              </GlassCard>
             </View>
           </ScrollView>
         </View>
@@ -1171,6 +1191,59 @@ export default function MediaDetail() {
           />
         </>
       )}
+      
+      {/* Action Sheets */}
+      <GlassActionSheet
+        visible={showDeleteSheet}
+        onClose={() => setShowDeleteSheet(false)}
+        title="Delete Media"
+        message={`Are you sure you want to delete this ${media?.type === 'photo' ? 'photo' : media?.type === 'video' ? 'video' : 'document'}? This action cannot be undone.`}
+        actions={[
+          {
+            title: 'Delete Media',
+            style: 'destructive',
+            onPress: () => {
+              setShowDeleteSheet(false);
+              confirmDelete();
+            },
+          },
+          {
+            title: 'Cancel',
+            style: 'cancel',
+            onPress: () => setShowDeleteSheet(false),
+          },
+        ]}
+      />
+      
+      <GlassActionSheet
+        visible={showShareSheet}
+        onClose={() => setShowShareSheet(false)}
+        title="Share Media"
+        message="Choose how to share this media"
+        actions={[
+          {
+            title: 'Share Media',
+            style: 'default',
+            onPress: () => {
+              setShowShareSheet(false);
+              handleShare();
+            },
+          },
+          {
+            title: 'Cancel',
+            style: 'cancel',
+            onPress: () => setShowShareSheet(false),
+          },
+        ]}
+      />
     </KeyboardAvoidingView>
+  );
+}
+
+export default function MediaDetail() {
+  return (
+    <ScrollProvider>
+      <MediaDetailContent />
+    </ScrollProvider>
   );
 }
