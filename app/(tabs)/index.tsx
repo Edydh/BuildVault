@@ -37,6 +37,12 @@ export default function ProjectsList() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [form, setForm] = useState({ name: '', client: '', location: '', search: '' });
   const [showProjectOptions, setShowProjectOptions] = useState<{visible: boolean; project?: Project}>({ visible: false });
+  const [showErrorSheet, setShowErrorSheet] = useState(false);
+  const [showSuccessSheet, setShowSuccessSheet] = useState(false);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showDeleteSheet, setShowDeleteSheet] = useState(false);
+  const [sheetMessage, setSheetMessage] = useState('');
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   
   // Filter projects based on search term
   const filteredProjects = projects.filter(p => {
@@ -80,7 +86,8 @@ export default function ProjectsList() {
 
   const handleCreateProject = async () => {
     if (!form.name.trim()) {
-      Alert.alert('Error', 'Project name is required');
+      setSheetMessage('Project name is required');
+      setShowErrorSheet(true);
       return;
     }
 
@@ -98,7 +105,8 @@ export default function ProjectsList() {
       setForm({ name: '', client: '', location: '', search: '' });
       loadProjects();
     } catch (error) {
-      Alert.alert('Error', 'Failed to create project');
+      setSheetMessage('Failed to create project');
+      setShowErrorSheet(true);
     }
   };
 
@@ -114,7 +122,8 @@ export default function ProjectsList() {
       setShowEdit(false);
       setEditingProject(null);
     } catch (error) {
-      Alert.alert('Error', 'Failed to update project');
+      setSheetMessage('Failed to update project');
+      setShowErrorSheet(true);
     }
   };
 
@@ -124,21 +133,8 @@ export default function ProjectsList() {
   };
 
   const handleShareProject = async (project: Project) => {
-    Alert.alert(
-      'Share Project',
-      'How would you like to share this project?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Share Summary Only',
-          onPress: () => shareProjectSummary(project),
-        },
-        {
-          text: 'Share with Media Files',
-          onPress: () => shareProjectWithMedia(project),
-        },
-      ]
-    );
+    setSelectedProject(project);
+    setShowShareSheet(true);
   };
 
   const shareProjectSummary = async (project: Project) => {
@@ -170,18 +166,21 @@ export default function ProjectsList() {
           dialogTitle: `Share Project Summary: ${project.name}`,
         });
       } else {
-        Alert.alert('Export Complete', `Project summary exported to: ${exportFileName}`);
+        setSheetMessage(`Project summary exported to: ${exportFileName}`);
+        setShowSuccessSheet(true);
       }
 
     } catch (error) {
       console.error('Project summary sharing error:', error);
-      Alert.alert('Error', 'Failed to share project summary. Please try again.');
+      setSheetMessage('Failed to share project summary. Please try again.');
+      setShowErrorSheet(true);
     }
   };
 
   const shareProjectWithMedia = async (project: Project) => {
     try {
-      Alert.alert('Share with Media', 'Preparing project with all media files...', [], { cancelable: false });
+      // Show progress message - we could add a loading state here in the future
+      console.log('Preparing project with all media files...');
       
       // Get media for this project
       const { getMediaByProject } = await import('../../lib/db');
@@ -249,18 +248,17 @@ export default function ProjectsList() {
         });
         
         // Show detailed info about what was shared
-        Alert.alert(
-          'Project Shared!',
-          `Project "${project.name}" has been prepared for sharing.\n\n📁 Files created:\n• project_info.json (project details)\n• ${copiedFiles.length} media files\n\n💡 To share all files:\n1. Use Files app to access the project folder\n2. Select all files in the folder\n3. Share via cloud storage (Google Drive, iCloud, Dropbox)\n\n📂 Folder location: ${projectFolderName}`,
-          [{ text: 'OK' }]
-        );
+        setSheetMessage(`Project "${project.name}" has been prepared for sharing.\n\n📁 Files created:\n• project_info.json (project details)\n• ${copiedFiles.length} media files\n\n💡 To share all files:\n1. Use Files app to access the project folder\n2. Select all files in the folder\n3. Share via cloud storage (Google Drive, iCloud, Dropbox)\n\n📂 Folder location: ${projectFolderName}`);
+        setShowSuccessSheet(true);
       } else {
-        Alert.alert('Export Complete', `Project with media exported to: ${projectFolderName}\n\nFiles created: ${copiedFiles.length + 1} files`);
+        setSheetMessage(`Project with media exported to: ${projectFolderName}\n\nFiles created: ${copiedFiles.length + 1} files`);
+        setShowSuccessSheet(true);
       }
 
     } catch (error) {
       console.error('Project with media sharing error:', error);
-      Alert.alert('Error', 'Failed to share project with media. Please try again.');
+      setSheetMessage('Failed to share project with media. Please try again.');
+      setShowErrorSheet(true);
     }
   };
 
@@ -269,37 +267,35 @@ export default function ProjectsList() {
   };
 
   const handleDeleteProject = (project: Project) => {
-    Alert.alert(
-      'Delete Project',
-      `Delete "${project.name}" and all its media? This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Delete project directory and all media files
-              await deleteProjectDir(project.id);
-              
-              // Delete project from database (this will cascade delete media records)
-              deleteProject(project.id);
-              
-              // Provide haptic feedback
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              
-              // Refresh the projects list
-              loadProjects();
-              
-              Alert.alert('Success', 'Project deleted successfully');
-            } catch (error) {
-              console.error('Error deleting project:', error);
-              Alert.alert('Error', 'Failed to delete project. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    setSelectedProject(project);
+    setShowDeleteSheet(true);
+  };
+
+  const confirmDeleteProject = async () => {
+    if (!selectedProject) return;
+    
+    try {
+      // Delete project directory and all media files
+      await deleteProjectDir(selectedProject.id);
+      
+      // Delete project from database (this will cascade delete media records)
+      deleteProject(selectedProject.id);
+      
+      // Provide haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      // Refresh the projects list
+      loadProjects();
+      
+      setShowDeleteSheet(false);
+      setSheetMessage('Project deleted successfully');
+      setShowSuccessSheet(true);
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      setShowDeleteSheet(false);
+      setSheetMessage('Failed to delete project. Please try again.');
+      setShowErrorSheet(true);
+    }
   };
 
   const formatDate = (timestamp: number) => {
@@ -464,6 +460,81 @@ export default function ProjectsList() {
         project={editingProject}
         onClose={handleCloseEditModal}
         onSave={handleUpdateProject}
+      />
+      
+      {/* Share Project Action Sheet */}
+      <GlassActionSheet
+        visible={showShareSheet}
+        onClose={() => setShowShareSheet(false)}
+        title="Share Project"
+        message="How would you like to share this project?"
+        actions={[
+          {
+            label: 'Share Summary Only',
+            onPress: () => {
+              setShowShareSheet(false);
+              if (selectedProject) shareProjectSummary(selectedProject);
+            },
+          },
+          {
+            label: 'Share with Media Files',
+            onPress: () => {
+              setShowShareSheet(false);
+              if (selectedProject) shareProjectWithMedia(selectedProject);
+            },
+          },
+          {
+            label: 'Cancel',
+            onPress: () => setShowShareSheet(false),
+          },
+        ]}
+      />
+      
+      {/* Delete Project Action Sheet */}
+      <GlassActionSheet
+        visible={showDeleteSheet}
+        onClose={() => setShowDeleteSheet(false)}
+        title="Delete Project"
+        message={selectedProject ? `Delete "${selectedProject.name}" and all its media? This action cannot be undone.` : 'Delete this project?'}
+        actions={[
+          {
+            label: 'Delete Project',
+            destructive: true,
+            onPress: confirmDeleteProject,
+          },
+          {
+            label: 'Cancel',
+            onPress: () => setShowDeleteSheet(false),
+          },
+        ]}
+      />
+      
+      {/* Success Action Sheet */}
+      <GlassActionSheet
+        visible={showSuccessSheet}
+        onClose={() => setShowSuccessSheet(false)}
+        title="Success"
+        message={sheetMessage}
+        actions={[
+          {
+            label: 'OK',
+            onPress: () => setShowSuccessSheet(false),
+          },
+        ]}
+      />
+      
+      {/* Error Action Sheet */}
+      <GlassActionSheet
+        visible={showErrorSheet}
+        onClose={() => setShowErrorSheet(false)}
+        title="Error"
+        message={sheetMessage}
+        actions={[
+          {
+            label: 'OK',
+            onPress: () => setShowErrorSheet(false),
+          },
+        ]}
       />
     </View>
   );

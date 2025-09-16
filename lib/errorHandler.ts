@@ -178,8 +178,10 @@ export class ErrorHandler {
   }
   
   // Show error to user
+  // TODO: Convert to use GlassActionSheet when we have a global error context
   static showError(error: AppError, showAlert: boolean = true): void {
     if (showAlert && error.severity !== ErrorSeverity.LOW) {
+      console.log('🔄 ErrorHandler: Using Alert.alert (TODO: Convert to GlassActionSheet)');
       Alert.alert(
         'Error',
         error.userMessage,

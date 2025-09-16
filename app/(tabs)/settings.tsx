@@ -88,17 +88,22 @@ export default function Settings() {
           dialogTitle: 'Export BuildVault Data',
         });
       } else {
-        Alert.alert('Export Complete', `Data exported to: ${exportFileName}`);
+        setSheetMessage(`Data exported to: ${exportFileName}`);
+        setShowSuccessSheet(true);
       }
 
     } catch (error) {
       console.error('Export error:', error);
-      Alert.alert('Export Failed', 'Failed to export data. Please try again.');
+      setSheetMessage('Failed to export data. Please try again.');
+      setShowErrorSheet(true);
     }
   };
 
   const [showDangerSheet, setShowDangerSheet] = React.useState(false);
   const [showSignOutSheet, setShowSignOutSheet] = React.useState(false);
+  const [showSuccessSheet, setShowSuccessSheet] = React.useState(false);
+  const [showErrorSheet, setShowErrorSheet] = React.useState(false);
+  const [sheetMessage, setSheetMessage] = React.useState('');
   const handleClearAllData = () => {
     setShowDangerSheet(true);
   };
@@ -555,10 +560,14 @@ export default function Settings() {
                 for (const project of projects) {
                   await deleteProjectDir(project.id);
                 }
-                Alert.alert('Data Cleared', 'All projects and media have been deleted. Please restart the app to see changes.', [{ text: 'OK' }]);
+                setShowDangerSheet(false);
+                setSheetMessage('All projects and media have been deleted. Please restart the app to see changes.');
+                setShowSuccessSheet(true);
               } catch (error) {
                 console.error('Clear data error:', error);
-                Alert.alert('Error', 'Failed to clear data. Please try again.');
+                setShowDangerSheet(false);
+                setSheetMessage('Failed to clear data. Please try again.');
+                setShowErrorSheet(true);
               }
             },
           },
@@ -577,9 +586,39 @@ export default function Settings() {
               try {
                 await signOut();
               } catch (error) {
-                Alert.alert('Error', 'Failed to sign out. Please try again.');
+                setShowSignOutSheet(false);
+                setSheetMessage('Failed to sign out. Please try again.');
+                setShowErrorSheet(true);
               }
             },
+          },
+        ]}
+      />
+      
+      {/* Success Action Sheet */}
+      <GlassActionSheet
+        visible={showSuccessSheet}
+        onClose={() => setShowSuccessSheet(false)}
+        title="Success"
+        message={sheetMessage}
+        actions={[
+          {
+            label: 'OK',
+            onPress: () => setShowSuccessSheet(false),
+          },
+        ]}
+      />
+      
+      {/* Error Action Sheet */}
+      <GlassActionSheet
+        visible={showErrorSheet}
+        onClose={() => setShowErrorSheet(false)}
+        title="Error"
+        message={sheetMessage}
+        actions={[
+          {
+            label: 'OK',
+            onPress: () => setShowErrorSheet(false),
           },
         ]}
       />

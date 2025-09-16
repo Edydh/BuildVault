@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { GlassModal } from './GlassModal';
+import * as Haptics from 'expo-haptics';
 
 export type Action = {
   label: string;
@@ -39,6 +40,12 @@ export const GlassActionSheet: React.FC<GlassActionSheetProps> = ({
               key={idx}
               style={[styles.actionButton, action.destructive && styles.destructiveButton]}
               onPress={() => {
+                // Add haptic feedback based on action type
+                if (action.destructive) {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                } else {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
                 onClose();
                 setTimeout(action.onPress, 100);
               }}
