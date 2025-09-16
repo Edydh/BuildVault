@@ -5,9 +5,11 @@ export { GlassTabBar } from './GlassTabBar';
 export { GlassThemeProvider, useGlassTheme, useGlassMorphism } from './GlassThemeProvider';
 export type { GlassIntensity, GlassTint } from './GlassThemeProvider';
 export { ScrollProvider, useScrollContext } from './ScrollContext';
+export { GlassTextInput } from './GlassTextInput';
 
 // Re-export types
 export type { default as GlassCard } from './GlassCard';
 export type { default as GlassButton } from './GlassButton';
 export type { default as GlassHeader } from './GlassHeader';
 export type { default as GlassTabBar } from './GlassTabBar';
+export type { default as GlassTextInput } from './GlassTextInput';

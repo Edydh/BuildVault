@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Project } from '../lib/db';
-import { GlassCard, GlassButton } from './glass';
+import { GlassCard, GlassButton, GlassTextInput } from './glass';
 
 interface EditProjectModalProps {
   visible: boolean;
@@ -142,99 +142,32 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                 borderWidth: 1,
                 borderColor: 'rgba(100, 116, 139, 0.3)',
               }}>
-                <View style={{ marginBottom: 20 }}>
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: '600',
-                      color: '#F8FAFC',
-                      marginBottom: 8,
-                    }}
-                  >
-                    Project Name *
-                  </Text>
-                  <TextInput
-                    value={form.name}
-                    onChangeText={(text) => setForm((prev) => ({ ...prev, name: text }))}
-                    placeholder="Enter project name"
-                    placeholderTextColor="#64748B"
-                    style={{
-                      backgroundColor: 'rgba(30, 41, 59, 0.8)',
-                      borderRadius: 12,
-                      padding: 16,
-                      fontSize: 16,
-                      color: '#F8FAFC',
-                      borderWidth: 2,
-                      borderColor: '#64748B',
-                      minHeight: 50,
-                    }}
-                    autoCapitalize="words"
-                    returnKeyType="next"
-                  />
-                </View>
-
-                <View style={{ marginBottom: 20 }}>
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: '600',
-                      color: '#F8FAFC',
-                      marginBottom: 8,
-                    }}
-                  >
-                    Client
-                  </Text>
-                  <TextInput
-                    value={form.client}
-                    onChangeText={(text) => setForm((prev) => ({ ...prev, client: text }))}
-                    placeholder="Enter client name"
-                    placeholderTextColor="#64748B"
-                    style={{
-                      backgroundColor: 'rgba(30, 41, 59, 0.8)',
-                      borderRadius: 12,
-                      padding: 16,
-                      fontSize: 16,
-                      color: '#F8FAFC',
-                      borderWidth: 2,
-                      borderColor: '#64748B',
-                      minHeight: 50,
-                    }}
-                    autoCapitalize="words"
-                    returnKeyType="next"
-                  />
-                </View>
-
-                <View style={{ marginBottom: 0 }}>
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: '600',
-                      color: '#F8FAFC',
-                      marginBottom: 8,
-                    }}
-                  >
-                    Location
-                  </Text>
-                  <TextInput
-                    value={form.location}
-                    onChangeText={(text) => setForm((prev) => ({ ...prev, location: text }))}
-                    placeholder="Enter project location"
-                    placeholderTextColor="#64748B"
-                    style={{
-                      backgroundColor: 'rgba(30, 41, 59, 0.8)',
-                      borderRadius: 12,
-                      padding: 16,
-                      fontSize: 16,
-                      color: '#F8FAFC',
-                      borderWidth: 2,
-                      borderColor: '#64748B',
-                      minHeight: 50,
-                    }}
-                    autoCapitalize="words"
-                    returnKeyType="done"
-                    onSubmitEditing={handleSave}
-                  />
-                </View>
+                <GlassTextInput
+                  label="Project Name"
+                  required
+                  value={form.name}
+                  onChangeText={(text) => setForm((prev) => ({ ...prev, name: text }))}
+                  placeholder="Enter project name"
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                />
+                <GlassTextInput
+                  label="Client"
+                  value={form.client}
+                  onChangeText={(text) => setForm((prev) => ({ ...prev, client: text }))}
+                  placeholder="Enter client name"
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                />
+                <GlassTextInput
+                  label="Location"
+                  value={form.location}
+                  onChangeText={(text) => setForm((prev) => ({ ...prev, location: text }))}
+                  placeholder="Enter project location"
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                  onSubmitEditing={handleSave}
+                />
               </View>
 
               {/* Actions */}

@@ -22,7 +22,7 @@ import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { GlassHeader, GlassCard } from '../../components/glass';
+import { GlassHeader, GlassCard, GlassTextInput, GlassButton } from '../../components/glass';
 import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
@@ -449,97 +449,50 @@ export default function ProjectsList() {
                     New Project
                   </Text>
 
-              <TextInput
-                style={{
-                  backgroundColor: '#1F2A37',
-                  borderRadius: 12,
-                  padding: 16,
-                  color: '#F8FAFC',
-                  fontSize: 16,
-                  marginBottom: 12,
-                  borderWidth: 1,
-                  borderColor: '#374151',
-                }}
-                placeholder="Project name *"
-                placeholderTextColor="#64748B"
+              <GlassTextInput
+                label="Project Name"
+                required
                 value={form.name}
                 onChangeText={(text) => setForm(prev => ({ ...prev, name: text }))}
-                autoFocus
+                placeholder="Enter project name"
+                autoCapitalize="words"
+                returnKeyType="next"
               />
 
-              <TextInput
-                style={{
-                  backgroundColor: '#1F2A37',
-                  borderRadius: 12,
-                  padding: 16,
-                  color: '#F8FAFC',
-                  fontSize: 16,
-                  marginBottom: 12,
-                  borderWidth: 1,
-                  borderColor: '#374151',
-                }}
-                placeholder="Client (optional)"
-                placeholderTextColor="#64748B"
+              <GlassTextInput
+                label="Client"
                 value={form.client}
                 onChangeText={(text) => setForm(prev => ({ ...prev, client: text }))}
+                placeholder="Enter client name (optional)"
+                autoCapitalize="words"
+                returnKeyType="next"
               />
 
-              <TextInput
-                style={{
-                  backgroundColor: '#1F2A37',
-                  borderRadius: 12,
-                  padding: 16,
-                  color: '#F8FAFC',
-                  fontSize: 16,
-                  marginBottom: 20,
-                  borderWidth: 1,
-                  borderColor: '#374151',
-                }}
-                placeholder="Location (optional)"
-                placeholderTextColor="#64748B"
+              <GlassTextInput
+                label="Location"
                 value={form.location}
                 onChangeText={(text) => setForm(prev => ({ ...prev, location: text }))}
+                placeholder="Enter project location (optional)"
+                autoCapitalize="words"
+                returnKeyType="done"
               />
 
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: '#374151',
-                    borderRadius: 12,
-                    padding: 16,
-                    flex: 1,
-                    marginRight: 8,
-                    alignItems: 'center',
-                  }}
+              <View style={{ flexDirection: 'row', gap: 16 }}>
+                <GlassButton
+                  variant="secondary"
+                  size="large"
+                  title="Cancel"
                   onPress={() => setShowCreate(false)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: form.name.trim() ? '#FF7A1A' : '#374151',
-                    borderRadius: 12,
-                    padding: 16,
-                    flex: 1,
-                    marginLeft: 8,
-                    alignItems: 'center',
-                  }}
+                  style={{ flex: 1 }}
+                />
+                <GlassButton
+                  variant="primary"
+                  size="large"
+                  title="Create Project"
                   onPress={handleCreateProject}
                   disabled={!form.name.trim()}
-                  activeOpacity={0.8}
-                >
-                  <Text style={{
-                    color: form.name.trim() ? '#0B0F14' : '#64748B',
-                    fontSize: 16,
-                    fontWeight: '600',
-                  }}>
-                    Create Project
-                  </Text>
-                </TouchableOpacity>
+                  style={{ flex: 1 }}
+                />
               </View>
                 </ScrollView>
               </View>
