@@ -58,7 +58,7 @@ export const GlassTextInput: React.FC<GlassTextInputProps> = ({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#64748B"
+        placeholderTextColor="#94A3B8"
         style={[
           styles.input,
           {
@@ -74,6 +74,9 @@ export const GlassTextInput: React.FC<GlassTextInputProps> = ({
         autoCapitalize={autoCapitalize}
         onSubmitEditing={onSubmitEditing}
         multiline={multiline}
+        keyboardAppearance="dark"
+        selectionColor="#FF7A1A"
+        cursorColor="#FF7A1A"
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
         {...rest}
@@ -102,7 +105,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
-    color: '#F8FAFC',
+    color: '#F8FAFC', // ensure light text
     borderWidth: 2,
     minHeight: 50,
   },

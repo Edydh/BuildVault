@@ -1568,7 +1568,7 @@ export default function ProjectDetail() {
             </Text>
             
             <GlassTextInput
-              style={{
+              containerStyle={{
                 marginBottom: 20,
               }}
               label="Folder Name"
