@@ -24,9 +24,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
-import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet } from '../../../components/glass';
+import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
+import { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
 
-export default function ProjectDetail() {
+function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -57,9 +58,14 @@ export default function ProjectDetail() {
   const [noteText, setNoteText] = useState<string>('');
   const [showNoteModal, setShowNoteModal] = useState(false);
 
-  const handleScroll = useCallback((event: any) => {
-    try {
-      const offsetY = event.nativeEvent.contentOffset.y;
+  // Scroll handling for glass header effects
+  const scrollY = useSharedValue(0);
+  
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+      // Handle header opacity based on scroll
+      const offsetY = event.contentOffset.y;
       const fadeStart = 50;
       const fadeEnd = 150;
       if (offsetY > fadeStart) {
@@ -69,10 +75,8 @@ export default function ProjectDetail() {
       } else {
         headerOpacity.setValue(1);
       }
-    } catch (e) {
-      headerOpacity.setValue(1);
-    }
-  }, [headerOpacity]);
+    },
+  });
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -1510,7 +1514,6 @@ export default function ProjectDetail() {
                 }}
                 style={{ marginBottom: 12 }}
                 pointerEvents="auto"
-                onScroll={undefined}
               >
                 <GlassCard
                   style={{
@@ -1645,7 +1648,7 @@ export default function ProjectDetail() {
         renderItem={({ item }) => 
           viewMode === 'grid' ? <MediaCardGrid item={item} /> : <MediaCard item={item} />
         }
-        onScroll={undefined}
+        onScroll={scrollHandler}
         scrollEventThrottle={16}
         ListEmptyComponent={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
@@ -1786,5 +1789,13 @@ export default function ProjectDetail() {
         actions={actionSheet.actions || []}
       />
     </View>
+  );
+}
+
+export default function ProjectDetail() {
+  return (
+    <ScrollProvider>
+      <ProjectDetailContent />
+    </ScrollProvider>
   );
 }
