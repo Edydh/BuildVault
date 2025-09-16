@@ -8,6 +8,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GlassCard } from './glass';
 
 interface NoteEncouragementProps {
   mediaId: string;
@@ -65,32 +66,35 @@ export default function NoteEncouragement({
         <Animated.View style={{
           transform: [{ scale: pulseAnim }],
         }}>
-          <TouchableOpacity
-            onPress={handleAddNotePress}
+          <GlassCard
             style={{
-              backgroundColor: '#F59E0B',
-              borderRadius: 20,
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              flexDirection: 'row',
-              alignItems: 'center',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.25,
-              shadowRadius: 4,
-              elevation: 5,
+              backgroundColor: 'rgba(245, 158, 11, 0.3)',
+              borderWidth: 1,
+              borderColor: 'rgba(245, 158, 11, 0.6)',
             }}
+            intensity={60}
+            shadowEnabled={true}
           >
-            <Ionicons name="add-circle" size={16} color="#FFFFFF" />
-            <Text style={{
-              color: '#FFFFFF',
-              fontSize: 12,
-              fontWeight: '600',
-              marginLeft: 4,
-            }}>
-              Add Note
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleAddNotePress}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}
+            >
+              <Ionicons name="add-circle" size={16} color="#F59E0B" />
+              <Text style={{
+                color: '#F59E0B',
+                fontSize: 12,
+                fontWeight: '600',
+                marginLeft: 4,
+              }}>
+                Add Note
+              </Text>
+            </TouchableOpacity>
+          </GlassCard>
         </Animated.View>
       </View>
     );
