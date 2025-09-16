@@ -1594,7 +1594,7 @@ export default function ProjectDetail() {
               <GlassButton
                 variant="primary"
                 size="large"
-                title="Create Folder"
+                title="Create"
                 onPress={handleCreateFolder}
                 style={{ flex: 1 }}
               />
