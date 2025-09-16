@@ -24,7 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
-import { GlassCard, GlassFAB, GlassTextInput, GlassButton } from '../../../components/glass';
+import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal } from '../../../components/glass';
 
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -1537,26 +1537,8 @@ export default function ProjectDetail() {
 
       {/* Folder Creation Modal */}
       {showFolderModal && (
-        <View style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000,
-        }}>
-          <View style={{
-            backgroundColor: '#101826',
-            borderRadius: 16,
-            padding: 24,
-            width: '90%',
-            maxWidth: 400,
-            borderWidth: 1,
-            borderColor: '#1F2A37',
-          }}>
+        <GlassModal visible={showFolderModal} onRequestClose={() => setShowFolderModal(false)}>
+          <View style={{ padding: 24 }}>
             <Text style={{ 
               color: '#F8FAFC', 
               fontSize: 20, 
@@ -1600,7 +1582,7 @@ export default function ProjectDetail() {
               />
             </View>
           </View>
-        </View>
+        </GlassModal>
       )}
     </View>
   );

@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Project } from '../lib/db';
-import { GlassCard, GlassButton, GlassTextInput } from './glass';
+import { GlassCard, GlassButton, GlassTextInput, GlassModal } from './glass';
 
 interface EditProjectModalProps {
   visible: boolean;
@@ -80,26 +80,11 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
   if (!project) return null;
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="overFullScreen"
-      onRequestClose={handleClose}
-    >
+    <GlassModal visible={visible} onRequestClose={handleClose}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(11, 15, 20, 0.95)' }}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={{ flex: 1 }}
-          >
-            <View
-              style={{
-                flex: 1,
-                paddingTop: insets.top + 20,
-                paddingBottom: insets.bottom + 20,
-                paddingHorizontal: 20,
-              }}
-            >
+        <View style={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+            <View style={{ paddingHorizontal: 20 }}>
               {/* Header */}
               <View
                 style={{
@@ -198,7 +183,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
           </KeyboardAvoidingView>
         </View>
       </TouchableWithoutFeedback>
-    </Modal>
+    </GlassModal>
   );
 };
 

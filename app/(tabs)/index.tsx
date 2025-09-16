@@ -22,7 +22,7 @@ import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { GlassHeader, GlassCard, GlassTextInput, GlassButton, GlassFAB } from '../../components/glass';
+import { GlassHeader, GlassCard, GlassTextInput, GlassButton, GlassFAB, GlassModal } from '../../components/glass';
 import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
@@ -389,40 +389,13 @@ export default function ProjectsList() {
         style={{ position: 'absolute', right: 20, bottom: insets.bottom + 90 }}
       />
 
-      <Modal
-        visible={showCreate}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowCreate(false)}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      <GlassModal visible={showCreate} onRequestClose={() => setShowCreate(false)}>
+        <ScrollView 
+          style={{ maxHeight: '100%' }}
+          contentContainerStyle={{ padding: 24 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
-            <View style={{
-              flex: 1,
-              justifyContent: 'center',
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
-              paddingHorizontal: 20,
-            }}>
-              <View style={{
-                backgroundColor: '#101826',
-                borderRadius: 20,
-                maxHeight: '80%',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 8,
-                elevation: 8,
-              }}>
-                <ScrollView 
-                  style={{ maxHeight: '100%' }}
-                  contentContainerStyle={{ padding: 24 }}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                >
                   <Text style={{
                     color: '#F8FAFC',
                     fontSize: 24,
@@ -478,12 +451,8 @@ export default function ProjectsList() {
                   style={{ flex: 1 }}
                 />
               </View>
-                </ScrollView>
-              </View>
-            </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
+        </ScrollView>
+      </GlassModal>
 
       {/* Edit Project Modal */}
       <EditProjectModal
