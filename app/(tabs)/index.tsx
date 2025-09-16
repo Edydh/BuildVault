@@ -22,7 +22,7 @@ import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { GlassHeader, GlassCard, GlassTextInput, GlassButton } from '../../components/glass';
+import { GlassHeader, GlassCard, GlassTextInput, GlassButton, GlassFAB } from '../../components/glass';
 import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
@@ -382,28 +382,12 @@ export default function ProjectsList() {
 
 
 
-      <TouchableOpacity
-        style={{
-          position: 'absolute',
-          right: 20,
-          bottom: insets.bottom + 90, // Tab bar height (70) + spacing (20)
-          backgroundColor: '#FF7A1A',
-          width: 60,
-          height: 60,
-          borderRadius: 30,
-          justifyContent: 'center',
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 8,
-          elevation: 8,
-        }}
+      <GlassFAB
+        icon="add"
+        size={60}
         onPress={() => setShowCreate(true)}
-        activeOpacity={0.9}
-      >
-        <Ionicons name="add" size={30} color="#0B0F14" />
-      </TouchableOpacity>
+        style={{ position: 'absolute', right: 20, bottom: insets.bottom + 90 }}
+      />
 
       <Modal
         visible={showCreate}
