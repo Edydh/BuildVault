@@ -24,7 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
-import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal } from '../../../components/glass';
+import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet } from '../../../components/glass';
 
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -385,54 +385,39 @@ export default function ProjectDetail() {
     const mediaTypeName = mediaItem.type === 'photo' ? 'photo' : 
                          mediaItem.type === 'video' ? 'video' : 'document';
     
-    Alert.alert(
-      'Delete Media',
-      `Are you sure you want to delete this ${mediaTypeName}? This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
+    setActionSheet({
+      visible: true,
+      title: 'Delete Media',
+      message: `Are you sure you want to delete this ${mediaTypeName}? This action cannot be undone.`,
+      actions: [
         {
-          text: 'Delete',
-          style: 'destructive',
+          label: 'Delete',
+          destructive: true,
           onPress: async () => {
             try {
-              // Delete the physical file from file system
               const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
               if (fileInfo.exists) {
                 await FileSystem.deleteAsync(mediaItem.uri, { idempotent: true });
               }
-              
-              // Delete thumbnail if it exists
               if (mediaItem.thumb_uri) {
                 const thumbInfo = await FileSystem.getInfoAsync(mediaItem.thumb_uri);
                 if (thumbInfo.exists) {
                   await FileSystem.deleteAsync(mediaItem.thumb_uri, { idempotent: true });
                 }
               }
-              
-              // Clean up image variants if it's a photo
               if (mediaItem.type === 'photo' && id) {
                 await cleanupImageVariants(mediaItem.id, id);
               }
-              
-              // Delete from database
               deleteMedia(mediaItem.id);
-              
-              // Provide haptic feedback
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              
-              // Refresh the media list
               loadData();
-              
-              Alert.alert('Success', `${mediaTypeName.charAt(0).toUpperCase() + mediaTypeName.slice(1)} deleted successfully!`);
-              
             } catch (error) {
               console.error('Error deleting media:', error);
-              Alert.alert('Error', 'Failed to delete media. Please try again.');
             }
           },
         },
-      ]
-    );
+      ],
+    });
   };
 
   const formatDate = (timestamp: number) => {
@@ -531,43 +516,33 @@ export default function ProjectDetail() {
   };
 
   const handleMoveMedia = (mediaItem: MediaItem) => {
-    const currentFolderName = currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media';
-    
-    Alert.alert(
-      'Move Media',
-      `Move "${mediaItem.type}" to which folder?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'All Media',
-          onPress: () => {
-            try {
-              moveMediaToFolder(mediaItem.id, null);
-              loadData();
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              Alert.alert('Success', 'Media moved to All Media');
-            } catch (error) {
-              console.error('Error moving media:', error);
-              Alert.alert('Error', 'Failed to move media');
-            }
-          },
+    const actions = [
+      {
+        label: 'All Media',
+        onPress: () => {
+          try {
+            moveMediaToFolder(mediaItem.id, null);
+            loadData();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          } catch (error) {
+            console.error('Error moving media:', error);
+          }
         },
-        ...folders.map(folder => ({
-          text: folder.name,
-          onPress: () => {
-            try {
-              moveMediaToFolder(mediaItem.id, folder.id);
-              loadData();
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              Alert.alert('Success', `Media moved to ${folder.name}`);
-            } catch (error) {
-              console.error('Error moving media:', error);
-              Alert.alert('Error', 'Failed to move media');
-            }
-          },
-        })),
-      ]
-    );
+      },
+      ...folders.map(folder => ({
+        label: folder.name,
+        onPress: () => {
+          try {
+            moveMediaToFolder(mediaItem.id, folder.id);
+            loadData();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          } catch (error) {
+            console.error('Error moving media:', error);
+          }
+        },
+      })),
+    ];
+    setActionSheet({ visible: true, title: 'Move Media', actions });
   };
 
   const handleShareSelected = async () => {
@@ -1584,6 +1559,15 @@ export default function ProjectDetail() {
           </View>
         </GlassModal>
       )}
+
+      {/* Reusable Action Sheet for this screen */}
+      <GlassActionSheet
+        visible={actionSheet.visible}
+        onClose={() => setActionSheet({ visible: false })}
+        title={actionSheet.title}
+        message={actionSheet.message}
+        actions={actionSheet.actions || []}
+      />
     </View>
   );
 }
