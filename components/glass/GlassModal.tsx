@@ -53,6 +53,7 @@ const styles = StyleSheet.create({
   },
   centered: {
     justifyContent: 'center',
+    alignItems: 'center',
   },
   card: {
     backgroundColor: 'rgba(16, 24, 38, 0.95)',
@@ -60,6 +61,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
+    width: '100%',
+    maxWidth: 520,
+    padding: 20,
   },
 });
 

@@ -8,7 +8,7 @@ import { getProjects, deleteProject, getMediaByProject } from '../../lib/db';
 import { deleteProjectDir } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
 import NoteSettings from '../../components/NoteSettings';
-import { useGlassTheme, GlassCard, GlassSwitch } from '../../components/glass';
+import { useGlassTheme, GlassCard, GlassSwitch, GlassActionSheet } from '../../components/glass';
 import * as Haptics from 'expo-haptics';
 
 export default function Settings() {
@@ -97,48 +97,9 @@ export default function Settings() {
     }
   };
 
+  const [showDangerSheet, setShowDangerSheet] = React.useState(false);
   const handleClearAllData = () => {
-    Alert.alert(
-      'Clear All Data',
-      'This will delete all projects and media. This action cannot be undone.\n\nWe recommend exporting your data first.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Export First',
-          style: 'default',
-          onPress: () => {
-            handleExportData();
-          },
-        },
-        {
-          text: 'Clear Everything',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Get all projects to delete their directories
-              const projects = getProjects();
-              
-              // Delete all project directories
-              for (const project of projects) {
-                await deleteProjectDir(project.id);
-              }
-              
-              // Clear all data from database
-              // Note: This is a simplified approach - in production you'd want to clear tables properly
-              Alert.alert(
-                'Data Cleared',
-                'All projects and media have been deleted. Please restart the app to see changes.',
-                [{ text: 'OK' }]
-              );
-              
-            } catch (error) {
-              console.error('Clear data error:', error);
-              Alert.alert('Error', 'Failed to clear data. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    setShowDangerSheet(true);
   };
 
   const handleAbout = () => {
@@ -593,6 +554,32 @@ export default function Settings() {
         </Text>
       </View>
       </ScrollView>
+
+      <GlassActionSheet
+        visible={showDangerSheet}
+        onClose={() => setShowDangerSheet(false)}
+        title="Clear All Data"
+        message={'This will delete all projects and media. This action cannot be undone.\n\nWe recommend exporting your data first.'}
+        actions={[
+          { label: 'Export First', onPress: handleExportData },
+          {
+            label: 'Clear Everything',
+            destructive: true,
+            onPress: async () => {
+              try {
+                const projects = getProjects();
+                for (const project of projects) {
+                  await deleteProjectDir(project.id);
+                }
+                Alert.alert('Data Cleared', 'All projects and media have been deleted. Please restart the app to see changes.', [{ text: 'OK' }]);
+              } catch (error) {
+                console.error('Clear data error:', error);
+                Alert.alert('Error', 'Failed to clear data. Please try again.');
+              }
+            },
+          },
+        ]}
+      />
     </View>
   );
 }

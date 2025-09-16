@@ -82,9 +82,8 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
   return (
     <GlassModal visible={visible} onRequestClose={handleClose}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-            <View style={{ paddingHorizontal: 20 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: 10 }}>
               {/* Header */}
               <View
                 style={{
@@ -179,9 +178,8 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                   style={{ flex: 1 }}
                 />
               </View>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </TouchableWithoutFeedback>
     </GlassModal>
   );

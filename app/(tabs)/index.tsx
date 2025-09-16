@@ -22,7 +22,7 @@ import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { GlassHeader, GlassCard, GlassTextInput, GlassButton, GlassFAB, GlassModal } from '../../components/glass';
+import { GlassHeader, GlassCard, GlassTextInput, GlassButton, GlassFAB, GlassModal, GlassActionSheet } from '../../components/glass';
 import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
@@ -36,6 +36,7 @@ export default function ProjectsList() {
   const [showEdit, setShowEdit] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [form, setForm] = useState({ name: '', client: '', location: '', search: '' });
+  const [showProjectOptions, setShowProjectOptions] = useState<{visible: boolean; project?: Project}>({ visible: false });
   
   // Filter projects based on search term
   const filteredProjects = projects.filter(p => {
@@ -264,26 +265,7 @@ export default function ProjectsList() {
   };
 
   const handleProjectOptions = (project: Project) => {
-    Alert.alert(
-      'Project Options',
-      `What would you like to do with "${project.name}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Edit Project',
-          onPress: () => handleEditProject(project),
-        },
-        {
-          text: 'Share Project',
-          onPress: () => handleShareProject(project),
-        },
-        {
-          text: 'Delete Project',
-          style: 'destructive',
-          onPress: () => handleDeleteProject(project),
-        },
-      ]
-    );
+    setShowProjectOptions({ visible: true, project });
   };
 
   const handleDeleteProject = (project: Project) => {
@@ -453,6 +435,28 @@ export default function ProjectsList() {
               </View>
         </ScrollView>
       </GlassModal>
+
+      {/* Project Options - Glass Action Sheet */}
+      <GlassActionSheet
+        visible={showProjectOptions.visible}
+        onClose={() => setShowProjectOptions({ visible: false })}
+        title={showProjectOptions.project ? showProjectOptions.project.name : 'Project Options'}
+        actions={[
+          {
+            label: 'Edit Project',
+            onPress: () => showProjectOptions.project && handleEditProject(showProjectOptions.project),
+          },
+          {
+            label: 'Share Project',
+            onPress: () => showProjectOptions.project && handleShareProject(showProjectOptions.project),
+          },
+          {
+            label: 'Delete Project',
+            destructive: true,
+            onPress: () => showProjectOptions.project && handleDeleteProject(showProjectOptions.project),
+          },
+        ]}
+      />
 
       {/* Edit Project Modal */}
       <EditProjectModal
