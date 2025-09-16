@@ -488,7 +488,7 @@ export default function ProjectsList() {
                 <GlassButton
                   variant="primary"
                   size="large"
-                  title="Create Project"
+                  title="Create"
                   onPress={handleCreateProject}
                   disabled={!form.name.trim()}
                   style={{ flex: 1 }}
