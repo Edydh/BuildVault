@@ -98,6 +98,7 @@ export default function Settings() {
   };
 
   const [showDangerSheet, setShowDangerSheet] = React.useState(false);
+  const [showSignOutSheet, setShowSignOutSheet] = React.useState(false);
   const handleClearAllData = () => {
     setShowDangerSheet(true);
   };
@@ -172,7 +173,7 @@ export default function Settings() {
   );
 
   const handleSignOut = () => {
-    setShowDangerSheet(true);
+    setShowSignOutSheet(true);
   };
 
   return (
@@ -558,6 +559,25 @@ export default function Settings() {
               } catch (error) {
                 console.error('Clear data error:', error);
                 Alert.alert('Error', 'Failed to clear data. Please try again.');
+              }
+            },
+          },
+        ]}
+      />
+      <GlassActionSheet
+        visible={showSignOutSheet}
+        onClose={() => setShowSignOutSheet(false)}
+        title="Sign Out"
+        message={'Are you sure you want to sign out? You will need to sign in again to access your projects.'}
+        actions={[
+          {
+            label: 'Sign Out',
+            destructive: true,
+            onPress: async () => {
+              try {
+                await signOut();
+              } catch (error) {
+                Alert.alert('Error', 'Failed to sign out. Please try again.');
               }
             },
           },
