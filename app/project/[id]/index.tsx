@@ -1645,7 +1645,7 @@ export default function ProjectDetail() {
         renderItem={({ item }) => 
           viewMode === 'grid' ? <MediaCardGrid item={item} /> : <MediaCard item={item} />
         }
-        onScroll={handleScroll}
+        onScroll={undefined}
         scrollEventThrottle={16}
         ListEmptyComponent={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
