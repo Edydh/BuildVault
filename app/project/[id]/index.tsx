@@ -860,8 +860,11 @@ export default function ProjectDetail() {
           // For photos, find the index and navigate to gallery
           const photoIndex = media.filter(m => m.type === 'photo').findIndex(m => m.id === item.id);
           router.push(`/project/${id}/gallery?initialIndex=${photoIndex}`);
+        } else if (item.type === 'video') {
+          // For videos, open note modal directly for better UX
+          handleAddNote(item);
         } else {
-          // For videos and documents, navigate to media detail
+          // For documents, navigate to media detail
           router.push(`/project/${id}/media/${item.id}`);
         }
       }
@@ -1146,8 +1149,11 @@ export default function ProjectDetail() {
           // For photos, find the index and navigate to gallery
           const photoIndex = media.filter(m => m.type === 'photo').findIndex(m => m.id === item.id);
           router.push(`/project/${id}/gallery?initialIndex=${photoIndex}`);
+        } else if (item.type === 'video') {
+          // For videos, open note modal directly for better UX
+          handleAddNote(item);
         } else {
-          // For videos and documents, navigate to media detail
+          // For documents, navigate to media detail
           router.push(`/project/${id}/media/${item.id}`);
         }
       }
