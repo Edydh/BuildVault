@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   Alert,
   FlatList,
-  TextInput,
   ScrollView,
   Animated,
 } from 'react-native';
@@ -25,6 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
+import { GlassCard, GlassFAB, GlassTextInput, GlassButton } from '../../../components/glass';
 
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -1528,28 +1528,12 @@ export default function ProjectDetail() {
       />
 
       {/* Add Media Button */}
-      <TouchableOpacity
-        style={{
-          position: 'absolute',
-          right: 20,
-          bottom: insets.bottom + 30, // Safe area + spacing to avoid device overlap
-          backgroundColor: '#FF7A1A',
-          width: 60,
-          height: 60,
-          borderRadius: 30,
-          justifyContent: 'center',
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 8,
-          elevation: 8,
-        }}
+      <GlassFAB
+        icon="camera"
+        size={60}
         onPress={handleCaptureMedia}
-        activeOpacity={0.9}
-      >
-        <Ionicons name="camera" size={30} color="#0B0F14" />
-      </TouchableOpacity>
+        style={{ position: 'absolute', right: 20, bottom: insets.bottom + 30 }}
+      />
 
       {/* Folder Creation Modal */}
       {showFolderModal && (
@@ -1583,59 +1567,37 @@ export default function ProjectDetail() {
               Create New Folder
             </Text>
             
-            <TextInput
+            <GlassTextInput
               style={{
-                backgroundColor: '#1F2A37',
-                borderRadius: 12,
-                padding: 16,
-                color: '#F8FAFC',
-                fontSize: 16,
                 marginBottom: 20,
-                borderWidth: 1,
-                borderColor: '#FF7A1A',
               }}
+              label="Folder Name"
               value={newFolderName}
               onChangeText={setNewFolderName}
               placeholder="Enter folder name..."
-              placeholderTextColor="#64748B"
               autoFocus
               returnKeyType="done"
               onSubmitEditing={handleCreateFolder}
             />
             
             <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity
-                style={{
-                  flex: 1,
-                  backgroundColor: '#374151',
-                  paddingVertical: 12,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                }}
+              <GlassButton
+                variant="secondary"
+                size="large"
+                title="Cancel"
                 onPress={() => {
                   setShowFolderModal(false);
                   setNewFolderName('');
                 }}
-              >
-                <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={{
-                  flex: 1,
-                  backgroundColor: '#FF7A1A',
-                  paddingVertical: 12,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                }}
+                style={{ flex: 1 }}
+              />
+              <GlassButton
+                variant="primary"
+                size="large"
+                title="Create Folder"
                 onPress={handleCreateFolder}
-              >
-                <Text style={{ color: '#0B0F14', fontSize: 16, fontWeight: '600' }}>
-                  Create Folder
-                </Text>
-              </TouchableOpacity>
+                style={{ flex: 1 }}
+              />
             </View>
           </View>
         </View>
