@@ -3,10 +3,10 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Switch,
   Alert,
   Animated,
 } from 'react-native';
+import { GlassSwitch } from './glass';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -210,11 +210,9 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
               Display prompts when opening media without notes
             </Text>
           </View>
-          <Switch
+          <GlassSwitch
             value={settings.showPrompts}
             onValueChange={(value) => updateSetting('showPrompts', value)}
-            trackColor={{ false: '#374151', true: '#3B82F6' }}
-            thumbColor={settings.showPrompts ? '#FFFFFF' : '#9CA3AF'}
           />
         </View>
 
@@ -241,11 +239,9 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
               Show pulsing "Add Note" buttons on media without notes
             </Text>
           </View>
-          <Switch
+          <GlassSwitch
             value={settings.showVisualIndicators}
             onValueChange={(value) => updateSetting('showVisualIndicators', value)}
-            trackColor={{ false: '#374151', true: '#3B82F6' }}
-            thumbColor={settings.showVisualIndicators ? '#FFFFFF' : '#9CA3AF'}
           />
         </View>
 
@@ -272,11 +268,9 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
               Show suggested notes when adding notes to media
             </Text>
           </View>
-          <Switch
+          <GlassSwitch
             value={settings.showQuickAdd}
             onValueChange={(value) => updateSetting('showQuickAdd', value)}
-            trackColor={{ false: '#374151', true: '#3B82F6' }}
-            thumbColor={settings.showQuickAdd ? '#FFFFFF' : '#9CA3AF'}
           />
         </View>
 

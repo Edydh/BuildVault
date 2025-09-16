@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar, Animated, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
@@ -8,7 +8,7 @@ import { getProjects, deleteProject, getMediaByProject } from '../../lib/db';
 import { deleteProjectDir } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
 import NoteSettings from '../../components/NoteSettings';
-import { useGlassTheme, GlassCard } from '../../components/glass';
+import { useGlassTheme, GlassCard, GlassSwitch } from '../../components/glass';
 import * as Haptics from 'expo-haptics';
 
 export default function Settings() {
@@ -348,14 +348,12 @@ export default function Settings() {
                 Smooth transitions and effects
               </Text>
             </View>
-            <Switch
+            <GlassSwitch
               value={glassTheme.config.enableAnimations}
               onValueChange={(value) => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 glassTheme.updateConfig({ enableAnimations: value });
               }}
-              trackColor={{ false: '#374151', true: '#FF7A1A' }}
-              thumbColor="#F8FAFC"
             />
           </View>
 
@@ -376,7 +374,7 @@ export default function Settings() {
                 Tactile responses on interactions
               </Text>
             </View>
-            <Switch
+            <GlassSwitch
               value={glassTheme.config.enableHaptics}
               onValueChange={(value) => {
                 if (value) {
@@ -384,8 +382,6 @@ export default function Settings() {
                 }
                 glassTheme.updateConfig({ enableHaptics: value });
               }}
-              trackColor={{ false: '#374151', true: '#FF7A1A' }}
-              thumbColor="#F8FAFC"
             />
           </View>
 
@@ -406,14 +402,12 @@ export default function Settings() {
                 Better visibility on older devices
               </Text>
             </View>
-            <Switch
+            <GlassSwitch
               value={glassTheme.config.reduceTransparency}
               onValueChange={(value) => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 glassTheme.updateConfig({ reduceTransparency: value });
               }}
-              trackColor={{ false: '#374151', true: '#FF7A1A' }}
-              thumbColor="#F8FAFC"
             />
           </View>
 
