@@ -14,7 +14,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder } from '../../../lib/db';
+import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -51,8 +51,13 @@ export default function ProjectDetail() {
   const headerOpacity = useRef(new Animated.Value(1)).current;
   const [headerHeight, setHeaderHeight] = useState<number>(0);
   const topOverlayHeight = headerHeight > 0 ? headerHeight : insets.top + 160;
+  
+  // Note editing state
+  const [editingNoteItem, setEditingNoteItem] = useState<MediaItem | null>(null);
+  const [noteText, setNoteText] = useState<string>('');
+  const [showNoteModal, setShowNoteModal] = useState(false);
 
-  const handleScroll = (event: any) => {
+  const handleScroll = useCallback((event: any) => {
     try {
       const offsetY = event.nativeEvent.contentOffset.y;
       const fadeStart = 50;
@@ -67,7 +72,7 @@ export default function ProjectDetail() {
     } catch (e) {
       headerOpacity.setValue(1);
     }
-  };
+  }, [headerOpacity]);
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -756,6 +761,55 @@ export default function ProjectDetail() {
     );
   };
 
+  // Note editing functions
+  const handleAddNote = (item: MediaItem) => {
+    setEditingNoteItem(item);
+    setNoteText(item.note || '');
+    setShowNoteModal(true);
+  };
+
+  const handleSaveNote = () => {
+    if (!editingNoteItem) return;
+    
+    try {
+      updateMediaNote(editingNoteItem.id, noteText || null);
+      
+      // Update the local state
+      setMedia(prev => prev.map(item => 
+        item.id === editingNoteItem.id ? { ...item, note: noteText || null } : item
+      ));
+      
+      // Close modal
+      setShowNoteModal(false);
+      setEditingNoteItem(null);
+      setNoteText('');
+      
+      // Show success message
+      setActionSheet({
+        visible: true,
+        title: 'Success',
+        message: 'Note saved successfully!',
+        actions: [{ label: 'OK', onPress: () => setActionSheet({ visible: false }) }]
+      });
+      
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (error) {
+      console.error('Error saving note:', error);
+      setActionSheet({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to save note. Please try again.',
+        actions: [{ label: 'OK', onPress: () => setActionSheet({ visible: false }) }]
+      });
+    }
+  };
+
+  const handleCancelNote = () => {
+    setShowNoteModal(false);
+    setEditingNoteItem(null);
+    setNoteText('');
+  };
+
   const MediaCardGrid = ({ item }: { item: MediaItem }) => {
     const isSelected = selectedItems.has(item.id);
     const [variants, setVariants] = useState<ImageVariants | null>(null);
@@ -908,46 +962,75 @@ export default function ProjectDetail() {
                 />
               )
             ) : item.type === 'video' ? (
-              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                {(() => {
-                  console.log('Rendering video item:', {
-                    id: item.id,
-                    type: item.type,
-                    thumb_uri: item.thumb_uri,
-                    uri: item.uri,
-                    hasThumbnail: !!item.thumb_uri
-                  });
-                  return null;
-                })()}
-                {item.thumb_uri && item.thumb_uri.endsWith('.jpg') ? (
-                  <Image
-                    source={{ uri: item.thumb_uri }}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                    }}
-                    resizeMode="cover"
-                    onError={(error) => {
-                      console.log('Video thumbnail load error in MediaCardGrid:', error);
-                      console.log('Failed URI:', item.thumb_uri);
-                    }}
-                    onLoad={() => {
-                      console.log('Video thumbnail loaded successfully in MediaCardGrid:', item.thumb_uri);
-                    }}
-                  />
+              <View style={{ flex: 1, position: 'relative' }}>
+                {item.thumb_uri ? (
+                  <>
+                    <Image
+                      source={{ uri: item.thumb_uri }}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                      }}
+                      resizeMode="cover"
+                      onError={(error) => {
+                        console.log('Video thumbnail load error in MediaCardGrid:', error);
+                        console.log('Failed URI:', item.thumb_uri);
+                      }}
+                      onLoad={() => {
+                        console.log('Video thumbnail loaded successfully in MediaCardGrid:', item.thumb_uri);
+                      }}
+                    />
+                    {/* Glass overlay for video preview effect */}
+                    <View style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}>
+                      {/* Large centered play button */}
+                      <View style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 24,
+                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 4,
+                        elevation: 5,
+                      }}>
+                        <Ionicons name="play" size={20} color="#FFFFFF" />
+                      </View>
+                    </View>
+                  </>
                 ) : (
-                  <Ionicons name="videocam" size={32} color="#FF7A1A" />
+                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1F2A37' }}>
+                    <Ionicons name="videocam" size={32} color="#FF7A1A" />
+                    <Text style={{ color: '#94A3B8', fontSize: 10, marginTop: 4 }}>Loading...</Text>
+                  </View>
                 )}
+                {/* Video duration badge */}
                 <View style={{
                   position: 'absolute',
                   bottom: 8,
                   right: 8,
-                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                  borderRadius: 4,
+                  backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                  borderRadius: 6,
                   paddingHorizontal: 6,
-                  paddingVertical: 2,
+                  paddingVertical: 3,
+                  flexDirection: 'row',
+                  alignItems: 'center',
                 }}>
-                  <Ionicons name="play" size={12} color="#FFFFFF" />
+                  <Ionicons name="time" size={10} color="#FFFFFF" />
+                  <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
+                    {item.duration ? `${Math.floor(item.duration / 60)}:${String(item.duration % 60).padStart(2, '0')}` : 'VIDEO'}
+                  </Text>
                 </View>
               </View>
             ) : (
@@ -1044,7 +1127,7 @@ export default function ProjectDetail() {
           mediaId={item.id}
           hasNote={!!item.note}
           mediaType={item.type}
-          onAddNotePress={handlePress}
+          onAddNotePress={() => handleAddNote(item)}
         />
         </TouchableOpacity>
       </GlassCard>
@@ -1130,20 +1213,46 @@ export default function ProjectDetail() {
           width: 40,
           height: 40,
           borderRadius: 8,
-          backgroundColor: '#FF7A1A',
+          backgroundColor: item.type === 'video' && item.thumb_uri ? 'transparent' : '#FF7A1A',
           justifyContent: 'center',
           alignItems: 'center',
           marginRight: 12,
           position: 'relative',
+          overflow: 'hidden',
         }}>
-          <Ionicons
-            name={
-              item.type === 'photo' ? 'image' :
-              item.type === 'video' ? 'videocam' : 'document'
-            }
-            size={20}
-            color="#0B0F14"
-          />
+          {item.type === 'video' && item.thumb_uri ? (
+            <>
+              <Image
+                source={{ uri: item.thumb_uri }}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                }}
+                resizeMode="cover"
+              />
+              <View style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}>
+                <Ionicons name="play" size={12} color="#FFFFFF" />
+              </View>
+            </>
+          ) : (
+            <Ionicons
+              name={
+                item.type === 'photo' ? 'image' :
+                item.type === 'video' ? 'videocam' : 'document'
+              }
+              size={20}
+              color="#0B0F14"
+            />
+          )}
           {item.type === 'photo' && (
             <View style={{
               position: 'absolute',
@@ -1198,7 +1307,7 @@ export default function ProjectDetail() {
         mediaId={item.id}
         hasNote={!!item.note}
         mediaType={item.type}
-        onAddNotePress={handlePress}
+        onAddNotePress={() => handleAddNote(item)}
       />
         </TouchableOpacity>
       </GlassCard>
@@ -1401,6 +1510,7 @@ export default function ProjectDetail() {
                 }}
                 style={{ marginBottom: 12 }}
                 pointerEvents="auto"
+                onScroll={undefined}
               >
                 <GlassCard
                   style={{
@@ -1607,6 +1717,65 @@ export default function ProjectDetail() {
           </View>
         </GlassModal>
       )}
+
+      {/* Note Editing Modal */}
+      <GlassModal visible={showNoteModal} onRequestClose={handleCancelNote}>
+        <View style={{ padding: 20 }}>
+          <Text style={{ 
+            fontSize: 20, 
+            fontWeight: '600', 
+            color: '#F8FAFC', 
+            marginBottom: 8,
+            textAlign: 'center' 
+          }}>
+            {editingNoteItem?.note ? 'Edit Note' : 'Add Note'}
+          </Text>
+          
+          <Text style={{ 
+            fontSize: 14, 
+            color: '#94A3B8', 
+            marginBottom: 20,
+            textAlign: 'center' 
+          }}>
+            {editingNoteItem?.type === 'photo' ? 'Photo' : 
+             editingNoteItem?.type === 'video' ? 'Video' : 'Document'} • {
+             editingNoteItem ? new Date(editingNoteItem.created_at).toLocaleDateString() : ''
+            }
+          </Text>
+
+          <GlassTextInput
+            placeholder="Enter your note here..."
+            value={noteText}
+            onChangeText={setNoteText}
+            multiline
+            numberOfLines={6}
+            style={{
+              minHeight: 120,
+              textAlignVertical: 'top',
+              marginBottom: 20,
+            }}
+          />
+
+          <View style={{ 
+            flexDirection: 'row', 
+            justifyContent: 'space-between',
+            gap: 12
+          }}>
+            <GlassButton
+              title="Cancel"
+              onPress={handleCancelNote}
+              style={{ flex: 1 }}
+              variant="secondary"
+            />
+            <GlassButton
+              title="Save Note"
+              onPress={handleSaveNote}
+              style={{ flex: 1 }}
+              variant="primary"
+            />
+          </View>
+        </View>
+      </GlassModal>
 
       {/* Reusable Action Sheet for this screen */}
       <GlassActionSheet
