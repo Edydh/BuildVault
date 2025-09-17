@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,11 @@ import {
   TextInput,
   Alert,
   Dimensions,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   TouchableWithoutFeedback,
   Keyboard,
+  KeyboardAvoidingView,
   Animated as RNAnimated,
 } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
@@ -467,21 +467,16 @@ function MediaDetailContent() {
   const textInputRef = useRef<TextInput>(null);
   // Create Animated components
   const [headerHeight, setHeaderHeight] = useState(0);
-  const AnimatedScrollView = Reanimated.createAnimatedComponent(ScrollView);
   const scrollY = useSharedValue(0);
+  const AnimatedScrollView = Reanimated.createAnimatedComponent(ScrollView);
   const scrollHandler = useAnimatedScrollHandler(({ contentOffset }) => {
     scrollY.value = contentOffset.y;
   });
-  const headerAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: scrollY.value > 10 ? 0 : 1,
-  }));
-
-  React.useEffect(() => {
-    if (!isFullScreen) {
-      scrollY.value = 0;
-      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-    }
-  }, [isFullScreen, scrollY]);
+  const headerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: scrollY.value > 10 ? 0 : 1,
+    };
+  });
 
   React.useEffect(() => {
     if (!mediaId) return;
@@ -662,12 +657,8 @@ function MediaDetailContent() {
   }
 
   return (
-    <KeyboardAvoidingView 
-      style={{ flex: 1, backgroundColor: '#0B0F14' }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+    <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <View style={{ flex: 1 }}>
           {/* Glass Header */}
           <Reanimated.View
@@ -753,8 +744,9 @@ function MediaDetailContent() {
           <AnimatedScrollView 
             ref={scrollViewRef}
             style={{ flex: 1 }}
-            contentContainerStyle={{ flexGrow: 1, paddingTop: headerHeight + 8, paddingBottom: 24 }}
-            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ flexGrow: 1, paddingTop: headerHeight + 8, paddingBottom: 200 }}
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="interactive"
             onScroll={scrollHandler}
             scrollEventThrottle={16}
           >
@@ -1030,19 +1022,35 @@ function MediaDetailContent() {
         )}
       </View>
 
+          </AnimatedScrollView>
+        </View>
+      </TouchableWithoutFeedback>
+
+      {/* Bottom Controls with KeyboardAvoidingView */}
+      <KeyboardAvoidingView 
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+        }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 20, paddingBottom: 40 }}>
             {/* Note Section with Glass Card */}
-            <View style={{ padding: 16, paddingBottom: 40 }}>
-              <GlassCard
-                style={{
-                  padding: 16,
-                  borderRadius: 16,
-                }}
-                intensity={60}
-                shadowEnabled={true}
-              >
-                <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
-                  Notes
-                </Text>
+            <GlassCard
+              style={{
+                padding: 16,
+                borderRadius: 16,
+              }}
+              intensity={60}
+              shadowEnabled={true}
+            >
+              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
+                Notes
+              </Text>
 
               {isEditingNote ? (
                 <View>
@@ -1068,12 +1076,6 @@ function MediaDetailContent() {
                     autoFocus
                     returnKeyType="default"
                     blurOnSubmit={false}
-                    onFocus={() => {
-                      // Auto-scroll to bottom when TextInput is focused
-                      setTimeout(() => {
-                        scrollViewRef.current?.scrollToEnd({ animated: true });
-                      }, 100);
-                    }}
                   />
                   <View style={{ 
                     flexDirection: 'row', 
@@ -1187,11 +1189,10 @@ function MediaDetailContent() {
                   </Text>
                 </TouchableOpacity>
               </View>
-              </GlassCard>
-            </View>
-          </AnimatedScrollView>
-        </View>
-      </TouchableWithoutFeedback>
+            </GlassCard>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
 
       {/* Full-screen photo viewer */}
       {isFullScreen && media && media.type === 'photo' && (
@@ -1263,11 +1264,11 @@ function MediaDetailContent() {
           {
             title: 'Cancel',
             style: 'cancel',
-            onPress: () => setShowShareSheet(false),
-          },
+          onPress: () => setShowShareSheet(false),
+        },
         ]}
       />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

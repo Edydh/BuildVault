@@ -6,14 +6,14 @@ import {
   Alert,
   FlatList,
   ScrollView,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
-import { Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote } from '../../../lib/db';
+import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -813,6 +813,7 @@ function ProjectDetailContent() {
     const isSelected = selectedItems.has(item.id);
     const [variants, setVariants] = useState<ImageVariants | null>(null);
     const [isGeneratingVariants, setIsGeneratingVariants] = useState(false);
+    const [videoThumbnail, setVideoThumbnail] = useState<string | null>(item.thumb_uri || null);
     
     // Load image variants for photos
     useEffect(() => {
@@ -848,8 +849,69 @@ function ProjectDetailContent() {
       };
 
       loadVariants();
-    }, [item.id, item.uri, item.type, id]);
-    
+
+      if (item.type === 'video' && id) {
+        let active = true;
+        const ensureVideoThumb = async () => {
+          try {
+            let currentThumb = item.thumb_uri || null;
+
+            if (currentThumb) {
+              const info = await FileSystem.getInfoAsync(currentThumb);
+              if (!info.exists) {
+                currentThumb = null;
+              }
+            }
+
+            if (!currentThumb) {
+              const { generateSmartVideoThumbnail } = await import('../../../lib/media');
+              const result = await generateSmartVideoThumbnail(item.uri, {
+                quality: 0.8,
+                width: 600,
+                height: 600,
+              });
+
+              const thumbFilename = `thumb_${item.id}.jpg`;
+              const mediaDir = `${FileSystem.documentDirectory}buildvault/${id}/media/`;
+
+              await FileSystem.makeDirectoryAsync(mediaDir, { intermediates: true });
+
+              const targetUri = `${mediaDir}${thumbFilename}`;
+
+              try {
+                const existingTarget = await FileSystem.getInfoAsync(targetUri);
+                if (existingTarget.exists) {
+                  await FileSystem.deleteAsync(targetUri, { idempotent: true });
+                }
+              } catch (error) {
+                console.warn('Unable to cleanup existing grid thumbnail target:', error);
+              }
+
+              await FileSystem.moveAsync({ from: result.uri, to: targetUri });
+              updateMediaThumbnail(item.id, targetUri);
+              currentThumb = targetUri;
+            }
+
+            if (active) {
+              setVideoThumbnail(currentThumb);
+            }
+          } catch (error) {
+            console.error('Failed to prepare video thumbnail (grid view):', error);
+            if (active) {
+              setVideoThumbnail(null);
+            }
+          }
+        };
+
+        ensureVideoThumb();
+
+        return () => {
+          active = false;
+        };
+      }
+
+      return undefined;
+    }, [item.id, item.uri, item.type, item.thumb_uri, id]);
     const handlePress = () => {
       if (isSelectionMode) {
         toggleItemSelection(item.id);
@@ -951,33 +1013,27 @@ function ProjectDetailContent() {
                   priority="normal"
                 />
               ) : (
-                <Image
+                <ExpoImage
                   source={{ uri: item.uri }}
                   style={{
                     width: '100%',
                     height: '100%',
                   }}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  transition={200}
                 />
               )
             ) : item.type === 'video' ? (
               <View style={{ flex: 1, position: 'relative' }}>
-                {item.thumb_uri ? (
+                {videoThumbnail ? (
                   <>
                     <Image
-                      source={{ uri: item.thumb_uri }}
+                      source={{ uri: videoThumbnail }}
                       style={{
                         width: '100%',
                         height: '100%',
                       }}
                       resizeMode="cover"
-                      onError={(error) => {
-                        console.log('Video thumbnail load error in MediaCardGrid:', error);
-                        console.log('Failed URI:', item.thumb_uri);
-                      }}
-                      onLoad={() => {
-                        console.log('Video thumbnail loaded successfully in MediaCardGrid:', item.thumb_uri);
-                      }}
                     />
                     {/* Glass overlay for video preview effect */}
                     <View style={{
@@ -1028,7 +1084,7 @@ function ProjectDetailContent() {
                 }}>
                   <Ionicons name="time" size={10} color="#FFFFFF" />
                   <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
-                    {item.duration ? `${Math.floor(item.duration / 60)}:${String(item.duration % 60).padStart(2, '0')}` : 'VIDEO'}
+                    {item.duration ? `${Math.floor(item.duration / 60)}:${String(Math.floor(item.duration % 60)).padStart(2, '0')}` : '--:--'}
                   </Text>
                 </View>
               </View>
@@ -1135,6 +1191,7 @@ function ProjectDetailContent() {
 
   const MediaCard = ({ item }: { item: MediaItem }) => {
     const isSelected = selectedItems.has(item.id);
+    const videoThumbnail = item.thumb_uri || null;
     
     const handlePress = () => {
       if (isSelectionMode) {
@@ -1220,19 +1277,17 @@ function ProjectDetailContent() {
           overflow: 'hidden',
         }}>
           {item.type === 'photo' ? (
-            <Image
+            <ExpoImage
               source={{ uri: item.uri }}
               style={{ width: '100%', height: '100%' }}
               contentFit="cover"
+              transition={200}
             />
-          ) : item.type === 'video' && item.thumb_uri ? (
+          ) : item.type === 'video' && videoThumbnail ? (
             <>
               <Image
-                source={{ uri: item.thumb_uri }}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                }}
+                source={{ uri: videoThumbnail }}
+                style={{ width: '100%', height: '100%' }}
                 resizeMode="cover"
               />
               <View style={{
@@ -1241,11 +1296,20 @@ function ProjectDetailContent() {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                backgroundColor: 'rgba(0, 0, 0, 0.25)',
                 justifyContent: 'center',
                 alignItems: 'center',
               }}>
-                <Ionicons name="play" size={14} color="#FFFFFF" />
+                <View style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 13,
+                  backgroundColor: 'rgba(11, 15, 20, 0.7)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <Ionicons name="play" size={14} color="#FFFFFF" />
+                </View>
               </View>
             </>
           ) : (

@@ -195,6 +195,12 @@ export function updateMediaNote(id: string, note: string | null) {
   }, 'Update media note');
 }
 
+export function updateMediaThumbnail(id: string, thumbUri: string | null) {
+  return withErrorHandlingSync(() => {
+    db.runSync('UPDATE media SET thumb_uri = ? WHERE id = ?', [thumbUri, id]);
+  }, 'Update media thumbnail');
+}
+
 export function getMediaById(id: string): MediaItem | null {
   return withErrorHandlingSync(() => {
     const result = db.getFirstSync('SELECT * FROM media WHERE id = ?', [id]) as MediaItem | null;

@@ -15,7 +15,7 @@ const config: ExpoConfig = {
   newArchEnabled: true,
   plugins: [
     'expo-router',
-    'expo-font',
+    //'expo-font',
     'expo-video',
     'expo-apple-authentication',
     'expo-secure-store',
