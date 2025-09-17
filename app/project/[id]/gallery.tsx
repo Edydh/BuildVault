@@ -27,7 +27,7 @@ import SharingQualitySelector from '../../../components/SharingQualitySelector';
 import NotePrompt from '../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../components/NoteSettings';
 import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider } from '../../../components/glass';
-import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+import ReanimatedAnimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -446,7 +446,7 @@ function PhotoGalleryContent() {
   const scrollY = useSharedValue(0);
   
   // Create Animated components
-  const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+  const AnimatedFlatList = ReanimatedAnimated.createAnimatedComponent(FlatList);
   
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {

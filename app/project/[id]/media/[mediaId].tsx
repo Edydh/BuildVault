@@ -1161,7 +1161,7 @@ function MediaDetailContent() {
               </View>
               </GlassCard>
             </View>
-          </ScrollView>
+          </AnimatedScrollView>
         </View>
       </TouchableWithoutFeedback>
 

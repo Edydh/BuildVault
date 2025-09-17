@@ -1607,7 +1607,7 @@ function ProjectDetailContent() {
                     </Text>
                   </TouchableOpacity>
                 </GlassCard>
-              </ScrollView>
+              </AnimatedScrollView>
               {/* Current Folder Indicator */}
               <GlassCard
                 style={{
