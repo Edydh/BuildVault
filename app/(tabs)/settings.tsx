@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,10 @@ export default function Settings() {
   // Animation values for dynamic header
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = useRef(new Animated.Value(1)).current;
+  
+  // Expandable Glass Effects state
+  const [isGlassEffectsExpanded, setIsGlassEffectsExpanded] = useState(false);
+  const glassEffectsHeight = useRef(new Animated.Value(0)).current;
 
   // Handle scroll events for dynamic header
   const handleScroll = (event: any) => {
@@ -181,6 +185,19 @@ export default function Settings() {
     setShowSignOutSheet(true);
   };
 
+  // Toggle Glass Effects expansion
+  const toggleGlassEffects = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const toValue = isGlassEffectsExpanded ? 0 : 1;
+    setIsGlassEffectsExpanded(!isGlassEffectsExpanded);
+    
+    Animated.timing(glassEffectsHeight, {
+      toValue,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }} pointerEvents="box-none">
       <StatusBar barStyle="light-content" backgroundColor="#0B0F14" translucent />
@@ -226,7 +243,7 @@ export default function Settings() {
         alwaysBounceVertical={true}
       >
 
-      {/* Glass Theme Section */}
+      {/* Glass Theme Section - Expandable */}
       <View style={{ paddingBottom: 8 }}>
         <Text style={{
           color: '#64748B',
@@ -239,163 +256,210 @@ export default function Settings() {
           Glass Effects
         </Text>
         
-        <GlassCard style={{ padding: 16, marginBottom: 16 }}>
-          {/* Blur Intensity */}
-          <View style={{ marginBottom: 20 }}>
-            <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
-              Blur Intensity
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-              {(['low', 'medium', 'high'] as const).map((level) => (
-                <TouchableOpacity
-                  key={level}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    glassTheme.updateConfig({ intensity: level });
-                  }}
-                  style={{
-                    flex: 1,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderRadius: 8,
-                    backgroundColor: glassTheme.config.intensity === level 
-                      ? 'rgba(255, 122, 26, 0.2)' 
-                      : 'rgba(255, 255, 255, 0.05)',
-                    borderWidth: 1,
-                    borderColor: glassTheme.config.intensity === level 
-                      ? '#FF7A1A' 
-                      : 'rgba(255, 255, 255, 0.1)',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Text style={{ 
-                    color: glassTheme.config.intensity === level ? '#FF7A1A' : '#94A3B8',
-                    fontSize: 14,
-                    fontWeight: glassTheme.config.intensity === level ? '600' : '400',
-                    textTransform: 'capitalize',
-                  }}>
-                    {level}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* Enable Animations */}
-          <View style={{ 
-            flexDirection: 'row', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            paddingVertical: 12,
-            borderTopWidth: 1,
-            borderTopColor: 'rgba(255, 255, 255, 0.1)',
-          }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
-                Animations
-              </Text>
-              <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
-                Smooth transitions and effects
-              </Text>
-            </View>
-            <GlassSwitch
-              value={glassTheme.config.enableAnimations}
-              onValueChange={(value) => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                glassTheme.updateConfig({ enableAnimations: value });
-              }}
-            />
-          </View>
-
-          {/* Enable Haptics */}
-          <View style={{ 
-            flexDirection: 'row', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            paddingVertical: 12,
-            borderTopWidth: 1,
-            borderTopColor: 'rgba(255, 255, 255, 0.1)',
-          }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
-                Haptic Feedback
-              </Text>
-              <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
-                Tactile responses on interactions
-              </Text>
-            </View>
-            <GlassSwitch
-              value={glassTheme.config.enableHaptics}
-              onValueChange={(value) => {
-                if (value) {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-                glassTheme.updateConfig({ enableHaptics: value });
-              }}
-            />
-          </View>
-
-          {/* Reduce Transparency */}
-          <View style={{ 
-            flexDirection: 'row', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            paddingVertical: 12,
-            borderTopWidth: 1,
-            borderTopColor: 'rgba(255, 255, 255, 0.1)',
-          }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
-                Reduce Transparency
-              </Text>
-              <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
-                Better visibility on older devices
-              </Text>
-            </View>
-            <GlassSwitch
-              value={glassTheme.config.reduceTransparency}
-              onValueChange={(value) => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                glassTheme.updateConfig({ reduceTransparency: value });
-              }}
-            />
-          </View>
-
-          {/* Reset Button */}
+        <GlassCard style={{ marginBottom: 16, overflow: 'hidden' }}>
+          {/* Header - Always Visible */}
           <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              Alert.alert(
-                'Reset Glass Theme',
-                'This will restore all glass effects to their default settings.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Reset',
-                    style: 'destructive',
-                    onPress: () => {
-                      glassTheme.resetToDefaults();
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    },
-                  },
-                ]
-              );
-            }}
+            onPress={toggleGlassEffects}
             style={{
-              marginTop: 16,
-              paddingVertical: 12,
-              paddingHorizontal: 16,
-              borderRadius: 8,
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              borderWidth: 1,
-              borderColor: 'rgba(239, 68, 68, 0.3)',
+              flexDirection: 'row',
               alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: 16,
+              paddingBottom: isGlassEffectsExpanded ? 12 : 16,
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
+                Glass Effects
+              </Text>
+              <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                {isGlassEffectsExpanded ? 'Tap to collapse' : 'Tap to expand settings'}
+              </Text>
+            </View>
+            <Animated.View
+              style={{
+                transform: [{
+                  rotate: glassEffectsHeight.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0deg', '180deg'],
+                  })
+                }]
+              }}
+            >
+              <Ionicons name="chevron-down" size={20} color="#64748B" />
+            </Animated.View>
+          </TouchableOpacity>
+
+          {/* Expandable Content */}
+          <Animated.View
+            style={{
+              height: glassEffectsHeight.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 400], // Approximate height when expanded
+              }),
+              opacity: glassEffectsHeight,
             }}
           >
-            <Text style={{ color: '#EF4444', fontSize: 14, fontWeight: '600' }}>
-              Reset to Defaults
-            </Text>
-          </TouchableOpacity>
+            <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+              {/* Blur Intensity */}
+              <View style={{ marginBottom: 20 }}>
+                <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+                  Blur Intensity
+                </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                  {(['low', 'medium', 'high'] as const).map((level) => (
+                    <TouchableOpacity
+                      key={level}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        glassTheme.updateConfig({ intensity: level });
+                      }}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderRadius: 8,
+                        backgroundColor: glassTheme.config.intensity === level 
+                          ? 'rgba(255, 122, 26, 0.2)' 
+                          : 'rgba(255, 255, 255, 0.05)',
+                        borderWidth: 1,
+                        borderColor: glassTheme.config.intensity === level 
+                          ? '#FF7A1A' 
+                          : 'rgba(255, 255, 255, 0.1)',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ 
+                        color: glassTheme.config.intensity === level ? '#FF7A1A' : '#94A3B8',
+                        fontSize: 14,
+                        fontWeight: glassTheme.config.intensity === level ? '600' : '400',
+                        textTransform: 'capitalize',
+                      }}>
+                        {level}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Enable Animations */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                paddingVertical: 12,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                    Animations
+                  </Text>
+                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                    Smooth transitions and effects
+                  </Text>
+                </View>
+                <GlassSwitch
+                  value={glassTheme.config.enableAnimations}
+                  onValueChange={(value) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    glassTheme.updateConfig({ enableAnimations: value });
+                  }}
+                />
+              </View>
+
+              {/* Enable Haptics */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                paddingVertical: 12,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                    Haptic Feedback
+                  </Text>
+                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                    Tactile responses on interactions
+                  </Text>
+                </View>
+                <GlassSwitch
+                  value={glassTheme.config.enableHaptics}
+                  onValueChange={(value) => {
+                    if (value) {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                    glassTheme.updateConfig({ enableHaptics: value });
+                  }}
+                />
+              </View>
+
+              {/* Reduce Transparency */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                paddingVertical: 12,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                    Reduce Transparency
+                  </Text>
+                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                    Better visibility on older devices
+                  </Text>
+                </View>
+                <GlassSwitch
+                  value={glassTheme.config.reduceTransparency}
+                  onValueChange={(value) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    glassTheme.updateConfig({ reduceTransparency: value });
+                  }}
+                />
+              </View>
+
+              {/* Reset Button */}
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Alert.alert(
+                    'Reset Glass Theme',
+                    'This will restore all glass effects to their default settings.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Reset',
+                        style: 'destructive',
+                        onPress: () => {
+                          glassTheme.resetToDefaults();
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        },
+                      },
+                    ]
+                  );
+                }}
+                style={{
+                  marginTop: 16,
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderRadius: 8,
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(239, 68, 68, 0.3)',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: '#EF4444', fontSize: 14, fontWeight: '600' }}>
+                  Reset to Defaults
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
         </GlassCard>
       </View>
 
