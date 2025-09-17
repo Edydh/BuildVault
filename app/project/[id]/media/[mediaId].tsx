@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,7 @@ import {
   ScrollView,
   TouchableWithoutFeedback,
   Keyboard,
-  Animated,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
+  Animated as RNAnimated,
 } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,13 +27,14 @@ import NoteEncouragement from '../../../../components/NoteEncouragement';
 import NotePrompt from '../../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../../components/NoteSettings';
 import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider } from '../../../../components/glass';
-import ReanimatedAnimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ZoomableImage component
 function ZoomableImage({ uri }: { uri: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new RNAnimated.Value(1)).current;
+  const translateX = useRef(new RNAnimated.Value(0)).current;
+  const translateY = useRef(new RNAnimated.Value(0)).current;
   const lastScale = useRef(1);
   const lastTranslateX = useRef(0);
   const lastTranslateY = useRef(0);
@@ -43,12 +42,12 @@ function ZoomableImage({ uri }: { uri: string }) {
   const MIN_SCALE = 1;
   const MAX_SCALE = 4; // Increased max zoom for better experience
 
-  const onPinchGestureEvent = Animated.event(
+  const onPinchGestureEvent = RNAnimated.event(
     [{ nativeEvent: { scale } }],
     { useNativeDriver: true }
   );
 
-  const onPanGestureEvent = Animated.event(
+  const onPanGestureEvent = RNAnimated.event(
     [{ nativeEvent: { translationX: translateX, translationY: translateY } }],
     { useNativeDriver: true }
   );
@@ -64,20 +63,20 @@ function ZoomableImage({ uri }: { uri: string }) {
         lastTranslateY.current = 0;
         
         // Smooth animation back to original position
-        Animated.parallel([
-          Animated.spring(scale, {
+        RNAnimated.parallel([
+          RNAnimated.spring(scale, {
             toValue: MIN_SCALE,
             useNativeDriver: true,
             tension: 120,
             friction: 9,
           }),
-          Animated.spring(translateX, {
+          RNAnimated.spring(translateX, {
             toValue: 0,
             useNativeDriver: true,
             tension: 120,
             friction: 9,
           }),
-          Animated.spring(translateY, {
+          RNAnimated.spring(translateY, {
             toValue: 0,
             useNativeDriver: true,
             tension: 120,
@@ -88,7 +87,7 @@ function ZoomableImage({ uri }: { uri: string }) {
         lastScale.current = MAX_SCALE;
         
         // Smooth animation to max scale
-        Animated.spring(scale, {
+        RNAnimated.spring(scale, {
           toValue: MAX_SCALE,
           useNativeDriver: true,
           tension: 120,
@@ -98,7 +97,7 @@ function ZoomableImage({ uri }: { uri: string }) {
         lastScale.current = newScale;
         
         // Smooth animation to new scale
-        Animated.spring(scale, {
+        RNAnimated.spring(scale, {
           toValue: newScale,
           useNativeDriver: true,
           tension: 120,
@@ -114,20 +113,20 @@ function ZoomableImage({ uri }: { uri: string }) {
     lastTranslateX.current = 0;
     lastTranslateY.current = 0;
     
-    Animated.parallel([
-      Animated.spring(scale, {
+    RNAnimated.parallel([
+      RNAnimated.spring(scale, {
         toValue: MIN_SCALE,
         useNativeDriver: true,
         tension: 120,
         friction: 9,
       }),
-      Animated.spring(translateX, {
+      RNAnimated.spring(translateX, {
         toValue: 0,
         useNativeDriver: true,
         tension: 120,
         friction: 9,
       }),
-      Animated.spring(translateY, {
+      RNAnimated.spring(translateY, {
         toValue: 0,
         useNativeDriver: true,
         tension: 120,
@@ -151,14 +150,14 @@ function ZoomableImage({ uri }: { uri: string }) {
         lastTranslateY.current = Math.max(-maxTranslateY, Math.min(maxTranslateY, newTranslateY));
         
         // Smooth animation to new position
-        Animated.parallel([
-          Animated.spring(translateX, {
+        RNAnimated.parallel([
+          RNAnimated.spring(translateX, {
             toValue: lastTranslateX.current,
             useNativeDriver: true,
             tension: 100,
             friction: 8,
           }),
-          Animated.spring(translateY, {
+          RNAnimated.spring(translateY, {
             toValue: lastTranslateY.current,
             useNativeDriver: true,
             tension: 100,
@@ -174,20 +173,20 @@ function ZoomableImage({ uri }: { uri: string }) {
       onGestureEvent={onPinchGestureEvent}
       onHandlerStateChange={onPinchHandlerStateChange}
     >
-      <Animated.View style={{ flex: 1 }}>
+      <RNAnimated.View style={{ flex: 1 }}>
         <PanGestureHandler
           onGestureEvent={onPanGestureEvent}
           onHandlerStateChange={onPanHandlerStateChange}
           minPointers={1}
           maxPointers={1}
         >
-          <Animated.View style={{ flex: 1 }}>
+          <RNAnimated.View style={{ flex: 1 }}>
             <TouchableOpacity
               activeOpacity={1}
               onPress={handleDoubleTap}
               style={{ flex: 1 }}
             >
-              <Animated.Image
+              <RNAnimated.Image
                 source={{ uri }}
                 style={{
                   width: Dimensions.get('window').width,
@@ -201,9 +200,9 @@ function ZoomableImage({ uri }: { uri: string }) {
                 resizeMode="contain"
               />
             </TouchableOpacity>
-          </Animated.View>
+          </RNAnimated.View>
         </PanGestureHandler>
-      </Animated.View>
+      </RNAnimated.View>
     </PinchGestureHandler>
   );
 }
@@ -455,6 +454,7 @@ function FullScreenPhotoViewer({
 function MediaDetailContent() {
   const { mediaId } = useLocalSearchParams<{ mediaId: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [media, setMedia] = useState<MediaItem | null>(null);
   const [note, setNote] = useState('');
   const [isEditingNote, setIsEditingNote] = useState(false);
@@ -465,25 +465,23 @@ function MediaDetailContent() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
-  const headerOpacity = useRef(new Animated.Value(1)).current;
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    headerOpacity.setValue(offsetY > 10 ? 0 : 1);
-  }, [headerOpacity]);
-  
   // Create Animated components
-  const AnimatedScrollView = ReanimatedAnimated.createAnimatedComponent(ScrollView);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const AnimatedScrollView = Reanimated.createAnimatedComponent(ScrollView);
   const scrollY = useSharedValue(0);
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollY.value = event.contentOffset.y;
-    },
+  const scrollHandler = useAnimatedScrollHandler(({ contentOffset }) => {
+    scrollY.value = contentOffset.y;
   });
-  const headerAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: scrollY.value > 10 ? 0 : 1,
-    };
-  });
+  const headerAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: scrollY.value > 10 ? 0 : 1,
+  }));
+
+  React.useEffect(() => {
+    if (!isFullScreen) {
+      scrollY.value = 0;
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+    }
+  }, [isFullScreen, scrollY]);
 
   React.useEffect(() => {
     if (!mediaId) return;
@@ -672,7 +670,24 @@ function MediaDetailContent() {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={{ flex: 1 }}>
           {/* Glass Header */}
-          <Animated.View style={[styles.headerContainer, headerAnimatedStyle]}>
+          <Reanimated.View
+            pointerEvents="box-none"
+            style={[
+              {
+                paddingHorizontal: 16,
+                paddingTop: insets.top + 16,
+                paddingBottom: 12,
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                zIndex: 1000,
+                backgroundColor: '#0B0F14',
+              },
+              headerAnimatedStyle,
+            ]}
+            onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
+          >
             <GlassHeader
               title={media?.type.charAt(0).toUpperCase() + media?.type.slice(1) || 'Media'}
               onBack={() => router.back()}
@@ -732,13 +747,13 @@ function MediaDetailContent() {
                 </View>
               }
             />
-          </Animated.View>
+          </Reanimated.View>
 
           {/* Media Preview */}
           <AnimatedScrollView 
             ref={scrollViewRef}
             style={{ flex: 1 }}
-            contentContainerStyle={{ flexGrow: 1 }}
+            contentContainerStyle={{ flexGrow: 1, paddingTop: headerHeight + 8, paddingBottom: 24 }}
             keyboardShouldPersistTaps="handled"
             onScroll={scrollHandler}
             scrollEventThrottle={16}

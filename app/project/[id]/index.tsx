@@ -6,9 +6,6 @@ import {
   Alert,
   FlatList,
   ScrollView,
-  Animated,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,8 +24,7 @@ import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
 import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
-import Animated from 'react-native-reanimated';
-import ReanimatedAnimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -52,15 +48,25 @@ function ProjectDetailContent() {
   }>({ visible: false });
 
   // Create Animated components
-  const AnimatedFlatList = ReanimatedAnimated.createAnimatedComponent(FlatList);
-  const AnimatedScrollView = ReanimatedAnimated.createAnimatedComponent(ScrollView);
+  const AnimatedFlatList = Reanimated.createAnimatedComponent(FlatList);
   const [headerHeight, setHeaderHeight] = useState<number>(0);
   const topOverlayHeight = headerHeight > 0 ? headerHeight : insets.top + 160;
-  const headerOpacity = useRef(new Animated.Value(1)).current;
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    headerOpacity.setValue(offsetY > 10 ? 0 : 1);
-  }, [headerOpacity]);
+  const headerOpacity = useSharedValue(1);
+  const headerAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: headerOpacity.value,
+  }));
+  const scrollHandler = useAnimatedScrollHandler(({ contentOffset }) => {
+    const offsetY = contentOffset.y;
+    const fadeStart = 50;
+    const fadeEnd = 150;
+    if (offsetY <= fadeStart) {
+      headerOpacity.value = 1;
+      return;
+    }
+
+    const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
+    headerOpacity.value = Math.max(0, 1 - progress);
+  });
   
   // Note editing state
   const [editingNoteItem, setEditingNoteItem] = useState<MediaItem | null>(null);
@@ -1203,17 +1209,23 @@ function ProjectDetailContent() {
           </View>
         )}
         <View style={{
-          width: 40,
-          height: 40,
-          borderRadius: 8,
-          backgroundColor: item.type === 'video' && item.thumb_uri ? 'transparent' : '#FF7A1A',
+          width: 48,
+          height: 48,
+          borderRadius: 12,
+          backgroundColor: '#FF7A1A',
           justifyContent: 'center',
           alignItems: 'center',
           marginRight: 12,
           position: 'relative',
           overflow: 'hidden',
         }}>
-          {item.type === 'video' && item.thumb_uri ? (
+          {item.type === 'photo' ? (
+            <Image
+              source={{ uri: item.uri }}
+              style={{ width: '100%', height: '100%' }}
+              contentFit="cover"
+            />
+          ) : item.type === 'video' && item.thumb_uri ? (
             <>
               <Image
                 source={{ uri: item.thumb_uri }}
@@ -1233,7 +1245,7 @@ function ProjectDetailContent() {
                 justifyContent: 'center',
                 alignItems: 'center',
               }}>
-                <Ionicons name="play" size={12} color="#FFFFFF" />
+                <Ionicons name="play" size={14} color="#FFFFFF" />
               </View>
             </>
           ) : (
@@ -1242,7 +1254,7 @@ function ProjectDetailContent() {
                 item.type === 'photo' ? 'image' :
                 item.type === 'video' ? 'videocam' : 'document'
               }
-              size={20}
+              size={22}
               color="#0B0F14"
             />
           )}
@@ -1318,9 +1330,9 @@ function ProjectDetailContent() {
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
       {/* Header (animated opacity, overlay) */}
-      <Animated.View 
+      <Reanimated.View 
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-        style={[{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: '#0B0F14', pointerEvents: 'box-none' }, { opacity: headerOpacity }]}
+        style={[{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: '#0B0F14', pointerEvents: 'box-none' }, headerAnimatedStyle]}
       >
         <View style={{ pointerEvents: 'auto' }}>
         {/* Top action bar: left and right clusters, no absolute positioning */}
@@ -1620,11 +1632,11 @@ function ProjectDetailContent() {
             </View>
           )}
         </View>
-      </Animated.View>
+      </Reanimated.View>
 
       {/* Media List/Grid */}
 
-      <FlatList
+      <AnimatedFlatList
         data={media}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
@@ -1637,7 +1649,7 @@ function ProjectDetailContent() {
         renderItem={({ item }) => 
           viewMode === 'grid' ? <MediaCardGrid item={item} /> : <MediaCard item={item} />
         }
-        onScroll={handleScroll}
+        onScroll={scrollHandler}
         scrollEventThrottle={16}
         ListEmptyComponent={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>

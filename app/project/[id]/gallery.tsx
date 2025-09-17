@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,14 +11,13 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
-  Animated,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
+  Animated as RNAnimated,
 } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MediaItem, getMediaByProject, updateMediaNote } from '../../../lib/db';
 import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
@@ -29,15 +28,15 @@ import SharingQualitySelector from '../../../components/SharingQualitySelector';
 import NotePrompt from '../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../components/NoteSettings';
 import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider } from '../../../components/glass';
-import ReanimatedAnimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // ZoomableImage component
 function ZoomableImage({ uri }: { uri: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new RNAnimated.Value(1)).current;
+  const translateX = useRef(new RNAnimated.Value(0)).current;
+  const translateY = useRef(new RNAnimated.Value(0)).current;
   const lastScale = useRef(1);
   const lastTranslateX = useRef(0);
   const lastTranslateY = useRef(0);
@@ -45,12 +44,12 @@ function ZoomableImage({ uri }: { uri: string }) {
   const MIN_SCALE = 1;
   const MAX_SCALE = 4; // Increased max zoom for better experience
 
-  const onPinchGestureEvent = Animated.event(
+  const onPinchGestureEvent = RNAnimated.event(
     [{ nativeEvent: { scale } }],
     { useNativeDriver: true }
   );
 
-  const onPanGestureEvent = Animated.event(
+  const onPanGestureEvent = RNAnimated.event(
     [{ nativeEvent: { translationX: translateX, translationY: translateY } }],
     { useNativeDriver: true }
   );
@@ -66,20 +65,20 @@ function ZoomableImage({ uri }: { uri: string }) {
         lastTranslateY.current = 0;
         
         // Smooth animation back to original position
-        Animated.parallel([
-          Animated.spring(scale, {
+        RNAnimated.parallel([
+          RNAnimated.spring(scale, {
             toValue: MIN_SCALE,
             useNativeDriver: true,
             tension: 120,
             friction: 9,
           }),
-          Animated.spring(translateX, {
+          RNAnimated.spring(translateX, {
             toValue: 0,
             useNativeDriver: true,
             tension: 120,
             friction: 9,
           }),
-          Animated.spring(translateY, {
+          RNAnimated.spring(translateY, {
             toValue: 0,
             useNativeDriver: true,
             tension: 120,
@@ -90,7 +89,7 @@ function ZoomableImage({ uri }: { uri: string }) {
         lastScale.current = MAX_SCALE;
         
         // Smooth animation to max scale
-        Animated.spring(scale, {
+        RNAnimated.spring(scale, {
           toValue: MAX_SCALE,
           useNativeDriver: true,
           tension: 120,
@@ -100,7 +99,7 @@ function ZoomableImage({ uri }: { uri: string }) {
         lastScale.current = newScale;
         
         // Smooth animation to new scale
-        Animated.spring(scale, {
+        RNAnimated.spring(scale, {
           toValue: newScale,
           useNativeDriver: true,
           tension: 120,
@@ -116,20 +115,20 @@ function ZoomableImage({ uri }: { uri: string }) {
     lastTranslateX.current = 0;
     lastTranslateY.current = 0;
     
-    Animated.parallel([
-      Animated.spring(scale, {
+    RNAnimated.parallel([
+      RNAnimated.spring(scale, {
         toValue: MIN_SCALE,
         useNativeDriver: true,
         tension: 120,
         friction: 9,
       }),
-      Animated.spring(translateX, {
+      RNAnimated.spring(translateX, {
         toValue: 0,
         useNativeDriver: true,
         tension: 120,
         friction: 9,
       }),
-      Animated.spring(translateY, {
+      RNAnimated.spring(translateY, {
         toValue: 0,
         useNativeDriver: true,
         tension: 120,
@@ -153,14 +152,14 @@ function ZoomableImage({ uri }: { uri: string }) {
         lastTranslateY.current = Math.max(-maxTranslateY, Math.min(maxTranslateY, newTranslateY));
         
         // Smooth animation to new position
-        Animated.parallel([
-          Animated.spring(translateX, {
+        RNAnimated.parallel([
+          RNAnimated.spring(translateX, {
             toValue: lastTranslateX.current,
             useNativeDriver: true,
             tension: 100,
             friction: 8,
           }),
-          Animated.spring(translateY, {
+          RNAnimated.spring(translateY, {
             toValue: lastTranslateY.current,
             useNativeDriver: true,
             tension: 100,
@@ -176,20 +175,20 @@ function ZoomableImage({ uri }: { uri: string }) {
       onGestureEvent={onPinchGestureEvent}
       onHandlerStateChange={onPinchHandlerStateChange}
     >
-      <Animated.View style={{ flex: 1 }}>
+      <RNAnimated.View style={{ flex: 1 }}>
         <PanGestureHandler
           onGestureEvent={onPanGestureEvent}
           onHandlerStateChange={onPanHandlerStateChange}
           minPointers={1}
           maxPointers={1}
         >
-          <Animated.View style={{ flex: 1 }}>
+          <RNAnimated.View style={{ flex: 1 }}>
             <TouchableOpacity
               activeOpacity={1}
               onPress={handleDoubleTap}
               style={{ flex: 1 }}
             >
-              <Animated.Image
+              <RNAnimated.Image
                 source={{ uri }}
                 style={{
                   width: screenWidth,
@@ -203,9 +202,9 @@ function ZoomableImage({ uri }: { uri: string }) {
                 resizeMode="contain"
               />
             </TouchableOpacity>
-          </Animated.View>
+          </RNAnimated.View>
         </PanGestureHandler>
-      </Animated.View>
+      </RNAnimated.View>
     </PinchGestureHandler>
   );
 }
@@ -434,11 +433,13 @@ function FullScreenPhotoViewer({
 function PhotoGalleryContent() {
   const { id, initialIndex } = useLocalSearchParams<{ id: string; initialIndex: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(parseInt(initialIndex || '0'));
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [note, setNote] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [headerHeight, setHeaderHeight] = useState(0);
   const [imageVariants, setImageVariants] = useState<Map<string, ImageVariants>>(new Map());
   const [showQualitySelector, setShowQualitySelector] = useState(false);
   const [sharingItem, setSharingItem] = useState<MediaItem | null>(null);
@@ -446,15 +447,18 @@ function PhotoGalleryContent() {
   const [showDeleteSheet, setShowDeleteSheet] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const scrollY = useSharedValue(0);
-  
+  const headerOpacity = useSharedValue(1);
+
   // Create Animated components
-  const AnimatedFlatList = ReanimatedAnimated.createAnimatedComponent(FlatList);
-  
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollY.value = event.contentOffset.y;
-    },
+  const AnimatedFlatList = Reanimated.createAnimatedComponent(FlatList);
+
+  const scrollHandler = useAnimatedScrollHandler(({ contentOffset }) => {
+    scrollY.value = contentOffset.y;
+    headerOpacity.value = contentOffset.y > 10 ? 0 : 1;
   });
+  const headerAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: headerOpacity.value,
+  }));
 
   // Load image variants for all photos
   const loadImageVariants = async (photos: MediaItem[]) => {
@@ -812,7 +816,24 @@ function PhotoGalleryContent() {
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
       {/* Glass Header */}
-      <Animated.View style={[styles.headerContainer, { opacity: headerOpacity }]}>
+      <Reanimated.View
+        pointerEvents="box-none"
+        style={[
+          {
+            paddingHorizontal: 16,
+            paddingTop: insets.top + 16,
+            paddingBottom: 12,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 1000,
+            backgroundColor: '#0B0F14',
+          },
+          headerAnimatedStyle,
+        ]}
+        onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
+      >
         <GlassHeader
           title={`${currentIndex + 1} of ${media.length}`}
           onBack={() => router.back()}
@@ -853,27 +874,32 @@ function PhotoGalleryContent() {
             </View>
           }
         />
-      </Animated.View>
+      </Reanimated.View>
 
       {/* Photo Gallery */}
-      <AnimatedFlatList
-        ref={flatListRef}
-        data={media}
-        keyExtractor={(item) => item.id}
-        renderItem={renderPhoto}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        getItemLayout={(data, index) => ({
-          length: screenWidth,
-          offset: screenWidth * index,
-          index,
-        })}
-        initialScrollIndex={currentIndex}
-        style={{ flex: 1 }}
-      />
+      <View style={{ flex: 1, paddingTop: headerHeight + 8 }}>
+        <AnimatedFlatList
+          ref={flatListRef}
+          data={media}
+          keyExtractor={(item) => item.id}
+          renderItem={renderPhoto}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          getItemLayout={(data, index) => ({
+            length: screenWidth,
+            offset: screenWidth * index,
+            index,
+          })}
+          initialScrollIndex={currentIndex}
+          style={{ flex: 1 }}
+        />
+      </View>
 
       {/* Bottom Controls with Glass Card */}
       <KeyboardAvoidingView 
