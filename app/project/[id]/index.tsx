@@ -25,7 +25,7 @@ import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
 import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
-import { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -48,8 +48,9 @@ function ProjectDetailContent() {
     actions?: { label: string; onPress: () => void; destructive?: boolean }[];
   }>({ visible: false });
 
-  // Animation values for dynamic header (match Projects/Settings pattern)
-  const headerOpacity = useRef(new Animated.Value(1)).current;
+  // Create Animated components
+  const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+  const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
   const [headerHeight, setHeaderHeight] = useState<number>(0);
   const topOverlayHeight = headerHeight > 0 ? headerHeight : insets.top + 160;
   
@@ -64,18 +65,22 @@ function ProjectDetailContent() {
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
-      // Handle header opacity based on scroll
-      const offsetY = event.contentOffset.y;
-      const fadeStart = 50;
-      const fadeEnd = 150;
-      if (offsetY > fadeStart) {
-        const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
-        const opacity = Math.max(0, 1 - progress);
-        headerOpacity.setValue(opacity);
-      } else {
-        headerOpacity.setValue(1);
-      }
     },
+  });
+
+  // Animated style for header opacity
+  const headerAnimatedStyle = useAnimatedStyle(() => {
+    const offsetY = scrollY.value;
+    const fadeStart = 50;
+    const fadeEnd = 150;
+    
+    if (offsetY > fadeStart) {
+      const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
+      const opacity = Math.max(0, 1 - progress);
+      return { opacity };
+    } else {
+      return { opacity: 1 };
+    }
   });
 
   // Load saved view mode preference
@@ -1331,7 +1336,7 @@ function ProjectDetailContent() {
       {/* Header (animated opacity, overlay) */}
       <Animated.View 
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-        style={{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, opacity: headerOpacity, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: '#0B0F14', pointerEvents: 'box-none' }}
+        style={[{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: '#0B0F14', pointerEvents: 'box-none' }, headerAnimatedStyle]}
       >
         <View style={{ pointerEvents: 'auto' }}>
         {/* Top action bar: left and right clusters, no absolute positioning */}
@@ -1504,7 +1509,7 @@ function ProjectDetailContent() {
           {!isSelectionMode && (
             <View style={{ marginTop: 12 }}>
               {/* Folder Selector */}
-              <ScrollView 
+              <AnimatedScrollView 
                 horizontal 
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ 
@@ -1635,7 +1640,7 @@ function ProjectDetailContent() {
 
       {/* Media List/Grid */}
 
-      <FlatList
+      <AnimatedFlatList
         data={media}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 

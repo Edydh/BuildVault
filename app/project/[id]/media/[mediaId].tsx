@@ -27,7 +27,7 @@ import NoteEncouragement from '../../../../components/NoteEncouragement';
 import NotePrompt from '../../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../../components/NoteSettings';
 import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider } from '../../../../components/glass';
-import { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 // ZoomableImage component
 function ZoomableImage({ uri }: { uri: string }) {
@@ -465,6 +465,9 @@ function MediaDetailContent() {
   const textInputRef = useRef<TextInput>(null);
   const scrollY = useSharedValue(0);
   
+  // Create Animated components
+  const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
+  
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
@@ -719,7 +722,7 @@ function MediaDetailContent() {
           />
 
           {/* Media Preview */}
-          <ScrollView 
+          <AnimatedScrollView 
             ref={scrollViewRef}
             style={{ flex: 1 }}
             contentContainerStyle={{ flexGrow: 1 }}
