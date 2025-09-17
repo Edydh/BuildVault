@@ -26,6 +26,7 @@ import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImage
 import NoteEncouragement from '../../../components/NoteEncouragement';
 import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
 import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+import ReanimatedAnimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -49,8 +50,8 @@ function ProjectDetailContent() {
   }>({ visible: false });
 
   // Create Animated components
-  const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
-  const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
+  const AnimatedFlatList = ReanimatedAnimated.createAnimatedComponent(FlatList);
+  const AnimatedScrollView = ReanimatedAnimated.createAnimatedComponent(ScrollView);
   const [headerHeight, setHeaderHeight] = useState<number>(0);
   const topOverlayHeight = headerHeight > 0 ? headerHeight : insets.top + 160;
   
