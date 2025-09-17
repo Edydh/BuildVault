@@ -7,6 +7,8 @@ import {
   FlatList,
   ScrollView,
   Animated,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,7 +27,7 @@ import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
 import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
-import Animated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import ReanimatedAnimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 function ProjectDetailContent() {
@@ -54,35 +56,16 @@ function ProjectDetailContent() {
   const AnimatedScrollView = ReanimatedAnimated.createAnimatedComponent(ScrollView);
   const [headerHeight, setHeaderHeight] = useState<number>(0);
   const topOverlayHeight = headerHeight > 0 ? headerHeight : insets.top + 160;
+  const headerOpacity = useRef(new Animated.Value(1)).current;
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    headerOpacity.setValue(offsetY > 10 ? 0 : 1);
+  }, [headerOpacity]);
   
   // Note editing state
   const [editingNoteItem, setEditingNoteItem] = useState<MediaItem | null>(null);
   const [noteText, setNoteText] = useState<string>('');
   const [showNoteModal, setShowNoteModal] = useState(false);
-
-  // Scroll handling for glass header effects
-  const scrollY = useSharedValue(0);
-  
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollY.value = event.contentOffset.y;
-    },
-  });
-
-  // Animated style for header opacity
-  const headerAnimatedStyle = useAnimatedStyle(() => {
-    const offsetY = scrollY.value;
-    const fadeStart = 50;
-    const fadeEnd = 150;
-    
-    if (offsetY > fadeStart) {
-      const progress = Math.min((offsetY - fadeStart) / (fadeEnd - fadeStart), 1);
-      const opacity = Math.max(0, 1 - progress);
-      return { opacity };
-    } else {
-      return { opacity: 1 };
-    }
-  });
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -1337,7 +1320,7 @@ function ProjectDetailContent() {
       {/* Header (animated opacity, overlay) */}
       <Animated.View 
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-        style={[{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: '#0B0F14', pointerEvents: 'box-none' }, headerAnimatedStyle]}
+        style={[{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: '#0B0F14', pointerEvents: 'box-none' }, { opacity: headerOpacity }]}
       >
         <View style={{ pointerEvents: 'auto' }}>
         {/* Top action bar: left and right clusters, no absolute positioning */}
@@ -1510,7 +1493,7 @@ function ProjectDetailContent() {
           {!isSelectionMode && (
             <View style={{ marginTop: 12 }}>
               {/* Folder Selector */}
-              <AnimatedScrollView 
+              <ScrollView 
                 horizontal 
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ 
@@ -1608,7 +1591,7 @@ function ProjectDetailContent() {
                     </Text>
                   </TouchableOpacity>
                 </GlassCard>
-              </AnimatedScrollView>
+              </ScrollView>
               {/* Current Folder Indicator */}
               <GlassCard
                 style={{
@@ -1641,7 +1624,7 @@ function ProjectDetailContent() {
 
       {/* Media List/Grid */}
 
-      <AnimatedFlatList
+      <FlatList
         data={media}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
@@ -1654,7 +1637,7 @@ function ProjectDetailContent() {
         renderItem={({ item }) => 
           viewMode === 'grid' ? <MediaCardGrid item={item} /> : <MediaCard item={item} />
         }
-        onScroll={scrollHandler}
+        onScroll={handleScroll}
         scrollEventThrottle={16}
         ListEmptyComponent={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>

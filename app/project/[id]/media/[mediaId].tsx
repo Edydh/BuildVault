@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Animated,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -463,15 +465,24 @@ function MediaDetailContent() {
   const [showShareSheet, setShowShareSheet] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
-  const scrollY = useSharedValue(0);
+  const headerOpacity = useRef(new Animated.Value(1)).current;
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    headerOpacity.setValue(offsetY > 10 ? 0 : 1);
+  }, [headerOpacity]);
   
   // Create Animated components
   const AnimatedScrollView = ReanimatedAnimated.createAnimatedComponent(ScrollView);
-  
+  const scrollY = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y;
     },
+  });
+  const headerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: scrollY.value > 10 ? 0 : 1,
+    };
   });
 
   React.useEffect(() => {
@@ -661,65 +672,67 @@ function MediaDetailContent() {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={{ flex: 1 }}>
           {/* Glass Header */}
-          <GlassHeader
-            title={media?.type.charAt(0).toUpperCase() + media?.type.slice(1) || 'Media'}
-            onBack={() => router.back()}
-            scrollY={scrollY}
-            right={
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <TouchableOpacity
-                  onPress={() => setShowShareSheet(true)}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: 'rgba(59, 130, 246, 0.3)',
-                  }}
-                >
-                  <Ionicons name="share" size={20} color="#3B82F6" />
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  onPress={() => setShowDeleteSheet(true)}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: 'rgba(220, 38, 38, 0.2)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: 'rgba(220, 38, 38, 0.3)',
-                  }}
-                >
-                  <Ionicons name="trash" size={20} color="#DC2626" />
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  onPress={() => {
-                    // Info/details action
-                    Alert.alert('Media Info', `Created: ${new Date(media?.created_at || 0).toLocaleString()}\\nType: ${media?.type}\\nFile exists: ${fileExists ? 'Yes' : 'No'}`);
-                  }}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: 'rgba(148, 163, 184, 0.2)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: 'rgba(148, 163, 184, 0.3)',
-                  }}
-                >
-                  <Ionicons name="information-circle" size={20} color="#94A3B8" />
-                </TouchableOpacity>
-              </View>
-            }
-          />
+          <Animated.View style={[styles.headerContainer, headerAnimatedStyle]}>
+            <GlassHeader
+              title={media?.type.charAt(0).toUpperCase() + media?.type.slice(1) || 'Media'}
+              onBack={() => router.back()}
+              scrollY={scrollY}
+              right={
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => setShowShareSheet(true)}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(59, 130, 246, 0.3)',
+                    }}
+                  >
+                    <Ionicons name="share" size={20} color="#3B82F6" />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    onPress={() => setShowDeleteSheet(true)}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(220, 38, 38, 0.3)',
+                    }}
+                  >
+                    <Ionicons name="trash" size={20} color="#DC2626" />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    onPress={() => {
+                      // Info/details action
+                      Alert.alert('Media Info', `Created: ${new Date(media?.created_at || 0).toLocaleString()}\nType: ${media?.type}\nFile exists: ${fileExists ? 'Yes' : 'No'}`);
+                    }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: 'rgba(148, 163, 184, 0.2)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(148, 163, 184, 0.3)',
+                    }}
+                  >
+                    <Ionicons name="information-circle" size={20} color="#94A3B8" />
+                  </TouchableOpacity>
+                </View>
+              }
+            />
+          </Animated.View>
 
           {/* Media Preview */}
           <AnimatedScrollView 

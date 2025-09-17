@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Animated,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -810,46 +812,48 @@ function PhotoGalleryContent() {
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
       {/* Glass Header */}
-      <GlassHeader
-        title={`${currentIndex + 1} of ${media.length}`}
-        onBack={() => router.back()}
-        scrollY={scrollY}
-        right={
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity
-              onPress={() => handleShare(media[currentIndex])}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: 'rgba(59, 130, 246, 0.3)',
-              }}
-            >
-              <Ionicons name="share" size={20} color="#3B82F6" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              onPress={() => handleDelete(media[currentIndex])}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: 'rgba(220, 38, 38, 0.2)',
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: 'rgba(220, 38, 38, 0.3)',
-              }}
-            >
-              <Ionicons name="trash" size={20} color="#DC2626" />
-            </TouchableOpacity>
-          </View>
-        }
-      />
+      <Animated.View style={[styles.headerContainer, { opacity: headerOpacity }]}>
+        <GlassHeader
+          title={`${currentIndex + 1} of ${media.length}`}
+          onBack={() => router.back()}
+          scrollY={scrollY}
+          right={
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                onPress={() => handleShare(media[currentIndex])}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: 'rgba(59, 130, 246, 0.3)',
+                }}
+              >
+                <Ionicons name="share" size={20} color="#3B82F6" />
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                onPress={() => handleDelete(media[currentIndex])}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: 'rgba(220, 38, 38, 0.3)',
+                }}
+              >
+                <Ionicons name="trash" size={20} color="#DC2626" />
+              </TouchableOpacity>
+            </View>
+          }
+        />
+      </Animated.View>
 
       {/* Photo Gallery */}
       <AnimatedFlatList
@@ -1002,9 +1006,8 @@ function PhotoGalleryContent() {
             </View>
 
             {/* Thumbnail Strip */}
-            <AnimatedFlatList
+            <FlatList
               data={media}
-              keyExtractor={(item) => item.id}
               renderItem={({ item, index }) => (
                 <TouchableOpacity
                   style={{
