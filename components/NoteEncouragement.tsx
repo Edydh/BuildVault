@@ -59,9 +59,9 @@ export default function NoteEncouragement({
     return (
       <View style={{
         position: 'absolute',
-        top: insets.top + 10, // Position below status bar with safe area
+        top: 8, // Position relative to card, not status bar
         right: 8,
-        zIndex: 10,
+        zIndex: 20, // Higher z-index to appear above video overlays
       }}>
         <Animated.View style={{
           transform: [{ scale: pulseAnim }],
