@@ -127,6 +127,13 @@ function ProjectDetailContent() {
         // Regenerate thumbnails in the background
         videosNeedingThumbnails.forEach(async (video) => {
           try {
+            // First check if the video file exists and is readable
+            const fileInfo = await FileSystem.getInfoAsync(video.uri);
+            if (!fileInfo.exists || fileInfo.isDirectory || (fileInfo.size || 0) === 0) {
+              console.warn(`Skipping thumbnail generation for video ${video.id}: file not accessible`);
+              return;
+            }
+
             const { generateSmartVideoThumbnail } = await import('../../../lib/media');
             const thumbnailResult = await generateSmartVideoThumbnail(video.uri, {
               quality: 0.9,
@@ -147,6 +154,8 @@ function ProjectDetailContent() {
             console.log(`Regenerated thumbnail for video ${video.id}: ${thumbFileUri}`);
           } catch (error) {
             console.error(`Failed to regenerate thumbnail for video ${video.id}:`, error);
+            // Mark this video as having thumbnail issues to prevent repeated attempts
+            console.warn(`Video ${video.id} will be skipped for future thumbnail generation attempts`);
           }
         });
       }
@@ -864,6 +873,16 @@ function ProjectDetailContent() {
             }
 
             if (!currentThumb) {
+              // First check if the video file exists and is readable
+              const fileInfo = await FileSystem.getInfoAsync(item.uri);
+              if (!fileInfo.exists || fileInfo.isDirectory || (fileInfo.size || 0) === 0) {
+                console.warn(`Skipping thumbnail generation for video ${item.id}: file not accessible`);
+                if (active) {
+                  setVideoThumbnail(null);
+                }
+                return;
+              }
+
               const { generateSmartVideoThumbnail } = await import('../../../lib/media');
               const result = await generateSmartVideoThumbnail(item.uri, {
                 quality: 0.8,
@@ -1084,7 +1103,7 @@ function ProjectDetailContent() {
                 }}>
                   <Ionicons name="time" size={10} color="#FFFFFF" />
                   <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
-                    {item.duration ? `${Math.floor(item.duration / 60)}:${String(Math.floor(item.duration % 60)).padStart(2, '0')}` : '--:--'}
+                    --:--
                   </Text>
                 </View>
               </View>
@@ -1315,7 +1334,6 @@ function ProjectDetailContent() {
           ) : (
             <Ionicons
               name={
-                item.type === 'photo' ? 'image' :
                 item.type === 'video' ? 'videocam' : 'document'
               }
               size={22}
@@ -1702,7 +1720,7 @@ function ProjectDetailContent() {
 
       <AnimatedFlatList
         data={media}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item: any) => (item as MediaItem).id}
         contentContainerStyle={{ 
           paddingHorizontal: 16, 
           paddingTop: topOverlayHeight,
@@ -1710,9 +1728,10 @@ function ProjectDetailContent() {
         }}
         numColumns={viewMode === 'grid' ? 2 : 1}
         key={viewMode} // Force re-render when view mode changes
-        renderItem={({ item }) => 
-          viewMode === 'grid' ? <MediaCardGrid item={item} /> : <MediaCard item={item} />
-        }
+        renderItem={({ item }: any) => {
+          const mediaItem = item as MediaItem;
+          return viewMode === 'grid' ? <MediaCardGrid item={mediaItem} /> : <MediaCard item={mediaItem} />;
+        }}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
         ListEmptyComponent={() => (
@@ -1817,7 +1836,7 @@ function ProjectDetailContent() {
             onChangeText={setNoteText}
             multiline
             numberOfLines={6}
-            style={{
+            inputStyle={{
               minHeight: 120,
               textAlignVertical: 'top',
               marginBottom: 20,

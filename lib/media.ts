@@ -25,6 +25,18 @@ const DEFAULT_THUMBNAIL_OPTIONS: VideoThumbnailOptions = {
 };
 
 /**
+ * Check if a video file exists and is readable
+ */
+async function validateVideoFile(uri: string): Promise<boolean> {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(uri);
+    return fileInfo.exists && !fileInfo.isDirectory && (fileInfo.size || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Generate a high-quality video thumbnail with caching
  */
 export async function makeVideoThumb(
@@ -34,6 +46,12 @@ export async function makeVideoThumb(
   const opts = { ...DEFAULT_THUMBNAIL_OPTIONS, ...options };
   
   try {
+    // First, validate that the video file exists and is readable
+    const isValidFile = await validateVideoFile(uri);
+    if (!isValidFile) {
+      throw new Error(`Video file is not accessible or does not exist: ${uri}`);
+    }
+
     // Generate thumbnail with specified options
     const { uri: thumbUri, width, height } = await VideoThumbnails.getThumbnailAsync(uri, {
       time: opts.time,
@@ -100,10 +118,17 @@ export async function generateSmartVideoThumbnail(
   const opts = { ...DEFAULT_THUMBNAIL_OPTIONS, ...options };
   
   try {
+    // First, validate that the video file exists and is readable
+    const isValidFile = await validateVideoFile(uri);
+    if (!isValidFile) {
+      throw new Error(`Video file is not accessible or does not exist: ${uri}`);
+    }
+
     // Try multiple time points to get the best thumbnail
     // For shorter videos (6 seconds), try earlier time points
     const timePoints = [100, 500, 1000, 1500, 2000, 3000]; // 0.1s, 0.5s, 1s, 1.5s, 2s, 3s
     let bestThumbnail: VideoThumbnailResult | null = null;
+    let successCount = 0;
     
     for (const time of timePoints) {
       try {
@@ -111,6 +136,8 @@ export async function generateSmartVideoThumbnail(
           ...opts,
           time,
         });
+        
+        successCount++;
         
         // Use the first successful thumbnail, or prefer larger file sizes (more content)
         if (!bestThumbnail || thumbnail.fileSize > bestThumbnail.fileSize) {
@@ -128,12 +155,16 @@ export async function generateSmartVideoThumbnail(
       }
     }
     
-    // Return the best thumbnail we found, or fallback to default
-    return bestThumbnail || await makeVideoThumb(uri, opts);
+    // If we got at least one successful thumbnail, return the best one
+    if (bestThumbnail && successCount > 0) {
+      return bestThumbnail;
+    }
+    
+    // If no thumbnails were successful, throw an error instead of retrying
+    throw new Error(`Failed to generate any video thumbnails for: ${uri}`);
   } catch (error) {
     console.error('Error generating smart video thumbnail:', error);
-    // Final fallback
-    return await makeVideoThumb(uri, opts);
+    throw error; // Re-throw to let calling code handle the error
   }
 }
 
