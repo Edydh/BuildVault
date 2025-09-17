@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
   interpolate,
   Extrapolate,
+  SharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -23,7 +24,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
   const { scrollY } = useScrollContext();
   
   // Animation values for each tab
-  const tabScales: Record<string, Animated.SharedValue<number>> = {};
+  const tabScales: Record<string, SharedValue<number>> = {};
   state.routes.forEach((route) => {
     tabScales[route.key] = useSharedValue(state.index === state.routes.indexOf(route) ? 1 : 0.9);
   });
@@ -130,7 +131,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
               accessibilityRole="button"
               accessibilityState={isFocused ? { selected: true } : {}}
               accessibilityLabel={options.tabBarAccessibilityLabel}
-              testID={options.tabBarTestID}
+              testID={options.tabBarButtonTestID}
               onPress={() => handleTabPress(route, isFocused)}
               onLongPress={() => handleTabLongPress(route)}
               style={[styles.tab, animatedTabStyle]}
@@ -140,7 +141,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
                 style={[
                   styles.tabContent,
                   isFocused && styles.activeTabContent,
-                  isFocused && { backgroundColor: 'rgba(255, 122, 26, 0.1)' },
+                  isFocused && { backgroundColor: 'rgba(255, 121, 26, 0.05)' },
                 ]}
               >
                 <Ionicons
