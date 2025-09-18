@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, Animated } from 'react-native';
+import { View, ActivityIndicator, Animated, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { ImageVariants, getImageUriForState } from '@/lib/imageOptimization';
 
@@ -25,7 +25,7 @@ export default function LazyImage({
   onError,
   showLoadingIndicator = true,
   loadingIndicatorColor = '#FF7A1A',
-  progressiveLoading = true,
+  progressiveLoading = Platform.OS !== 'android',
   priority = 'normal',
 }: LazyImageProps) {
   const [loadingState, setLoadingState] = useState<'thumbnail' | 'preview' | 'full' | 'original'>('thumbnail');
@@ -36,7 +36,11 @@ export default function LazyImage({
 
   // Progressive loading sequence
   useEffect(() => {
-    if (!progressiveLoading) {
+    // Progressive loading triggers multiple sequential requests; Glide on Android
+    // throws if a new load starts during a listener callback, so we disable it there.
+    const allowProgressiveLoading = progressiveLoading && Platform.OS !== 'android';
+
+    if (!allowProgressiveLoading) {
       setLoadingState('original');
       return;
     }
