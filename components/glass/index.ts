@@ -2,7 +2,7 @@ export { GlassCard } from './GlassCard';
 export { GlassButton } from './GlassButton';
 export { GlassHeader } from './GlassHeader';
 export { GlassTabBar } from './GlassTabBar';
-export { GlassThemeProvider, useGlassTheme, useGlassMorphism } from './GlassThemeProvider';
+export { GlassThemeProvider, useGlassTheme, useGlassMorphism, GLASS_THEME_STORAGE_KEY } from './GlassThemeProvider';
 export type { GlassIntensity, GlassTint } from './GlassThemeProvider';
 export { ScrollProvider, useScrollContext } from './ScrollContext';
 export { GlassTextInput } from './GlassTextInput';

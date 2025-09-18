@@ -2,11 +2,12 @@ import React, { useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getProjects } from '../../lib/db';
-import { deleteProjectDir } from '../../lib/files';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProjects, deleteProject } from '../../lib/db';
+import { deleteProjectDir, clearAllProjectDirs } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
 import NoteSettings from '../../components/NoteSettings';
-import { useGlassTheme, GlassCard, GlassSwitch, GlassActionSheet } from '../../components/glass';
+import { useGlassTheme, GlassCard, GlassSwitch, GlassActionSheet, GLASS_THEME_STORAGE_KEY } from '../../components/glass';
 import * as Haptics from 'expo-haptics';
 
 export default function Settings() {
@@ -53,6 +54,43 @@ export default function Settings() {
   const [sheetMessage, setSheetMessage] = React.useState('');
   const handleClearAllData = () => {
     setShowDangerSheet(true);
+  };
+
+  const performFullDataClear = async () => {
+    try {
+      const projects = getProjects();
+      for (const project of projects) {
+        await deleteProjectDir(project.id);
+        deleteProject(project.id);
+      }
+
+      await clearAllProjectDirs();
+
+      try {
+        const allKeys = await AsyncStorage.getAllKeys();
+        const keysToRemove = allKeys.filter(key =>
+          key === 'projectViewMode' ||
+          key === 'note_encouragement_settings' ||
+          key === GLASS_THEME_STORAGE_KEY ||
+          key.startsWith('prompt_shown_')
+        );
+
+        if (keysToRemove.length > 0) {
+          await AsyncStorage.multiRemove(keysToRemove);
+        }
+      } catch (storageError) {
+        console.error('Error clearing local preferences:', storageError);
+      }
+
+      setSheetMessage('All projects and media have been deleted. Please restart the app to see changes.');
+      setShowSuccessSheet(true);
+    } catch (error) {
+      console.error('Clear data error:', error);
+      setSheetMessage('Failed to clear data. Please try again.');
+      setShowErrorSheet(true);
+    } finally {
+      setShowDangerSheet(false);
+    }
   };
 
   const handleAbout = () => {
@@ -553,22 +591,7 @@ export default function Settings() {
           {
             label: 'Clear Everything',
             destructive: true,
-            onPress: async () => {
-              try {
-                const projects = getProjects();
-                for (const project of projects) {
-                  await deleteProjectDir(project.id);
-                }
-                setShowDangerSheet(false);
-                setSheetMessage('All projects and media have been deleted. Please restart the app to see changes.');
-                setShowSuccessSheet(true);
-              } catch (error) {
-                console.error('Clear data error:', error);
-                setShowDangerSheet(false);
-                setSheetMessage('Failed to clear data. Please try again.');
-                setShowErrorSheet(true);
-              }
-            },
+            onPress: performFullDataClear,
           },
         ]}
       />

@@ -27,6 +27,13 @@ export async function deleteProjectDir(projectId: string) {
   }
 }
 
+export async function clearAllProjectDirs() {
+  const dirInfo = await FileSystem.getInfoAsync(ROOT_DIR);
+  if (dirInfo.exists) {
+    await FileSystem.deleteAsync(ROOT_DIR, { idempotent: true });
+  }
+}
+
 export async function getProjectMediaDir(projectId: string) {
   const projectDir = await ensureProjectDir(projectId);
   const mediaDir = projectDir + 'media/';

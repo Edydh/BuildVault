@@ -36,7 +36,7 @@ interface GlassColors {
 }
 
 // Storage key
-const GLASS_THEME_STORAGE_KEY = '@buildvault/glass-theme';
+export const GLASS_THEME_STORAGE_KEY = '@buildvault/glass-theme';
 
 // Default configuration
 const defaultConfig: GlassThemeConfig = {
