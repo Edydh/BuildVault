@@ -18,7 +18,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { Image } from 'expo-image';
+import { Platform } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { Video as ExpoAVVideo, ResizeMode } from 'expo-av';
 import { MediaItem, getMediaById, updateMediaNote, deleteMedia } from '../../../../lib/db';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
@@ -209,6 +211,24 @@ function ZoomableImage({ uri }: { uri: string }) {
 
 // VideoPlayer component using expo-video
 function VideoPlayer({ uri }: { uri: string }) {
+  if (Platform.OS === 'android') {
+    return (
+      <ExpoAVVideo
+        source={{ uri }}
+        style={{
+          width: Dimensions.get('window').width - 16,
+          height: Dimensions.get('window').height * 0.7,
+          borderRadius: 12,
+          backgroundColor: 'black',
+        }}
+        useNativeControls
+        resizeMode={ResizeMode.CONTAIN}
+        shouldPlay={false}
+        isLooping={false}
+      />
+    );
+  }
+
   const player = useVideoPlayer(uri, (player) => {
     player.loop = false;
     player.muted = false;
