@@ -575,40 +575,58 @@ export default function CaptureScreen() {
 
         {/* Recording Timer with Zoom Level */}
         {isRecording && (
-          <View style={{
-            position: 'absolute',
-            top: 120,
-            left: 20,
-            right: 20,
-            flexDirection: 'row',
-            justifyContent: 'center',
-            alignItems: 'center',
-            backgroundColor: 'rgba(220, 38, 38, 0.9)',
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderRadius: 20,
-            zIndex: 10,
-          }}>
-            <View style={{
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: '#F8FAFC',
-              marginRight: 8,
-            }} />
-            <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
-              {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
-            </Text>
-            <View style={{
-              marginLeft: 12,
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              paddingHorizontal: 8,
-              paddingVertical: 2,
-              borderRadius: 10,
-            }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 12, fontWeight: '600' }}>
-                {Math.round((1 + zoom) * 10) / 10}x
+          <View
+            style={{
+              position: 'absolute',
+              top: 120,
+              left: 0,
+              right: 0,
+              alignItems: 'center',
+              zIndex: 12,
+              pointerEvents: 'none',
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: 'rgba(220, 38, 38, 0.9)',
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                borderRadius: 20,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.25,
+                shadowRadius: 12,
+                elevation: 8,
+              }}
+            >
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: '#F8FAFC',
+                  marginRight: 8,
+                }}
+              />
+              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
+                {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
               </Text>
+              <View
+                style={{
+                  marginLeft: 12,
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  paddingHorizontal: 8,
+                  paddingVertical: 2,
+                  borderRadius: 10,
+                }}
+              >
+                <Text style={{ color: '#F8FAFC', fontSize: 12, fontWeight: '600' }}>
+                  {Math.round((1 + zoom) * 10) / 10}x
+                </Text>
+              </View>
             </View>
           </View>
         )}
