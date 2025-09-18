@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,107 @@ import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
 import ProjectCard from '../../components/ProjectCard';
+
+type IoniconName = keyof typeof Ionicons.glyphMap;
+
+interface StorageStats {
+  totalProjects: number;
+  totalMedia: number;
+  totalPhotos: number;
+  totalVideos: number;
+  totalDocs: number;
+  totalSize: number;
+  photoSize: number;
+  videoSize: number;
+  docSize: number;
+}
+
+const EMPTY_STATS: StorageStats = {
+  totalProjects: 0,
+  totalMedia: 0,
+  totalPhotos: 0,
+  totalVideos: 0,
+  totalDocs: 0,
+  totalSize: 0,
+  photoSize: 0,
+  videoSize: 0,
+  docSize: 0,
+};
+
+const formatBytes = (bytes: number): string => {
+  if (!bytes) {
+    return '0 MB';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, exponent);
+
+  if (exponent === 0) {
+    return `${bytes} B`;
+  }
+
+  const formatted = value >= 10 ? value.toFixed(0) : value.toFixed(1);
+  return `${formatted} ${units[exponent]}`;
+};
+
+const formatCount = (value: number): string => value.toLocaleString();
+
+interface StatCardConfig {
+  key: string;
+  label: string;
+  value: string;
+  subtext: string;
+  icon: IoniconName;
+  accentColor: string;
+  accentBackground: string;
+  accentBorder: string;
+}
+
+const StatCard: React.FC<StatCardConfig & { style?: ViewStyle }> = ({
+  label,
+  value,
+  subtext,
+  icon,
+  accentColor,
+  accentBackground,
+  accentBorder,
+  style,
+}) => (
+  <GlassCard
+    intensity={70}
+    shadowEnabled={false}
+    style={[
+      {
+        padding: 18,
+        borderRadius: 18,
+        width: 180,
+      },
+      style,
+    ]}
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 14,
+          backgroundColor: accentBackground,
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginRight: 12,
+          borderWidth: 1,
+          borderColor: accentBorder,
+        }}
+      >
+        <Ionicons name={icon} size={20} color={accentColor} />
+      </View>
+      <Text style={{ color: '#94A3B8', fontSize: 13, fontWeight: '600' }}>{label}</Text>
+    </View>
+    <Text style={{ color: '#F8FAFC', fontSize: 26, fontWeight: '700' }}>{value}</Text>
+    <Text style={{ color: '#64748B', fontSize: 12, marginTop: 6 }}>{subtext}</Text>
+  </GlassCard>
+);
 
 export default function ProjectsList() {
   const router = useRouter();
@@ -43,6 +145,8 @@ export default function ProjectsList() {
   const [showDeleteSheet, setShowDeleteSheet] = useState(false);
   const [sheetMessage, setSheetMessage] = useState('');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [storageStats, setStorageStats] = useState<StorageStats>(EMPTY_STATS);
+  const [statsLoading, setStatsLoading] = useState(false);
   
   // Filter projects based on search term
   const filteredProjects = projects.filter(p => {
@@ -68,9 +172,75 @@ export default function ProjectsList() {
   const { scrollY } = useScrollContext();
   const flatListRef = useRef<FlatList>(null);
 
-  const loadProjects = useCallback(() => {
-    setProjects(getProjects());
+  const computeStorageStats = useCallback(async (projectList: Project[]): Promise<StorageStats> => {
+    const stats: StorageStats = {
+      ...EMPTY_STATS,
+      totalProjects: projectList.length,
+    };
+
+    if (projectList.length === 0) {
+      return stats;
+    }
+
+    const sizePromises: Promise<void>[] = [];
+
+    for (const project of projectList) {
+      const mediaItems = getMediaByProject(project.id);
+      stats.totalMedia += mediaItems.length;
+
+      mediaItems.forEach((item) => {
+        if (item.type === 'photo') {
+          stats.totalPhotos += 1;
+        } else if (item.type === 'video') {
+          stats.totalVideos += 1;
+        } else {
+          stats.totalDocs += 1;
+        }
+
+        sizePromises.push(
+          (async () => {
+            try {
+              const info = await FileSystem.getInfoAsync(item.uri);
+              if (info.exists && !info.isDirectory) {
+                const size = info.size ?? 0;
+                stats.totalSize += size;
+                if (item.type === 'photo') {
+                  stats.photoSize += size;
+                } else if (item.type === 'video') {
+                  stats.videoSize += size;
+                } else {
+                  stats.docSize += size;
+                }
+              }
+            } catch (error) {
+              console.warn('Failed to read media size:', error);
+            }
+          })()
+        );
+      });
+    }
+
+    if (sizePromises.length > 0) {
+      await Promise.all(sizePromises);
+    }
+
+    return stats;
   }, []);
+
+  const loadProjects = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const projectList = getProjects();
+      setProjects(projectList);
+      const stats = await computeStorageStats(projectList);
+      setStorageStats(stats);
+    } catch (error) {
+      console.error('Error loading projects:', error);
+      setStorageStats(EMPTY_STATS);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [computeStorageStats]);
 
   useFocusEffect(
     useCallback(() => {
@@ -103,7 +273,7 @@ export default function ProjectsList() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setShowCreate(false);
       setForm({ name: '', client: '', location: '', search: '' });
-      loadProjects();
+      await loadProjects();
     } catch (error) {
       setSheetMessage('Failed to create project');
       setShowErrorSheet(true);
@@ -115,10 +285,10 @@ export default function ProjectsList() {
     setShowEdit(true);
   };
 
-  const handleUpdateProject = (id: string, data: { name: string; client?: string; location?: string }) => {
+  const handleUpdateProject = async (id: string, data: { name: string; client?: string; location?: string }) => {
     try {
       updateProject(id, data);
-      loadProjects();
+      await loadProjects();
       setShowEdit(false);
       setEditingProject(null);
     } catch (error) {
@@ -285,7 +455,7 @@ export default function ProjectsList() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       
       // Refresh the projects list
-      loadProjects();
+      await loadProjects();
       
       setShowDeleteSheet(false);
       setSheetMessage('Project deleted successfully');
@@ -301,6 +471,49 @@ export default function ProjectsList() {
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString();
   };
+
+  const statCards: StatCardConfig[] = [
+    {
+      key: 'storage',
+      label: 'Total Storage',
+      value: statsLoading ? '—' : formatBytes(storageStats.totalSize),
+      subtext: statsLoading ? 'Calculating…' : `${formatCount(storageStats.totalProjects)} projects`,
+      icon: 'cloud-outline',
+      accentColor: '#FF7A1A',
+      accentBackground: 'rgba(255, 122, 26, 0.16)',
+      accentBorder: 'rgba(255, 122, 26, 0.35)',
+    },
+    {
+      key: 'photos',
+      label: 'Photos',
+      value: statsLoading ? '—' : formatCount(storageStats.totalPhotos),
+      subtext: statsLoading ? 'Calculating…' : formatBytes(storageStats.photoSize),
+      icon: 'camera-outline',
+      accentColor: '#38BDF8',
+      accentBackground: 'rgba(56, 189, 248, 0.16)',
+      accentBorder: 'rgba(56, 189, 248, 0.35)',
+    },
+    {
+      key: 'videos',
+      label: 'Videos',
+      value: statsLoading ? '—' : formatCount(storageStats.totalVideos),
+      subtext: statsLoading ? 'Calculating…' : formatBytes(storageStats.videoSize),
+      icon: 'videocam-outline',
+      accentColor: '#A855F7',
+      accentBackground: 'rgba(168, 85, 247, 0.16)',
+      accentBorder: 'rgba(168, 85, 247, 0.35)',
+    },
+    {
+      key: 'documents',
+      label: 'Documents',
+      value: statsLoading ? '—' : formatCount(storageStats.totalDocs),
+      subtext: statsLoading ? 'Calculating…' : formatBytes(storageStats.docSize),
+      icon: 'document-text-outline',
+      accentColor: '#34D399',
+      accentBackground: 'rgba(52, 211, 153, 0.16)',
+      accentBorder: 'rgba(52, 211, 153, 0.35)',
+    },
+  ];
 
 
   return (
@@ -344,6 +557,31 @@ export default function ProjectsList() {
         scrollEnabled={true}
         alwaysBounceVertical={true}
         keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={() => (
+          <View style={{ marginBottom: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600' }}>Storage Snapshot</Text>
+              <Text style={{ color: '#64748B', fontSize: 12 }}>
+                {statsLoading ? 'Calculating…' : 'Local device'}
+              </Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 16 }}>
+              {statCards.map((card, index) => (
+                <StatCard
+                  key={card.key}
+                  label={card.label}
+                  value={card.value}
+                  subtext={card.subtext}
+                  icon={card.icon}
+                  accentColor={card.accentColor}
+                  accentBackground={card.accentBackground}
+                  accentBorder={card.accentBorder}
+                  style={{ marginRight: index === statCards.length - 1 ? 0 : 12 }}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        )}
         ListEmptyComponent={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
             <Ionicons name="albums" size={64} color="#1F2A37" style={{ marginBottom: 20 }} />
