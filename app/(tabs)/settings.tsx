@@ -2,9 +2,7 @@ import React, { useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
-import { getProjects, deleteProject, getMediaByProject } from '../../lib/db';
+import { getProjects } from '../../lib/db';
 import { deleteProjectDir } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
 import NoteSettings from '../../components/NoteSettings';
@@ -45,61 +43,6 @@ export default function Settings() {
     } catch (error) {
       // Fallback: keep header visible if there's an error
       headerOpacity.setValue(1);
-    }
-  };
-
-  const handleExportData = async () => {
-    try {
-      Alert.alert('Export Data', 'Preparing your data for export...', [], { cancelable: false });
-      
-      // Get all projects and their media
-      const projects = getProjects();
-      const exportData: {
-        exportDate: string;
-        version: string;
-        projects: any[];
-      } = {
-        exportDate: new Date().toISOString(),
-        version: '1.0.1',
-        projects: []
-      };
-
-      for (const project of projects) {
-        const media = getMediaByProject(project.id);
-        exportData.projects.push({
-          ...project,
-          media: media.map(item => ({
-            id: item.id,
-            type: item.type,
-            note: item.note,
-            created_at: item.created_at
-            // Note: We don't export file URIs as they're device-specific
-          }))
-        });
-      }
-
-      // Create export file
-      const exportFileName = `BuildVault_Export_${new Date().toISOString().split('T')[0]}.json`;
-      const exportPath = FileSystem.documentDirectory + exportFileName;
-      
-      await FileSystem.writeAsStringAsync(exportPath, JSON.stringify(exportData, null, 2));
-
-      // Share the export file
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(exportPath, {
-          mimeType: 'application/json',
-          dialogTitle: 'Export BuildVault Data',
-        });
-      } else {
-        setSheetMessage(`Data exported to: ${exportFileName}`);
-        setShowSuccessSheet(true);
-      }
-
-    } catch (error) {
-      console.error('Export error:', error);
-      setSheetMessage('Failed to export data. Please try again.');
-      setShowErrorSheet(true);
     }
   };
 
@@ -545,13 +488,6 @@ export default function Settings() {
           Data Management
         </Text>
 
-        <SettingItem
-          icon="download"
-          title="Export Projects"
-          subtitle="Export all project data and media"
-          onPress={handleExportData}
-        />
-
         {/* Note Encouragement Settings */}
         <NoteSettings />
 
@@ -612,9 +548,8 @@ export default function Settings() {
         visible={showDangerSheet}
         onClose={() => setShowDangerSheet(false)}
         title="Clear All Data"
-        message={'This will delete all projects and media. This action cannot be undone.\n\nWe recommend exporting your data first.'}
+        message={'This will delete all projects and media. This action cannot be undone.'}
         actions={[
-          { label: 'Export First', onPress: handleExportData },
           {
             label: 'Clear Everything',
             destructive: true,
