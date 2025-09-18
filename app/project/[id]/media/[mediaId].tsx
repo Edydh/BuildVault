@@ -1034,7 +1034,7 @@ function MediaDetailContent() {
           right: 0,
         }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 40}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={{ paddingHorizontal: 16, paddingVertical: 20, paddingBottom: 40 }}>
