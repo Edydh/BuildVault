@@ -3,12 +3,12 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Modal,
   Animated,
-  Dimensions,
+  StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { GlassModal, GlassButton, GlassCard } from './glass';
 
 interface NotePromptProps {
   visible: boolean;
@@ -17,8 +17,6 @@ interface NotePromptProps {
   onDismiss: () => void;
   onNeverShowAgain: () => void;
 }
-
-const { width: screenWidth } = Dimensions.get('window');
 
 export default function NotePrompt({
   visible,
@@ -55,10 +53,15 @@ export default function NotePrompt({
         ])
       );
       pulse.start();
+
+      return () => {
+        pulse.stop();
+      };
     } else {
       slideAnim.setValue(0);
+      pulseAnim.setValue(1);
     }
-  }, [visible]);
+  }, [visible, slideAnim, pulseAnim]);
 
   const handleAddNote = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -118,195 +121,169 @@ export default function NotePrompt({
   if (!visible) return null;
 
   return (
-    <Modal
+    <GlassModal
       visible={visible}
-      transparent
-      animationType="fade"
       onRequestClose={handleDismiss}
+      contentStyle={styles.modalCard}
     >
-      <View style={{
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-      }}>
-        <Animated.View
-          style={{
+      <Animated.View
+        style={[
+          styles.animatedContainer,
+          {
             transform: [
               {
                 translateY: slideAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [50, 0],
+                  outputRange: [40, 0],
                 }),
               },
             ],
             opacity: slideAnim,
-          }}
-        >
-          <View style={{
-            backgroundColor: '#1F2A37',
-            borderRadius: 20,
-            padding: 24,
-            width: '100%',
-            maxWidth: 400,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 10 },
-            shadowOpacity: 0.3,
-            shadowRadius: 20,
-            elevation: 20,
-          }}>
-            {/* Header */}
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              marginBottom: 16,
-            }}>
-              <Animated.View
-                style={{
-                  transform: [{ scale: pulseAnim }],
-                }}
-              >
-                <View style={{
-                  backgroundColor: '#3B82F6',
-                  borderRadius: 30,
-                  padding: 12,
-                  marginRight: 16,
-                }}>
-                  <Ionicons name={mediaInfo.icon as any} size={24} color="#FFFFFF" />
-                </View>
-              </Animated.View>
-              <View style={{ flex: 1 }}>
-                <Text style={{
-                  color: '#F8FAFC',
-                  fontSize: 20,
-                  fontWeight: 'bold',
-                }}>
-                  {mediaInfo.title}
-                </Text>
-                <Text style={{
-                  color: '#94A3B8',
-                  fontSize: 14,
-                }}>
-                  Help improve searchability
-                </Text>
-              </View>
+          },
+        ]}
+      >
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <View style={styles.iconPill}>
+              <Ionicons name={mediaInfo.icon as any} size={22} color="#3B82F6" />
             </View>
-
-            {/* Description */}
-            <Text style={{
-              color: '#F8FAFC',
-              fontSize: 16,
-              lineHeight: 24,
-              marginBottom: 20,
-            }}>
-              {mediaInfo.description}
-            </Text>
-
-            {/* Benefits */}
-            <View style={{
-              backgroundColor: '#374151',
-              borderRadius: 12,
-              padding: 16,
-              marginBottom: 24,
-            }}>
-              <Text style={{
-                color: '#F8FAFC',
-                fontSize: 14,
-                fontWeight: '600',
-                marginBottom: 12,
-              }}>
-                Benefits of adding notes:
-              </Text>
-              {mediaInfo.benefits.map((benefit, index) => (
-                <View key={index} style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  marginBottom: 8,
-                }}>
-                  <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                  <Text style={{
-                    color: '#D1D5DB',
-                    fontSize: 14,
-                    marginLeft: 8,
-                  }}>
-                    {benefit}
-                  </Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Action buttons */}
-            <View style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              marginBottom: 12,
-            }}>
-              <TouchableOpacity
-                onPress={handleAddNote}
-                style={{
-                  backgroundColor: '#3B82F6',
-                  borderRadius: 12,
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
-                  flex: 1,
-                  marginRight: 8,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Ionicons name="add-circle" size={20} color="#FFFFFF" />
-                <Text style={{
-                  color: '#FFFFFF',
-                  fontSize: 16,
-                  fontWeight: '600',
-                  marginLeft: 8,
-                }}>
-                  Add Note
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={handleDismiss}
-                style={{
-                  backgroundColor: '#374151',
-                  borderRadius: 12,
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
-                  flex: 1,
-                  marginLeft: 8,
-                }}
-              >
-                <Text style={{
-                  color: '#F8FAFC',
-                  fontSize: 16,
-                  fontWeight: '600',
-                  textAlign: 'center',
-                }}>
-                  Maybe Later
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Never show again option */}
-            <TouchableOpacity
-              onPress={handleNeverShow}
-              style={{
-                alignItems: 'center',
-                paddingVertical: 8,
-              }}
-            >
-              <Text style={{
-                color: '#6B7280',
-                fontSize: 14,
-              }}>
-                Don't show this again
-              </Text>
-            </TouchableOpacity>
+          </Animated.View>
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.title}>{mediaInfo.title}</Text>
+            <Text style={styles.subtitle}>Help improve searchability</Text>
           </View>
-        </Animated.View>
-      </View>
-    </Modal>
+        </View>
+
+        {/* Description */}
+        <Text style={styles.description}>{mediaInfo.description}</Text>
+
+        {/* Benefits */}
+        <GlassCard style={styles.benefitsCard} intensity={70} shadowEnabled={false}>
+          <Text style={styles.benefitsTitle}>Benefits of adding notes</Text>
+          {mediaInfo.benefits.map((benefit, index) => (
+            <View key={index} style={styles.benefitRow}>
+              <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+              <Text style={styles.benefitText}>{benefit}</Text>
+            </View>
+          ))}
+        </GlassCard>
+
+        {/* Action buttons */}
+        <View style={styles.actionsRow}>
+          <GlassButton
+            title="Add Note"
+            icon="add-circle"
+            variant="primary"
+            fullWidth
+            onPress={handleAddNote}
+            style={styles.primaryButton}
+            haptic={false}
+          />
+          <GlassButton
+            title="Maybe Later"
+            variant="secondary"
+            fullWidth
+            onPress={handleDismiss}
+            style={styles.secondaryButton}
+            haptic={false}
+          />
+        </View>
+
+        {/* Never show again option */}
+        <TouchableOpacity onPress={handleNeverShow} style={styles.neverShowButton}>
+          <Text style={styles.neverShowText}>Don't show this again</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </GlassModal>
   );
 }
+
+const styles = StyleSheet.create({
+  modalCard: {
+    paddingVertical: 28,
+    paddingHorizontal: 28,
+    maxWidth: 420,
+  },
+  animatedContainer: {
+    width: '100%',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  iconPill: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+    backgroundColor: 'rgba(59, 130, 246, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
+  title: {
+    color: '#F8FAFC',
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  subtitle: {
+    color: '#94A3B8',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  description: {
+    color: '#E2E8F0',
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 20,
+  },
+  benefitsCard: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 24,
+    borderRadius: 14,
+  },
+  benefitsTitle: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  benefitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  benefitText: {
+    color: '#CBD5F5',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  primaryButton: {
+    flex: 1,
+    marginRight: 8,
+  },
+  secondaryButton: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  neverShowButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  neverShowText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+});
