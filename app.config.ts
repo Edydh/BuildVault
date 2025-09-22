@@ -16,7 +16,13 @@ const config: ExpoConfig = {
   plugins: [
     'expo-router',
     //'expo-font',
-    'expo-video',
+    [
+      'expo-video',
+      {
+        supportsBackgroundPlayback: true,
+        supportsPictureInPicture: true,
+      },
+    ],
     'expo-apple-authentication',
     'expo-secure-store',
   ],
@@ -66,5 +72,4 @@ const config: ExpoConfig = {
 };
 
 export default config;
-
 

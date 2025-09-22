@@ -17,7 +17,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.57.2",
     "cosmiconfig": "^9.0.0",
-    "expo": "54.0.8",
+    "expo": "~54.0.10",
     "expo-apple-authentication": "~8.0.7",
     "expo-auth-session": "~7.0.8",
     "expo-av": "~16.0.7",
@@ -34,7 +34,7 @@
     "expo-image-manipulator": "~14.0.7",
     "expo-linear-gradient": "~15.0.7",
     "expo-linking": "~8.0.8",
-    "expo-router": "~6.0.6",
+    "expo-router": "~6.0.8",
     "expo-secure-store": "~15.0.7",
     "expo-sharing": "~14.0.7",
     "expo-splash-screen": "~31.0.10",
@@ -57,10 +57,14 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.10",
+    "eslint": "^9.36.0",
+    "eslint-plugin-react": "^7.37.5",
     "jest-validate": "^30.1.0",
+    "jiti": "^2.6.0",
     "patch-package": "^8.0.0",
     "sucrase": "^3.35.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.44.1"
   },
   "private": true
 }

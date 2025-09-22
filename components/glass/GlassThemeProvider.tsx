@@ -78,10 +78,11 @@ export const GlassThemeProvider: React.FC<{ children: ReactNode }> = ({ children
         setIsHighPerformance(true);
       } else {
         // Android: Check API level
-        const apiLevel = Platform.Version;
+        const rawVersion = Platform.Version;
+        const apiLevel = typeof rawVersion === 'number' ? rawVersion : parseInt(String(rawVersion), 10);
         // Consider high performance if API 31+ (Android 12+)
         // This is a reasonable assumption for modern Android devices
-        setIsHighPerformance(apiLevel >= 31);
+        setIsHighPerformance(Number.isFinite(apiLevel) && apiLevel >= 31);
       }
     };
 

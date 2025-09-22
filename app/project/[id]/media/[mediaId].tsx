@@ -209,9 +209,9 @@ function ZoomableImage({ uri }: { uri: string }) {
 
 // VideoPlayer component using expo-video
 function VideoPlayer({ uri }: { uri: string }) {
-  const player = useVideoPlayer(uri, player => {
-    player.shouldPlay = false;
-    player.isLooping = false;
+  const player = useVideoPlayer(uri, currentPlayer => {
+    currentPlayer.loop = false;
+    currentPlayer.pause();
   });
 
   return (
@@ -1231,17 +1231,12 @@ function MediaDetailContent() {
         message={`Are you sure you want to delete this ${media?.type === 'photo' ? 'photo' : media?.type === 'video' ? 'video' : 'document'}? This action cannot be undone.`}
         actions={[
           {
-            title: 'Delete Media',
-            style: 'destructive',
+            label: 'Delete Media',
+            destructive: true,
             onPress: () => {
               setShowDeleteSheet(false);
               confirmDelete();
             },
-          },
-          {
-            title: 'Cancel',
-            style: 'cancel',
-            onPress: () => setShowDeleteSheet(false),
           },
         ]}
       />
@@ -1253,18 +1248,12 @@ function MediaDetailContent() {
         message="Choose how to share this media"
         actions={[
           {
-            title: 'Share Media',
-            style: 'default',
+            label: 'Share Media',
             onPress: () => {
               setShowShareSheet(false);
               handleShare();
             },
           },
-          {
-            title: 'Cancel',
-            style: 'cancel',
-          onPress: () => setShowShareSheet(false),
-        },
         ]}
       />
     </View>

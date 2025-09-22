@@ -17,6 +17,7 @@ import Animated, {
   withTiming,
   interpolate,
   Extrapolate,
+  SharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -32,7 +33,7 @@ interface GlassTabBarProps {
   tabs: TabItem[];
   activeTab: string;
   onTabPress: (key: string) => void;
-  scrollY?: Animated.SharedValue<number>;
+  scrollY?: SharedValue<number>;
   hideOnScroll?: boolean;
 }
 
@@ -54,7 +55,7 @@ export const GlassTabBar: React.FC<GlassTabBarProps> = ({
   const tabScales = tabs.reduce((acc, tab) => {
     acc[tab.key] = useSharedValue(tab.key === activeTab ? 1 : 0.9);
     return acc;
-  }, {} as Record<string, Animated.SharedValue<number>>);
+  }, {} as Record<string, SharedValue<number>>);
 
   const handleTabPress = (key: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -94,7 +95,14 @@ export const GlassTabBar: React.FC<GlassTabBarProps> = ({
     };
   });
 
-  const glassColors = isDark
+  const glassColors: {
+    background: string;
+    gradient: [string, string];
+    border: string;
+    activeTab: string;
+    inactiveTab: string;
+    activeBg: string;
+  } = isDark
     ? {
         background: 'rgba(16, 24, 38, 0.9)',
         gradient: ['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0)'],

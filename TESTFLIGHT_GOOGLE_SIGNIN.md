@@ -1,98 +1,64 @@
-# TestFlight Google Sign-In Setup Guide
+# TestFlight Google Sign-In Verification
 
-## Why TestFlight is Better for Google Sign-In
+The production build relies on Supabase OAuth (`supabase.auth.signInWithOAuth`) plus the custom scheme `buildvault://`. Use this checklist before every TestFlight release.
 
-✅ **Real OAuth Environment**: TestFlight uses production OAuth flow  
-✅ **Native Google Sign-In**: Uses `@react-native-google-signin/google-signin` package  
-✅ **No Proxy Issues**: No need for `expo-auth-session` complications  
-✅ **Real Device Testing**: Tests on actual iOS devices with proper app signing  
+## Why TestFlight Matters
 
-## Current Status
+✅ Exercises the full Supabase OAuth flow with real Google accounts  
+✅ Confirms the custom scheme redirect works outside Expo Go  
+✅ Ensures signing configs and bundle IDs line up prior to App Store submission  
 
-- ✅ Google Sign-In implementation updated for native package
-- ✅ `@react-native-google-signin/google-signin` installed
-- ✅ App.json configured with plugin
-- ✅ Google OAuth credentials configured
-- ⏳ Ready for TestFlight build
+## Build Steps
 
-## Steps to Create TestFlight Build
+1. Make sure Supabase env vars are set in EAS project secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`).
+2. Install (or update) EAS CLI: `npm i -g @expo/eas-cli`
+3. Login: `eas login`
+4. Trigger production build:
+   ```bash
+   eas build --platform ios --profile production
+   ```
+5. After the build finishes, submit to TestFlight:
+   ```bash
+   eas submit --platform ios
+   ```
 
-### 1. Install EAS CLI (if not already installed)
-```bash
-npm install -g @expo/eas-cli
-```
+## Google Cloud Console Checklist
+- OAuth client (iOS type) must use bundle `com.edydhm.buildvault`
+- Authorized redirect URIs:
+  - `buildvault://auth/callback`
+  - `https://ayppptoommolvkcnksmv.supabase.co/auth/v1/callback`
+- Keep the Web client ID for Expo Go / dev fallback
 
-### 2. Login to Expo
-```bash
-eas login
-```
+## Supabase Settings Reminder
+- Provider → Google includes both redirect URLs above
+- "Allow native sign in" enabled
+- Project ID: `ayppptoommolvkcnksmv`
 
-### 3. Configure EAS Build
-```bash
-eas build:configure
-```
+## TestFlight QA Script
+1. Install latest build from TestFlight
+2. Launch BuildVault and tap **Continue with Google**
+3. Ensure the in-app browser opens to accounts.google.com
+4. Complete auth with a real Google account
+5. On redirect back, verify:
+   - User lands on Projects screen
+   - No error sheets appear
+   - Supabase dashboard shows the user under Auth → Users
+6. Sign out from Settings → **Sign Out**
+7. Repeat sign-in to confirm session refresh works
 
-### 4. Create iOS Build for TestFlight
-```bash
-eas build --platform ios --profile preview
-```
-
-### 5. Submit to TestFlight
-```bash
-eas submit --platform ios
-```
-
-## Google Cloud Console Configuration
-
-### Required Redirect URIs for TestFlight:
-1. **iOS Bundle ID**: `com.yourcompany.buildvault` (from app.json)
-2. **iOS URL Scheme**: `com.yourcompany.buildvault` (from app.json)
-
-### Steps:
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Navigate to "APIs & Services" > "Credentials"
-3. Click on your OAuth 2.0 Client ID
-4. Add these Authorized Redirect URIs:
-   - `com.yourcompany.buildvault:/oauth2redirect`
-   - `com.yourcompany.buildvault:/oauth2redirect/`
-
-## Testing on TestFlight
-
-1. **Install TestFlight app** on your iOS device
-2. **Install BuildVault** from TestFlight
-3. **Test Google Sign-In**:
-   - Tap "Continue with Google"
-   - Should open native Google Sign-In flow
-   - Complete authentication
-   - Should return to app successfully logged in
-
-## Expected Behavior
-
-- ✅ Native Google Sign-In popup
-- ✅ No "Invalid Redirect URI" errors
-- ✅ Proper user authentication
-- ✅ User data stored in local database
-- ✅ Seamless app navigation
+## Expected Runtime Logs
+- Console shows `Google OAuth redirect URI: buildvault://auth/callback`
+- Supabase logs a successful `signInWithOAuth` response
+- No `redirect_uri_mismatch` errors
 
 ## Troubleshooting
+- **Redirect URI mismatch** → Update Supabase provider URLs and rebuild
+- **Blank screen after auth** → Confirm EAS env vars are present; missing Supabase keys will throw during client init
+- **Account chooser stuck** → Add testers on the Google OAuth consent screen until the app is verified
 
-### If Google Sign-In Still Fails:
-1. **Check Bundle ID**: Ensure it matches Google Cloud Console
-2. **Check URL Scheme**: Must be `com.yourcompany.buildvault`
-3. **Check Client ID**: Must be iOS client ID (not web)
-4. **Check App Signing**: TestFlight build must be properly signed
+## When Things Break
+- Capture device logs (Xcode Devices or `expo run:ios --device`) while reproducing
+- Confirm Supabase Auth settings have not been overwritten
+- If the Supabase auth URL is missing at runtime, check `lib/auth.ts` logs for `data.url` and update configuration
 
-### Common Issues:
-- **"Invalid Client"**: Wrong client ID or bundle ID mismatch
-- **"Redirect URI Mismatch"**: Missing or incorrect redirect URI
-- **"App Not Verified"**: Google app verification required for production
-
-## Next Steps After TestFlight Success
-
-1. **Production Apple Sign-In Setup**
-2. **Enhanced User Management**
-3. **App Store Submission**
-
----
-
-**Note**: This approach bypasses all the `expo-auth-session` issues we encountered in Expo Go and provides a much more reliable Google Sign-In experience.
+Once Google Sign-In passes this script, continue with wider TestFlight distribution and App Store review prep.

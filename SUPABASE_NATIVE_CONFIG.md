@@ -1,73 +1,61 @@
 # Supabase Native App Configuration
 
-## Current Issue
-Your Supabase OAuth configuration is set up for **web flows** but not **native app flows**. This is why you're getting localhost redirects.
+The production build uses Supabase OAuth for both Apple and Google sign-in. This doc tracks the required configuration so native builds (EAS / TestFlight) keep working.
 
-## Required Supabase Configuration Changes
+## Redirect Scheme
+- Expo config defines the custom scheme `buildvault://` (`app.config.ts`)  
+- Auth flows expect the redirect `buildvault://auth/callback`
+- Keep `https://ayppptoommolvkcnksmv.supabase.co/auth/v1/callback` in place as the secondary web fallback
 
-### 1. Google OAuth Configuration
-In your Supabase dashboard → Authentication → Providers → Google:
+## Supabase Provider Settings
+Open the Supabase dashboard → Authentication → Providers.
 
-**Current Configuration:**
-- Callback URL: `https://ayppptoommolvkcnksmv.supabase.co/auth/v1/callback`
-- Client IDs: Web client ID
+### Google
+- Add both redirect URLs:
+  - `buildvault://auth/callback`
+  - `https://ayppptoommolvkcnksmv.supabase.co/auth/v1/callback`
+- Client IDs:
+  - Web client ID (for Expo Go / web fallback)
+  - iOS client ID that matches bundle `com.edydhm.buildvault`
+  - (Optional) Android client ID if/when we ship Android
 
-**Required Changes:**
-1. **Add Native Redirect URL**: You need to add `buildvault://auth/callback` to your Google OAuth configuration
-2. **Update Client IDs**: Add your iOS app's client ID (different from web client ID)
+### Apple
+- Services ID: `com.edydhm.buildvault`
+- Team ID: use the App Store Connect team that signs the build
+- Redirect URLs:
+  - `buildvault://auth/callback`
+  - `https://ayppptoommolvkcnksmv.supabase.co/auth/v1/callback`
+- Enable "Sign in with Apple" for the bundle identifier
 
-### 2. Apple OAuth Configuration
-In your Supabase dashboard → Authentication → Providers → Apple:
+## Google Cloud Console
+1. Visit [Google Cloud Console](https://console.cloud.google.com/)
+2. API & Services → Credentials → OAuth Client IDs
+3. Ensure the iOS client ID has the bundle `com.edydhm.buildvault`
+4. Add the native redirect `com.edydhm.buildvault:/oauth2redirect` in case we enable the Google SDK path later
+5. Keep the web client ID for `expo-auth-session` fallback
 
-**Current Configuration:**
-- Client IDs: `com.edydhm.buildvault` ✅ (This is correct)
-- Callback URL: `https://ayppptoommolvkcnksmv.supabase.co/auth/v1/callback`
+## Apple Developer Console
+1. Visit [Apple Developer](https://developer.apple.com/account/)
+2. Certificates, Identifiers & Profiles → Identifiers → Services IDs
+3. Select `com.edydhm.buildvault`
+4. Add the return URL `buildvault://auth/callback`
+5. Confirm the primary app ID (bundle) is linked to the Services ID
 
-**Required Changes:**
-1. **Add Native Redirect URL**: Add `buildvault://auth/callback` to your Apple OAuth configuration
+## Environment Variables
+- `SUPABASE_URL` and `SUPABASE_ANON_KEY` are injected through `app.config.ts` (`extra.supabase*`).
+- Locally, Expo CLI reads them from `.env`; in EAS you must set matching project secrets.
+- Missing values will throw at runtime (`lib/supabase.ts`).
 
-## Steps to Fix
+## Testing Checklist
+1. Run `npx expo-doctor` (should pass) 
+2. Build with `eas build --platform ios --profile production`
+3. Install via TestFlight, verify:
+   - Apple Sign-In completes and user appears in Supabase Auth → Users
+   - Google Sign-In opens browser modal and returns to the app without redirect errors
+4. Check device logs for `supabase.auth` errors and update providers if needed
 
-### Step 1: Update Supabase Configuration
-1. Go to [Supabase Dashboard](https://supabase.com/dashboard/project/ayppptoommolvkcnksmv/auth/providers)
-2. **Google Provider**:
-   - Add `buildvault://auth/callback` to the redirect URLs
-   - Add your iOS Google client ID (if different from web)
-3. **Apple Provider**:
-   - Add `buildvault://auth/callback` to the redirect URLs
-
-### Step 2: Update Google Console (if needed)
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Navigate to APIs & Services → Credentials
-3. Find your iOS client ID (or create one)
-4. Add `buildvault://auth/callback` to authorized redirect URIs
-
-### Step 3: Update Apple Developer Console (if needed)
-1. Go to [Apple Developer Console](https://developer.apple.com/account/)
-2. Navigate to Certificates, Identifiers & Profiles → Identifiers
-3. Find your Services ID for Sign in with Apple
-4. Add `buildvault://auth/callback` to Return URLs
-
-## Alternative: Use Native Sign-In Libraries
-
-If the above doesn't work, we can switch to native sign-in libraries:
-
-### For Google:
-```bash
-npm install @react-native-google-signin/google-signin
-```
-
-### For Apple:
-Already using `expo-apple-authentication` ✅
-
-## Test After Configuration
-
-After making these changes:
-1. Build a new TestFlight version
-2. Test both Apple and Google sign-in
-3. Check logs for proper redirect handling
-
-## Current Status
-- ✅ Apple Sign-In: Native implementation ready
-- ❌ Google Sign-In: Needs Supabase configuration update
-- ❌ OAuth Redirects: Need native redirect URLs configured
+## Troubleshooting
+- **Redirect URI mismatch** → double-check Supabase provider URLs and `scheme` in `app.config.ts`
+- **Invalid client / audience** → wrong Google client ID (ensure iOS type)
+- **User stuck on loading after OAuth** → confirm EAS build has Supabase env secrets available
+- **Expo Go tests** → development builds still use local SQLite-only auth fallback

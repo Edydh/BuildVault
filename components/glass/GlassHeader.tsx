@@ -18,6 +18,7 @@ import Animated, {
   Extrapolate,
   withTiming,
   Easing,
+  SharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -25,7 +26,7 @@ import * as Haptics from 'expo-haptics';
 interface GlassHeaderProps {
   title: string;
   onBack?: () => void;
-  scrollY?: Animated.SharedValue<number>;
+  scrollY?: SharedValue<number>;
   search?: {
     value: string;
     onChange: (text: string) => void;
@@ -130,7 +131,14 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
     onBack?.();
   };
 
-  const glassColors = Platform.OS === 'android'
+  const glassColors: {
+    background: string;
+    gradient: [string, string];
+    text: string;
+    subtext: string;
+    searchBg: string;
+    searchBorder: string;
+  } = Platform.OS === 'android'
     ? {
         // Android: More opaque dark backgrounds
         background: 'rgba(11, 15, 20, 0.98)',

@@ -12,6 +12,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Animated as RNAnimated,
+  ListRenderItem,
 } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -445,12 +446,12 @@ function PhotoGalleryContent() {
   const [sharingItem, setSharingItem] = useState<MediaItem | null>(null);
   const [showNotePrompt, setShowNotePrompt] = useState(false);
   const [showDeleteSheet, setShowDeleteSheet] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<MediaItem>>(null);
   const scrollY = useSharedValue(0);
   const headerOpacity = useSharedValue(1);
 
   // Create Animated components
-  const AnimatedFlatList = Reanimated.createAnimatedComponent(FlatList);
+  const AnimatedFlatList = Reanimated.FlatList<MediaItem>;
 
   const scrollHandler = useAnimatedScrollHandler(({ contentOffset }) => {
     scrollY.value = contentOffset.y;
@@ -718,7 +719,7 @@ function PhotoGalleryContent() {
     minimumViewTime: 100,
   }).current;
 
-  const renderPhoto = ({ item, index }: { item: MediaItem; index: number }) => {
+  const renderPhoto: ListRenderItem<MediaItem> = ({ item, index }) => {
     const variants = imageVariants.get(item.id);
     
     return (
@@ -1117,17 +1118,12 @@ function PhotoGalleryContent() {
         message="Are you sure you want to delete this photo? This action cannot be undone."
         actions={[
           {
-            title: 'Delete Photo',
-            style: 'destructive',
+            label: 'Delete Photo',
+            destructive: true,
             onPress: () => {
               setShowDeleteSheet(false);
               confirmDelete();
             },
-          },
-          {
-            title: 'Cancel',
-            style: 'cancel',
-            onPress: () => setShowDeleteSheet(false),
           },
         ]}
       />
