@@ -28,7 +28,11 @@ export default function LazyImage({
   progressiveLoading = Platform.OS !== 'android',
   priority = 'normal',
 }: LazyImageProps) {
-  const [loadingState, setLoadingState] = useState<'thumbnail' | 'preview' | 'full' | 'original'>('thumbnail');
+  const progressiveEnabled = progressiveLoading && Platform.OS !== 'android';
+
+  const [loadingState, setLoadingState] = useState<'thumbnail' | 'preview' | 'full' | 'original'>(
+    progressiveEnabled ? 'thumbnail' : 'original'
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -36,31 +40,26 @@ export default function LazyImage({
 
   // Progressive loading sequence
   useEffect(() => {
-    // Progressive loading triggers multiple sequential requests; Glide on Android
-    // throws if a new load starts during a listener callback, so we disable it there.
-    const allowProgressiveLoading = progressiveLoading && Platform.OS !== 'android';
-
-    if (!allowProgressiveLoading) {
-      setLoadingState('original');
+    if (!progressiveEnabled) {
+      setLoadingState(current => (current === 'original' ? current : 'original'));
       return;
     }
 
+    let cancelled = false;
+
     const loadSequence = async () => {
+      const runStep = async (state: 'thumbnail' | 'preview' | 'full', delay = 200) => {
+        if (cancelled) return;
+        setLoadingState(state);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      };
+
       try {
-        // Start with thumbnail
-        setLoadingState('thumbnail');
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await runStep('thumbnail', 120);
+        await runStep('preview', 200);
+        await runStep('full', 240);
 
-        // Load preview after a short delay
-        setLoadingState('preview');
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        // Load full quality
-        setLoadingState('full');
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        // Finally load original if needed
-        if (priority === 'high') {
+        if (!cancelled && priority === 'high') {
           setLoadingState('original');
         }
       } catch (error) {
@@ -69,7 +68,11 @@ export default function LazyImage({
     };
 
     loadSequence();
-  }, [progressiveLoading, priority]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [progressiveEnabled, priority]);
 
   const handleLoadStart = () => {
     setIsLoading(true);

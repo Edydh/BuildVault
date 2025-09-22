@@ -7,6 +7,7 @@ import {
   FlatList,
   ScrollView,
   Image,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -1028,7 +1029,7 @@ function ProjectDetailContent() {
                     height: '100%',
                   }}
                   contentFit="cover"
-                  progressiveLoading={true}
+                  progressiveLoading={Platform.OS !== 'android'}
                   priority="normal"
                 />
               ) : (

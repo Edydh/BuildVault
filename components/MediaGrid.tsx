@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity } from 'react-native';
+import { View, Text, Image, TouchableOpacity, Platform } from 'react-native';
 import { MediaItem } from '@/lib/db';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
@@ -117,7 +117,7 @@ function MediaItemComponent({
             variants={variants}
             style={{ flex: 1 }}
             contentFit="cover"
-            progressiveLoading={true}
+            progressiveLoading={Platform.OS !== 'android'}
             priority="normal"
           />
         ) : item.type === 'video' ? (
@@ -249,4 +249,3 @@ export default function MediaGrid({ items, onPressItem, selected, onToggleSelect
     </View>
   );
 }
-

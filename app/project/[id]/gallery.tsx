@@ -732,7 +732,7 @@ function PhotoGalleryContent() {
               height: screenHeight - 200, // Leave space for header and controls
             }}
             contentFit="contain"
-            progressiveLoading={true}
+            progressiveLoading={Platform.OS !== 'android'}
             priority="high"
           />
         ) : (
