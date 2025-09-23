@@ -1,0 +1,38 @@
+# Log files
+*.log
+*.txt
+android_*.log
+android_*.txt
+dev_server.log
+.expo/xcodebuild*.log
+
+# Development files
+.expo/
+.expo/web/
+
+# iOS build artifacts
+ios/build/
+ios/Pods/
+
+# Large development assets
+node_modules/.cache/
+*.map
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
