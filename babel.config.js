@@ -15,7 +15,8 @@ module.exports = function (api) {
           },
         },
       ],
-      'react-native-reanimated/plugin',
+      // Reanimated v4 moved its Babel plugin into react-native-worklets
+      'react-native-worklets/plugin',
     ],
   };
 };
