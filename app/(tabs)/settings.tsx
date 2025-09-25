@@ -52,6 +52,7 @@ export default function Settings() {
   const [showSuccessSheet, setShowSuccessSheet] = React.useState(false);
   const [showErrorSheet, setShowErrorSheet] = React.useState(false);
   const [sheetMessage, setSheetMessage] = React.useState('');
+  const [showAboutSheet, setShowAboutSheet] = React.useState(false);
   const handleClearAllData = () => {
     setShowDangerSheet(true);
   };
@@ -94,11 +95,7 @@ export default function Settings() {
   };
 
   const handleAbout = () => {
-    Alert.alert(
-      'About BuildVault',
-      'BuildVault v1.0.1\n\nA comprehensive construction project management app for organizing projects, capturing media, and managing documentation.\n\n© 2025 uniQubit\nBuilt with React Native & Expo',
-      [{ text: 'OK' }]
-    );
+    setShowAboutSheet(true);
   };
 
   const SettingItem = ({
@@ -728,6 +725,20 @@ export default function Settings() {
           {
             label: 'OK',
             onPress: () => setShowErrorSheet(false),
+          },
+        ]}
+      />
+
+      {/* About Sheet */}
+      <GlassActionSheet
+        visible={showAboutSheet}
+        onClose={() => setShowAboutSheet(false)}
+        title="About BuildVault"
+        message={'BuildVault v1.0.1\n\nA comprehensive construction project management app for organizing projects, capturing media, and managing documentation.\n\n© 2025 uniQubit\nBuilt with React Native & Expo'}
+        actions={[
+          {
+            label: 'OK',
+            onPress: () => setShowAboutSheet(false),
           },
         ]}
       />
