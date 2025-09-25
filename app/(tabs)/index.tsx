@@ -143,6 +143,7 @@ export default function ProjectsList() {
   const [sortBy, setSortBy] = useState<'date_desc'|'date_asc'|'name_asc'|'client_asc'|'location_asc'>('date_desc');
   const [hasNotesOnly, setHasNotesOnly] = useState(false);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState(form.search);
   const [showProjectOptions, setShowProjectOptions] = useState<{visible: boolean; project?: Project}>({ visible: false });
   const [showErrorSheet, setShowErrorSheet] = useState(false);
   const [showSuccessSheet, setShowSuccessSheet] = useState(false);
@@ -175,9 +176,15 @@ export default function ProjectsList() {
     })();
   }, [sortBy, hasNotesOnly]);
 
+  // Debounce search input for smoother filtering on large lists
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(form.search), 250);
+    return () => clearTimeout(id);
+  }, [form.search]);
+
   // Filter + sort projects
   const filteredProjects = React.useMemo(() => {
-    const searchTerm = (form.search || '').toLowerCase();
+    const searchTerm = (debouncedSearch || '').toLowerCase();
     const filtered = projects.filter(p => {
       // Basic fields
       const basicMatch = !searchTerm || (
@@ -216,7 +223,7 @@ export default function ProjectsList() {
       }
     });
     return sorted;
-  }, [projects, form.search, hasNotesOnly, sortBy]);
+  }, [projects, debouncedSearch, hasNotesOnly, sortBy]);
   
   // Animation values for dynamic header
   const { scrollY } = useScrollContext();
@@ -610,7 +617,7 @@ export default function ProjectsList() {
         renderItem={({ item }) => (
           <ProjectCard 
             project={item} 
-            searchTerm={form.search}
+            searchTerm={debouncedSearch}
             onPress={() => router.push(`/project/${item.id}`)}
             onLongPress={() => handleProjectOptions(item)}
           />
