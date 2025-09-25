@@ -144,6 +144,7 @@ export default function ProjectsList() {
   const [hasNotesOnly, setHasNotesOnly] = useState(false);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState(form.search);
+  const projectFilterCount = (hasNotesOnly ? 1 : 0) + (sortBy !== 'date_desc' ? 1 : 0);
   const [showProjectOptions, setShowProjectOptions] = useState<{visible: boolean; project?: Project}>({ visible: false });
   const [showErrorSheet, setShowErrorSheet] = useState(false);
   const [showSuccessSheet, setShowSuccessSheet] = useState(false);
@@ -586,21 +587,40 @@ export default function ProjectsList() {
           placeholder: 'Search projects...',
         }}
         right={
-          <TouchableOpacity
-            onPress={() => setShowFilterSheet(true)}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: hasNotesOnly ? 'rgba(255, 122, 26, 0.22)' : 'rgba(148, 163, 184, 0.18)',
-              justifyContent: 'center',
-              alignItems: 'center',
-              borderWidth: 1,
-              borderColor: hasNotesOnly ? 'rgba(255, 122, 26, 0.35)' : 'rgba(148, 163, 184, 0.28)',
-            }}
-          >
-            <Ionicons name="filter" size={18} color={hasNotesOnly ? '#FF7A1A' : '#94A3B8'} />
-          </TouchableOpacity>
+          <View style={{ position: 'relative' }}>
+            <TouchableOpacity
+              onPress={() => setShowFilterSheet(true)}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: projectFilterCount > 0 ? 'rgba(255, 122, 26, 0.22)' : 'rgba(148, 163, 184, 0.18)',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: projectFilterCount > 0 ? 'rgba(255, 122, 26, 0.35)' : 'rgba(148, 163, 184, 0.28)',
+              }}
+            >
+              <Ionicons name="filter" size={18} color={projectFilterCount > 0 ? '#FF7A1A' : '#94A3B8'} />
+            </TouchableOpacity>
+            {projectFilterCount > 0 && (
+              <View style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                minWidth: 18,
+                height: 18,
+                borderRadius: 9,
+                backgroundColor: '#FF7A1A',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: 'rgba(0,0,0,0.2)'
+              }}>
+                <Text style={{ color: '#0B0F14', fontSize: 11, fontWeight: '700' }}>{projectFilterCount}</Text>
+              </View>
+            )}
+          </View>
         }
         transparent={false}
       />

@@ -65,6 +65,12 @@ function ProjectDetailContent() {
   });
   const [showMediaFilterSheet, setShowMediaFilterSheet] = useState(false);
   const [preferDbFiltering, setPreferDbFiltering] = useState(false);
+  const mediaActiveFilterCount = (
+    (mediaFilters.hasNoteOnly ? 1 : 0) +
+    ((!mediaFilters.types.photo || !mediaFilters.types.video || !mediaFilters.types.doc) ? 1 : 0) +
+    ((mediaFilters.dateFrom || mediaFilters.dateTo) ? 1 : 0) +
+    (mediaFilters.sortBy !== 'date_desc' ? 1 : 0)
+  );
 
   // Load global performance preference
   useEffect(() => {
@@ -1647,22 +1653,40 @@ function ProjectDetailContent() {
               </>
             ) : (
               <>
-                <TouchableOpacity
-                  onPress={() => setShowMediaFilterSheet(true)}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: (mediaFilters.hasNoteOnly || !mediaFilters.types.photo || !mediaFilters.types.video || !mediaFilters.types.doc || mediaFilters.dateFrom || mediaFilters.dateTo || mediaFilters.sortBy !== 'date_desc') ? 'rgba(255, 122, 26, 0.2)' : '#101826',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    marginRight: 8,
-                    borderWidth: 1,
-                    borderColor: (mediaFilters.hasNoteOnly || !mediaFilters.types.photo || !mediaFilters.types.video || !mediaFilters.types.doc || mediaFilters.dateFrom || mediaFilters.dateTo || mediaFilters.sortBy !== 'date_desc') ? 'rgba(255, 122, 26, 0.35)' : 'rgba(148, 163, 184, 0.25)'
-                  }}
-                >
-                  <Ionicons name="filter" size={20} color={(mediaFilters.hasNoteOnly || !mediaFilters.types.photo || !mediaFilters.types.video || !mediaFilters.types.doc || mediaFilters.dateFrom || mediaFilters.dateTo || mediaFilters.sortBy !== 'date_desc') ? '#FF7A1A' : '#F8FAFC'} />
-                </TouchableOpacity>
+                <View style={{ position: 'relative', marginRight: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => setShowMediaFilterSheet(true)}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: mediaActiveFilterCount > 0 ? 'rgba(255, 122, 26, 0.2)' : '#101826',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: mediaActiveFilterCount > 0 ? 'rgba(255, 122, 26, 0.35)' : 'rgba(148, 163, 184, 0.25)'
+                    }}
+                  >
+                    <Ionicons name="filter" size={20} color={mediaActiveFilterCount > 0 ? '#FF7A1A' : '#F8FAFC'} />
+                  </TouchableOpacity>
+                  {mediaActiveFilterCount > 0 && (
+                    <View style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -4,
+                      minWidth: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      backgroundColor: '#FF7A1A',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(0,0,0,0.2)'
+                    }}>
+                      <Text style={{ color: '#0B0F14', fontSize: 11, fontWeight: '700' }}>{mediaActiveFilterCount}</Text>
+                    </View>
+                  )}
+                </View>
                 <TouchableOpacity
                   onPress={handleShareProject}
                   style={{
