@@ -22,6 +22,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { useGlassTheme } from './GlassThemeProvider';
 
 interface GlassHeaderProps {
   title: string;
@@ -53,6 +54,8 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const { config } = useGlassTheme();
+  const isQuickPerf = config.quickPerformanceMode || config.reduceTransparency;
   
   // Animation values
   const headerOpacity = useSharedValue(transparent ? 0 : 1);
@@ -176,7 +179,7 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
       ]}
     >
       <AnimatedBlurView
-        intensity={Platform.OS === 'android' ? 30 : (scrollY ? undefined : maxBlur)}
+        intensity={Platform.OS === 'android' ? (isQuickPerf ? 10 : 30) : (scrollY ? undefined : maxBlur)}
         tint={Platform.OS === 'android' ? 'dark' : (isDark ? 'dark' : 'light')}
         style={StyleSheet.absoluteFillObject}
       />
