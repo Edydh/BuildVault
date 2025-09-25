@@ -1753,7 +1753,7 @@ function ProjectDetailContent() {
         icon="camera"
         size={60}
         onPress={handleCaptureMedia}
-        style={{ position: 'absolute', right: 20, bottom: insets.bottom + 30 }}
+        style={{ position: 'absolute', right: 20, bottom: insets.bottom + 90 }}
       />
 
       {/* Folder Creation Modal */}
