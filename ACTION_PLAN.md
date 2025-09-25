@@ -511,7 +511,15 @@ BuildVault is a React Native construction project management app built with Expo
 
 ### 🔮 Future Enhancements (Medium Priority)
 
-#### 4. Advanced Media Features
+#### 4. Account Settings & IAP (Plan)
+- [ ] **Task**: Implement polished Account card (avatar, provider chip, plan badge)
+- [ ] **Task**: Add UI for Upgrade/Restore and Paywall modal
+- [ ] **Task**: Prepare DB/Auth fields for Free vs Premium
+- [ ] **Reference**: See `ACCOUNT_SETTINGS_IAP_ACTION_PLAN.md`
+- **Priority**: Medium
+- **Estimated Time**: 2–3 days for UI + schema; IAP integration staged separately
+
+#### 5. Advanced Media Features
 - [ ] **Task**: Add media tagging system
 - [ ] **Task**: Implement media categories/folders
 - [ ] **Task**: Add batch media operations
@@ -519,7 +527,7 @@ BuildVault is a React Native construction project management app built with Expo
 - [ ] **Priority**: Low
 - **Estimated Time**: 3-4 days
 
-#### 5. Data Management
+#### 6. Data Management
 - [ ] **Task**: Add data import/restore capabilities
 - [ ] **Task**: Implement cloud backup/sync
 - [ ] **Task**: Add backup scheduling options
@@ -527,7 +535,7 @@ BuildVault is a React Native construction project management app built with Expo
 - [ ] **Priority**: Low
 - **Estimated Time**: 4-5 days
 
-#### 6. Collaboration Features
+#### 7. Collaboration Features
 - [ ] **Task**: Add multi-user support
 - [ ] **Task**: Implement project sharing
 - [ ] **Task**: Add user roles and permissions
