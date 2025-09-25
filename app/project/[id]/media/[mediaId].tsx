@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -216,6 +216,7 @@ function VideoPlayer({ uri }: { uri: string }) {
 
   return (
     <VideoView
+      key={uri}
       player={player}
       style={{
         width: Dimensions.get('window').width - 16,
@@ -466,6 +467,7 @@ function MediaDetailContent() {
   const textInputRef = useRef<TextInput>(null);
   // Create Animated components
   const [headerHeight, setHeaderHeight] = useState(0);
+  const [isScreenFocused, setIsScreenFocused] = useState(true);
   const scrollY = useSharedValue(0);
   const AnimatedScrollView = Reanimated.createAnimatedComponent(ScrollView);
   const scrollHandler = useAnimatedScrollHandler(({ contentOffset }) => {
@@ -477,6 +479,14 @@ function MediaDetailContent() {
       opacity: scrollY.value > 10 ? 0 : 1,
     };
   });
+
+  // Track focus to safely mount/unmount video on Android
+  useFocusEffect(
+    React.useCallback(() => {
+      setIsScreenFocused(true);
+      return () => setIsScreenFocused(false);
+    }, [])
+  );
 
   React.useEffect(() => {
     if (!mediaId) return;
@@ -881,7 +891,7 @@ function MediaDetailContent() {
             </View>
             )}
           </View>
-        ) : media.type === 'video' && fileExists && !media.uri.includes('placeholder') ? (
+        ) : media.type === 'video' && fileExists && !media.uri.includes('placeholder') && isScreenFocused ? (
           <VideoPlayer uri={media.uri} />
         ) : media.type === 'video' && media.uri.includes('placeholder') ? (
           <View style={{ height: Dimensions.get('window').height * 0.7, width: Dimensions.get('window').width - 16, backgroundColor: '#000', borderRadius: 12, overflow: 'hidden' }}>
