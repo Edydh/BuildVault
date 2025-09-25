@@ -26,7 +26,7 @@ import { cleanupImageVariants } from '../../../../lib/imageOptimization';
 import NoteEncouragement from '../../../../components/NoteEncouragement';
 import NotePrompt from '../../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../../components/NoteSettings';
-import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider } from '../../../../components/glass';
+import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider, useGlassTheme } from '../../../../components/glass';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -471,6 +471,7 @@ function MediaDetailContent() {
   const scrollHandler = useAnimatedScrollHandler(({ contentOffset }) => {
     scrollY.value = contentOffset.y;
   });
+  const glassTheme = useGlassTheme();
   const headerAnimatedStyle = useAnimatedStyle(() => {
     return {
       opacity: scrollY.value > 10 ? 0 : 1,
@@ -659,7 +660,7 @@ function MediaDetailContent() {
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <View style={{ flex: 1 }}>
-          {/* Glass Header */}
+          {/* Header (glass or plain based on feature flag) */}
           <Reanimated.View
             pointerEvents="box-none"
             style={[
@@ -678,11 +679,75 @@ function MediaDetailContent() {
             ]}
             onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
           >
-            <GlassHeader
-              title={media?.type.charAt(0).toUpperCase() + media?.type.slice(1) || 'Media'}
-              onBack={() => router.back()}
-              scrollY={scrollY}
-              right={
+            {glassTheme.config.featureFlags.mediaDetailOverlays ? (
+              <GlassHeader
+                title={media?.type.charAt(0).toUpperCase() + media?.type.slice(1) || 'Media'}
+                onBack={() => router.back()}
+                scrollY={scrollY}
+                right={
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => setShowShareSheet(true)}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: 'rgba(59, 130, 246, 0.3)',
+                      }}
+                    >
+                      <Ionicons name="share" size={20} color="#3B82F6" />
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      onPress={() => setShowDeleteSheet(true)}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: 'rgba(220, 38, 38, 0.3)',
+                      }}
+                    >
+                      <Ionicons name="trash" size={20} color="#DC2626" />
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      onPress={() => {
+                        Alert.alert('Media Info', `Created: ${new Date(media?.created_at || 0).toLocaleString()}\nType: ${media?.type}\nFile exists: ${fileExists ? 'Yes' : 'No'}`);
+                      }}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: 'rgba(148, 163, 184, 0.2)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: 'rgba(148, 163, 184, 0.3)',
+                      }}
+                    >
+                      <Ionicons name="information-circle" size={20} color="#94A3B8" />
+                    </TouchableOpacity>
+                  </View>
+                }
+              />
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TouchableOpacity onPress={() => router.back()} style={{ padding: 8, marginRight: 8 }}>
+                    <Ionicons name="chevron-back" size={28} color="#F8FAFC" />
+                  </TouchableOpacity>
+                  <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '600' }}>
+                    {media?.type.charAt(0).toUpperCase() + media?.type.slice(1) || 'Media'}
+                  </Text>
+                </View>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <TouchableOpacity
                     onPress={() => setShowShareSheet(true)}
@@ -690,53 +755,50 @@ function MediaDetailContent() {
                       width: 40,
                       height: 40,
                       borderRadius: 20,
-                      backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                      backgroundColor: 'rgba(59, 130, 246, 0.15)',
                       justifyContent: 'center',
                       alignItems: 'center',
                       borderWidth: 1,
-                      borderColor: 'rgba(59, 130, 246, 0.3)',
+                      borderColor: 'rgba(59, 130, 246, 0.25)',
                     }}
                   >
                     <Ionicons name="share" size={20} color="#3B82F6" />
                   </TouchableOpacity>
-                  
                   <TouchableOpacity
                     onPress={() => setShowDeleteSheet(true)}
                     style={{
                       width: 40,
                       height: 40,
                       borderRadius: 20,
-                      backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                      backgroundColor: 'rgba(220, 38, 38, 0.15)',
                       justifyContent: 'center',
                       alignItems: 'center',
                       borderWidth: 1,
-                      borderColor: 'rgba(220, 38, 38, 0.3)',
+                      borderColor: 'rgba(220, 38, 38, 0.25)',
                     }}
                   >
                     <Ionicons name="trash" size={20} color="#DC2626" />
                   </TouchableOpacity>
-                  
                   <TouchableOpacity
                     onPress={() => {
-                      // Info/details action
                       Alert.alert('Media Info', `Created: ${new Date(media?.created_at || 0).toLocaleString()}\nType: ${media?.type}\nFile exists: ${fileExists ? 'Yes' : 'No'}`);
                     }}
                     style={{
                       width: 40,
                       height: 40,
                       borderRadius: 20,
-                      backgroundColor: 'rgba(148, 163, 184, 0.2)',
+                      backgroundColor: 'rgba(148, 163, 184, 0.15)',
                       justifyContent: 'center',
                       alignItems: 'center',
                       borderWidth: 1,
-                      borderColor: 'rgba(148, 163, 184, 0.3)',
+                      borderColor: 'rgba(148, 163, 184, 0.25)',
                     }}
                   >
                     <Ionicons name="information-circle" size={20} color="#94A3B8" />
                   </TouchableOpacity>
                 </View>
-              }
-            />
+              </View>
+            )}
           </Reanimated.View>
 
           {/* Media Preview */}
@@ -783,6 +845,7 @@ function MediaDetailContent() {
             />
             
             {/* Full-screen button overlay with glass morphism */}
+            {glassTheme.config.featureFlags.mediaDetailOverlays && (
             <View style={{
               position: 'absolute',
               top: 12,
@@ -816,6 +879,7 @@ function MediaDetailContent() {
                 </TouchableOpacity>
               </GlassCard>
             </View>
+            )}
           </View>
         ) : media.type === 'video' && fileExists && !media.uri.includes('placeholder') ? (
           <VideoPlayer uri={media.uri} />

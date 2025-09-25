@@ -14,6 +14,10 @@ interface GlassThemeConfig {
   reduceTransparency: boolean;
   adaptivePerformance: boolean;
   quickPerformanceMode: boolean;
+  featureFlags: {
+    galleryOverlays: boolean;
+    mediaDetailOverlays: boolean;
+  };
 }
 
 interface GlassThemeContextType {
@@ -48,6 +52,10 @@ const defaultConfig: GlassThemeConfig = {
   adaptivePerformance: true,
   // Quick performance flag for reduced effects
   quickPerformanceMode: false,
+  featureFlags: {
+    galleryOverlays: true,
+    mediaDetailOverlays: true,
+  },
 };
 
 // Intensity mappings

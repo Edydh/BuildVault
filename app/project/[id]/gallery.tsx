@@ -28,7 +28,7 @@ import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImage
 import SharingQualitySelector from '../../../components/SharingQualitySelector';
 import NotePrompt from '../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../components/NoteSettings';
-import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider } from '../../../components/glass';
+import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider, useGlassTheme } from '../../../components/glass';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -449,6 +449,7 @@ function PhotoGalleryContent() {
   const flatListRef = useRef<FlatList<MediaItem>>(null);
   const scrollY = useSharedValue(0);
   const headerOpacity = useSharedValue(1);
+  const glassTheme = useGlassTheme();
 
   // Create Animated components
   const AnimatedFlatList = Reanimated.FlatList<MediaItem>;
@@ -749,6 +750,7 @@ function PhotoGalleryContent() {
         )}
         
         {/* Full-screen button overlay with glass morphism */}
+        {glassTheme.config.featureFlags.galleryOverlays && (
         <View style={{
           position: 'absolute',
           top: 120, // Below the header
@@ -782,6 +784,7 @@ function PhotoGalleryContent() {
             </TouchableOpacity>
           </GlassCard>
         </View>
+        )}
       </View>
     );
   };
@@ -816,7 +819,7 @@ function PhotoGalleryContent() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
-      {/* Glass Header */}
+      {/* Header (glass or plain based on feature flag) */}
       <Reanimated.View
         pointerEvents="box-none"
         style={[
@@ -835,11 +838,57 @@ function PhotoGalleryContent() {
         ]}
         onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
       >
-        <GlassHeader
-          title={`${currentIndex + 1} of ${media.length}`}
-          onBack={() => router.back()}
-          scrollY={scrollY}
-          right={
+        {glassTheme.config.featureFlags.galleryOverlays ? (
+          <GlassHeader
+            title={`${currentIndex + 1} of ${media.length}`}
+            onBack={() => router.back()}
+            scrollY={scrollY}
+            right={
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => handleShare(media[currentIndex])}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: 'rgba(59, 130, 246, 0.3)',
+                  }}
+                >
+                  <Ionicons name="share" size={20} color="#3B82F6" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  onPress={() => handleDelete(media[currentIndex])}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: 'rgba(220, 38, 38, 0.3)',
+                  }}
+                >
+                  <Ionicons name="trash" size={20} color="#DC2626" />
+                </TouchableOpacity>
+              </View>
+            }
+          />
+        ) : (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity onPress={() => router.back()} style={{ padding: 8, marginRight: 8 }}>
+                <Ionicons name="chevron-back" size={28} color="#F8FAFC" />
+              </TouchableOpacity>
+              <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '600' }}>
+                {`${currentIndex + 1} of ${media.length}`}
+              </Text>
+            </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity
                 onPress={() => handleShare(media[currentIndex])}
@@ -847,34 +896,33 @@ function PhotoGalleryContent() {
                   width: 40,
                   height: 40,
                   borderRadius: 20,
-                  backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
                   justifyContent: 'center',
                   alignItems: 'center',
                   borderWidth: 1,
-                  borderColor: 'rgba(59, 130, 246, 0.3)',
+                  borderColor: 'rgba(59, 130, 246, 0.25)',
                 }}
               >
                 <Ionicons name="share" size={20} color="#3B82F6" />
               </TouchableOpacity>
-              
               <TouchableOpacity
                 onPress={() => handleDelete(media[currentIndex])}
                 style={{
                   width: 40,
                   height: 40,
                   borderRadius: 20,
-                  backgroundColor: 'rgba(220, 38, 38, 0.2)',
+                  backgroundColor: 'rgba(220, 38, 38, 0.15)',
                   justifyContent: 'center',
                   alignItems: 'center',
                   borderWidth: 1,
-                  borderColor: 'rgba(220, 38, 38, 0.3)',
+                  borderColor: 'rgba(220, 38, 38, 0.25)',
                 }}
               >
                 <Ionicons name="trash" size={20} color="#DC2626" />
               </TouchableOpacity>
             </View>
-          }
-        />
+          </View>
+        )}
       </Reanimated.View>
 
       {/* Photo Gallery */}

@@ -277,7 +277,7 @@ export default function Settings() {
             style={{
               height: glassEffectsHeight.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0, 400], // Approximate height when expanded
+                outputRange: [0, 560], // Expanded height accommodates extra toggles
               }),
               opacity: glassEffectsHeight,
             }}
@@ -400,6 +400,93 @@ export default function Settings() {
                   onValueChange={(value) => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     glassTheme.updateConfig({ reduceTransparency: value });
+                  }}
+                />
+              </View>
+
+              {/* Quick Performance Mode */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                paddingVertical: 12,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                    Reduced Effects (Performance)
+                  </Text>
+                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                    Low-overhead visuals for slower devices
+                  </Text>
+                </View>
+                <GlassSwitch
+                  value={glassTheme.config.quickPerformanceMode}
+                  onValueChange={(value) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    glassTheme.updateConfig({ quickPerformanceMode: value });
+                  }}
+                />
+              </View>
+
+              {/* Feature Flags: Overlays */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                paddingVertical: 12,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                    Gallery Overlays
+                  </Text>
+                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                    Glass header and floating buttons in gallery
+                  </Text>
+                </View>
+                <GlassSwitch
+                  value={glassTheme.config.featureFlags.galleryOverlays}
+                  onValueChange={(value) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    glassTheme.updateConfig({ 
+                      featureFlags: { 
+                        ...glassTheme.config.featureFlags, 
+                        galleryOverlays: value 
+                      } 
+                    });
+                  }}
+                />
+              </View>
+
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                paddingVertical: 12,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                    Media Detail Overlays
+                  </Text>
+                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                    Glass header and floating buttons in media view
+                  </Text>
+                </View>
+                <GlassSwitch
+                  value={glassTheme.config.featureFlags.mediaDetailOverlays}
+                  onValueChange={(value) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    glassTheme.updateConfig({ 
+                      featureFlags: { 
+                        ...glassTheme.config.featureFlags, 
+                        mediaDetailOverlays: value 
+                      } 
+                    });
                   }}
                 />
               </View>
