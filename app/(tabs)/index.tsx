@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Project, createProject, getProjects, deleteProject, updateProject, getMediaByProject } from '../../lib/db';
@@ -139,6 +140,9 @@ export default function ProjectsList() {
   const [showEdit, setShowEdit] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [form, setForm] = useState({ name: '', client: '', location: '', search: '' });
+  const [sortBy, setSortBy] = useState<'date_desc'|'date_asc'|'name_asc'|'client_asc'|'location_asc'>('date_desc');
+  const [hasNotesOnly, setHasNotesOnly] = useState(false);
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
   const [showProjectOptions, setShowProjectOptions] = useState<{visible: boolean; project?: Project}>({ visible: false });
   const [showErrorSheet, setShowErrorSheet] = useState(false);
   const [showSuccessSheet, setShowSuccessSheet] = useState(false);
@@ -149,25 +153,70 @@ export default function ProjectsList() {
   const [storageStats, setStorageStats] = useState<StorageStats>(EMPTY_STATS);
   const [statsLoading, setStatsLoading] = useState(false);
   
-  // Filter projects based on search term
-  const filteredProjects = projects.filter(p => {
-    const searchTerm = form.search?.toLowerCase() || '';
-    
-    // Search in basic project fields
-    const basicMatch = p.name.toLowerCase().includes(searchTerm) ||
-                      p.client?.toLowerCase().includes(searchTerm) ||
-                      p.location?.toLowerCase().includes(searchTerm);
-    
-    if (basicMatch) return true;
-    
-    // Search in media comments/notes
-    const mediaItems = getMediaByProject(p.id);
-    const mediaMatch = mediaItems.some(media => 
-      media.note?.toLowerCase().includes(searchTerm)
-    );
-    
-    return mediaMatch;
-  });
+  // Persist and load filters
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem('@buildvault/project-filters');
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved.sortBy) setSortBy(saved.sortBy);
+          if (typeof saved.hasNotesOnly === 'boolean') setHasNotesOnly(saved.hasNotesOnly);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await AsyncStorage.setItem('@buildvault/project-filters', JSON.stringify({ sortBy, hasNotesOnly }));
+      } catch {}
+    })();
+  }, [sortBy, hasNotesOnly]);
+
+  // Filter + sort projects
+  const filteredProjects = React.useMemo(() => {
+    const searchTerm = (form.search || '').toLowerCase();
+    const filtered = projects.filter(p => {
+      // Basic fields
+      const basicMatch = !searchTerm || (
+        p.name.toLowerCase().includes(searchTerm) ||
+        (p.client || '').toLowerCase().includes(searchTerm) ||
+        (p.location || '').toLowerCase().includes(searchTerm)
+      );
+
+      // Notes match
+      const mediaItems = getMediaByProject(p.id);
+      const notesMatch = !searchTerm ? false : mediaItems.some(m => (m.note || '').toLowerCase().includes(searchTerm));
+
+      const anyMatch = basicMatch || notesMatch;
+      if (!anyMatch) return false;
+
+      if (hasNotesOnly) {
+        const hasAnyNote = mediaItems.some(m => (m.note || '').trim().length > 0);
+        if (!hasAnyNote) return false;
+      }
+      return true;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case 'name_asc':
+          return a.name.localeCompare(b.name);
+        case 'client_asc':
+          return (a.client || '').localeCompare(b.client || '');
+        case 'location_asc':
+          return (a.location || '').localeCompare(b.location || '');
+        case 'date_asc':
+          return a.created_at - b.created_at;
+        case 'date_desc':
+        default:
+          return b.created_at - a.created_at;
+      }
+    });
+    return sorted;
+  }, [projects, form.search, hasNotesOnly, sortBy]);
   
   // Animation values for dynamic header
   const { scrollY } = useScrollContext();
@@ -529,6 +578,23 @@ export default function ProjectsList() {
           onChange: (text) => setForm((prev) => ({ ...prev, search: text })),
           placeholder: 'Search projects...',
         }}
+        right={
+          <TouchableOpacity
+            onPress={() => setShowFilterSheet(true)}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: hasNotesOnly ? 'rgba(255, 122, 26, 0.22)' : 'rgba(148, 163, 184, 0.18)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 1,
+              borderColor: hasNotesOnly ? 'rgba(255, 122, 26, 0.35)' : 'rgba(148, 163, 184, 0.28)',
+            }}
+          >
+            <Ionicons name="filter" size={18} color={hasNotesOnly ? '#FF7A1A' : '#94A3B8'} />
+          </TouchableOpacity>
+        }
         transparent={false}
       />
 
@@ -544,6 +610,7 @@ export default function ProjectsList() {
         renderItem={({ item }) => (
           <ProjectCard 
             project={item} 
+            searchTerm={form.search}
             onPress={() => router.push(`/project/${item.id}`)}
             onLongPress={() => handleProjectOptions(item)}
           />
@@ -773,6 +840,21 @@ export default function ProjectsList() {
             label: 'OK',
             onPress: () => setShowErrorSheet(false),
           },
+        ]}
+      />
+
+      {/* Filters & Sort Sheet */}
+      <GlassActionSheet
+        visible={showFilterSheet}
+        onClose={() => setShowFilterSheet(false)}
+        title="Filter & Sort"
+        actions={[
+          { label: `Sort: Newest first ${sortBy==='date_desc' ? '✓' : ''}`, onPress: () => setSortBy('date_desc') },
+          { label: `Sort: Oldest first ${sortBy==='date_asc' ? '✓' : ''}`, onPress: () => setSortBy('date_asc') },
+          { label: `Sort: Name A–Z ${sortBy==='name_asc' ? '✓' : ''}`, onPress: () => setSortBy('name_asc') },
+          { label: `Sort: Client A–Z ${sortBy==='client_asc' ? '✓' : ''}`, onPress: () => setSortBy('client_asc') },
+          { label: `Sort: Location A–Z ${sortBy==='location_asc' ? '✓' : ''}`, onPress: () => setSortBy('location_asc') },
+          { label: `${hasNotesOnly ? '✓ ' : ''}Has notes only`, onPress: () => setHasNotesOnly(prev => !prev) },
         ]}
       />
     </View>
