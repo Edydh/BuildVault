@@ -49,6 +49,22 @@ function ProjectDetailContent() {
     actions?: { label: string; onPress: () => void; destructive?: boolean }[];
   }>({ visible: false });
 
+  // Media filters (Phase 2)
+  const [mediaFilters, setMediaFilters] = useState<{
+    types: { photo: boolean; video: boolean; doc: boolean };
+    hasNoteOnly: boolean;
+    sortBy: 'date_desc'|'date_asc'|'name_asc'|'type_asc';
+    dateFrom?: number | null;
+    dateTo?: number | null;
+  }>({
+    types: { photo: true, video: true, doc: true },
+    hasNoteOnly: false,
+    sortBy: 'date_desc',
+    dateFrom: null,
+    dateTo: null,
+  });
+  const [showMediaFilterSheet, setShowMediaFilterSheet] = useState(false);
+
   // Create Animated components
   const AnimatedFlatList = Reanimated.createAnimatedComponent(FlatList);
   const [headerHeight, setHeaderHeight] = useState<number>(0);
@@ -166,6 +182,56 @@ function ProjectDetailContent() {
       Alert.alert('Error', 'Failed to load project data');
     }
   }, [id, router, currentFolder]);
+
+  // Persist filters per project
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(`@buildvault/media-filters/${id}`);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          setMediaFilters((prev) => ({ ...prev, ...saved }));
+        }
+      } catch {}
+    })();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try {
+        await AsyncStorage.setItem(`@buildvault/media-filters/${id}`,(JSON.stringify(mediaFilters)));
+      } catch {}
+    })();
+  }, [id, mediaFilters]);
+
+  // Derived filtered/sorted media
+  const filteredMedia = React.useMemo(() => {
+    const { types, hasNoteOnly, dateFrom, dateTo, sortBy } = mediaFilters;
+    const filtered = media.filter((m) => {
+      if (!types[m.type]) return false;
+      if (hasNoteOnly && !(m.note && m.note.trim().length > 0)) return false;
+      if (dateFrom && m.created_at < dateFrom) return false;
+      if (dateTo && m.created_at > dateTo) return false;
+      return true;
+    });
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case 'name_asc':
+          // approximate name via note or filename in uri
+          return (a.note || a.uri).localeCompare(b.note || b.uri);
+        case 'type_asc':
+          return a.type.localeCompare(b.type);
+        case 'date_asc':
+          return a.created_at - b.created_at;
+        case 'date_desc':
+        default:
+          return b.created_at - a.created_at;
+      }
+    });
+    return sorted;
+  }, [media, mediaFilters]);
 
   // Load view mode preference when component mounts
   useEffect(() => {
@@ -1552,19 +1618,37 @@ function ProjectDetailContent() {
                 </TouchableOpacity>
               </>
             ) : (
-              <TouchableOpacity
-                onPress={handleShareProject}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: '#101826',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="share" size={20} color="#F8FAFC" />
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  onPress={() => setShowMediaFilterSheet(true)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: (mediaFilters.hasNoteOnly || !mediaFilters.types.photo || !mediaFilters.types.video || !mediaFilters.types.doc || mediaFilters.dateFrom || mediaFilters.dateTo || mediaFilters.sortBy !== 'date_desc') ? 'rgba(255, 122, 26, 0.2)' : '#101826',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: 8,
+                    borderWidth: 1,
+                    borderColor: (mediaFilters.hasNoteOnly || !mediaFilters.types.photo || !mediaFilters.types.video || !mediaFilters.types.doc || mediaFilters.dateFrom || mediaFilters.dateTo || mediaFilters.sortBy !== 'date_desc') ? 'rgba(255, 122, 26, 0.35)' : 'rgba(148, 163, 184, 0.25)'
+                  }}
+                >
+                  <Ionicons name="filter" size={20} color={(mediaFilters.hasNoteOnly || !mediaFilters.types.photo || !mediaFilters.types.video || !mediaFilters.types.doc || mediaFilters.dateFrom || mediaFilters.dateTo || mediaFilters.sortBy !== 'date_desc') ? '#FF7A1A' : '#F8FAFC'} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleShareProject}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: '#101826',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="share" size={20} color="#F8FAFC" />
+                </TouchableOpacity>
+              </>
             )}
           </View>
         </View>
@@ -1721,7 +1805,7 @@ function ProjectDetailContent() {
       {/* Media List/Grid */}
 
       <AnimatedFlatList
-        data={media}
+        data={filteredMedia}
         keyExtractor={(item: any) => (item as MediaItem).id}
         contentContainerStyle={{ 
           paddingHorizontal: 16, 
@@ -1757,7 +1841,7 @@ function ProjectDetailContent() {
         style={{ position: 'absolute', right: 20, bottom: insets.bottom + FAB_BOTTOM_OFFSET }}
       />
 
-      {/* Folder Creation Modal */}
+  {/* Folder Creation Modal */}
       {showFolderModal && (
         <GlassModal visible={showFolderModal} onRequestClose={() => setShowFolderModal(false)}>
           <View style={{ padding: 24 }}>
@@ -1874,7 +1958,28 @@ function ProjectDetailContent() {
         message={actionSheet.message}
         actions={actionSheet.actions || []}
       />
-    </View>
+
+      {/* Media Filters & Sort */}
+      <GlassActionSheet
+        visible={showMediaFilterSheet}
+        onClose={() => setShowMediaFilterSheet(false)}
+        title="Media Filters & Sort"
+        actions={[
+          { label: `${mediaFilters.types.photo ? '✓ ' : ''}Photos`, onPress: () => setMediaFilters(v => ({ ...v, types: { ...v.types, photo: !v.types.photo } })) },
+          { label: `${mediaFilters.types.video ? '✓ ' : ''}Videos`, onPress: () => setMediaFilters(v => ({ ...v, types: { ...v.types, video: !v.types.video } })) },
+          { label: `${mediaFilters.types.doc ? '✓ ' : ''}Documents`, onPress: () => setMediaFilters(v => ({ ...v, types: { ...v.types, doc: !v.types.doc } })) },
+          { label: `${mediaFilters.hasNoteOnly ? '✓ ' : ''}Has notes only`, onPress: () => setMediaFilters(v => ({ ...v, hasNoteOnly: !v.hasNoteOnly })) },
+          { label: `Sort: Newest first ${mediaFilters.sortBy==='date_desc' ? '✓' : ''}`, onPress: () => setMediaFilters(v => ({ ...v, sortBy: 'date_desc' })) },
+          { label: `Sort: Oldest first ${mediaFilters.sortBy==='date_asc' ? '✓' : ''}`, onPress: () => setMediaFilters(v => ({ ...v, sortBy: 'date_asc' })) },
+          { label: `Sort: Name A–Z ${mediaFilters.sortBy==='name_asc' ? '✓' : ''}`, onPress: () => setMediaFilters(v => ({ ...v, sortBy: 'name_asc' })) },
+          { label: `Sort: Type A–Z ${mediaFilters.sortBy==='type_asc' ? '✓' : ''}`, onPress: () => setMediaFilters(v => ({ ...v, sortBy: 'type_asc' })) },
+          { label: `${mediaFilters.dateFrom ? '✓ ' : ''}Date: Last 7 days`, onPress: () => setMediaFilters(v => ({ ...v, dateFrom: Date.now() - 7*24*60*60*1000, dateTo: null })) },
+          { label: `${mediaFilters.dateFrom ? '✓ ' : ''}Date: Last 30 days`, onPress: () => setMediaFilters(v => ({ ...v, dateFrom: Date.now() - 30*24*60*60*1000, dateTo: null })) },
+          { label: 'Date: Any', onPress: () => setMediaFilters(v => ({ ...v, dateFrom: null, dateTo: null })) },
+          { label: 'Clear all filters', onPress: () => setMediaFilters({ types: { photo: true, video: true, doc: true }, hasNoteOnly: false, sortBy: 'date_desc', dateFrom: null, dateTo: null }) },
+        ]}
+      />
+  </View>
   );
 }
 
