@@ -53,6 +53,24 @@ export default function Settings() {
   const [showErrorSheet, setShowErrorSheet] = React.useState(false);
   const [sheetMessage, setSheetMessage] = React.useState('');
   const [showAboutSheet, setShowAboutSheet] = React.useState(false);
+  const [preferDbFiltering, setPreferDbFiltering] = React.useState(false);
+
+  // Load/save performance preference
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem('@buildvault/use-db-filtering');
+        if (raw) setPreferDbFiltering(raw === 'true');
+      } catch {}
+    })();
+  }, []);
+  React.useEffect(() => {
+    (async () => {
+      try {
+        await AsyncStorage.setItem('@buildvault/use-db-filtering', String(preferDbFiltering));
+      } catch {}
+    })();
+  }, [preferDbFiltering]);
   const handleClearAllData = () => {
     setShowDangerSheet(true);
   };
@@ -73,7 +91,10 @@ export default function Settings() {
           key === 'projectViewMode' ||
           key === 'note_encouragement_settings' ||
           key === GLASS_THEME_STORAGE_KEY ||
+          key === '@buildvault/use-db-filtering' ||
+          key === '@buildvault/project-filters' ||
           key.startsWith('prompt_shown_')
+          || key.startsWith('@buildvault/media-filters/')
         );
 
         if (keysToRemove.length > 0) {
@@ -454,6 +475,32 @@ export default function Settings() {
                         galleryOverlays: value 
                       } 
                     });
+                  }}
+                />
+              </View>
+
+              {/* Performance: Prefer DB Filtering */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                paddingVertical: 12,
+                borderTopWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                    Prefer DB Filtering
+                  </Text>
+                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                    Use SQLite queries for filters/sort on large lists
+                  </Text>
+                </View>
+                <GlassSwitch
+                  value={preferDbFiltering}
+                  onValueChange={(value) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setPreferDbFiltering(value);
                   }}
                 />
               </View>

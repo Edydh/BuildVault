@@ -64,6 +64,17 @@ function ProjectDetailContent() {
     dateTo: null,
   });
   const [showMediaFilterSheet, setShowMediaFilterSheet] = useState(false);
+  const [preferDbFiltering, setPreferDbFiltering] = useState(false);
+
+  // Load global performance preference
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem('@buildvault/use-db-filtering');
+        if (raw) setPreferDbFiltering(raw === 'true');
+      } catch {}
+    })();
+  }, []);
 
   // Create Animated components
   const AnimatedFlatList = Reanimated.createAnimatedComponent(FlatList);
@@ -207,12 +218,12 @@ function ProjectDetailContent() {
   }, [id, mediaFilters]);
 
   // Derived filtered/sorted media
+  const isLarge = media.length >= 300;
   const filteredMedia = React.useMemo(() => {
     const { types, hasNoteOnly, dateFrom, dateTo, sortBy } = mediaFilters;
     const allTypes = types.photo && types.video && types.doc;
     const hasActiveFilters = hasNoteOnly || !allTypes || !!dateFrom || !!dateTo || sortBy !== 'date_desc';
-    const isLarge = media.length >= 300;
-    if (hasActiveFilters && (isLarge || currentFolder !== null)) {
+    if (hasActiveFilters && (preferDbFiltering || isLarge || currentFolder !== null)) {
       const selectedTypes: Array<MediaItem['type']> = [];
       if (types.photo) selectedTypes.push('photo');
       if (types.video) selectedTypes.push('video');
@@ -248,7 +259,7 @@ function ProjectDetailContent() {
       }
     });
     return sorted;
-  }, [media, mediaFilters, currentFolder, id]);
+  }, [media, mediaFilters, currentFolder, id, preferDbFiltering, isLarge]);
 
   // Load view mode preference when component mounts
   useEffect(() => {
@@ -1981,6 +1992,7 @@ function ProjectDetailContent() {
         visible={showMediaFilterSheet}
         onClose={() => setShowMediaFilterSheet(false)}
         title="Media Filters & Sort"
+        message={(preferDbFiltering || isLarge || currentFolder !== null) ? 'Using DB-backed filtering for performance' : undefined}
         actions={[
           { label: `${mediaFilters.types.photo ? '✓ ' : ''}Photos`, onPress: () => setMediaFilters(v => ({ ...v, types: { ...v.types, photo: !v.types.photo } })) },
           { label: `${mediaFilters.types.video ? '✓ ' : ''}Videos`, onPress: () => setMediaFilters(v => ({ ...v, types: { ...v.types, video: !v.types.video } })) },
