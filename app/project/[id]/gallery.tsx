@@ -755,7 +755,7 @@ function PhotoGalleryContent() {
           position: 'absolute',
           top: 120, // Below the header
           right: 16,
-        }}>
+        }} pointerEvents="box-none">
           <GlassCard
             style={{
               paddingHorizontal: 16,

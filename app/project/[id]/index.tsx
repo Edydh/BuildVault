@@ -25,6 +25,7 @@ import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
 import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
+import { FAB_BOTTOM_OFFSET } from '../../../components/glass/layout';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 function ProjectDetailContent() {
@@ -1753,7 +1754,7 @@ function ProjectDetailContent() {
         icon="camera"
         size={60}
         onPress={handleCaptureMedia}
-        style={{ position: 'absolute', right: 20, bottom: insets.bottom + 90 }}
+        style={{ position: 'absolute', right: 20, bottom: insets.bottom + FAB_BOTTOM_OFFSET }}
       />
 
       {/* Folder Creation Modal */}

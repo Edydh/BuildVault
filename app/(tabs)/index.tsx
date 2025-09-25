@@ -24,6 +24,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { GlassHeader, GlassCard, GlassTextInput, GlassButton, GlassFAB, GlassModal, GlassActionSheet } from '../../components/glass';
+import { FAB_BOTTOM_OFFSET } from '../../components/glass/layout';
 import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
@@ -602,7 +603,7 @@ export default function ProjectsList() {
         icon="add"
         size={60}
         onPress={() => setShowCreate(true)}
-        style={{ position: 'absolute', right: 20, bottom: insets.bottom + 90 }}
+        style={{ position: 'absolute', right: 20, bottom: insets.bottom + FAB_BOTTOM_OFFSET }}
       />
 
       <GlassModal visible={showCreate} onRequestClose={() => setShowCreate(false)}>

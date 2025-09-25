@@ -860,7 +860,7 @@ function MediaDetailContent() {
               position: 'absolute',
               top: 12,
               right: 12,
-            }}>
+            }} pointerEvents="box-none">
               <GlassCard
                 style={{
                   paddingHorizontal: 16,
