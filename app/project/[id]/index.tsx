@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail } from '../../../lib/db';
+import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -209,6 +209,24 @@ function ProjectDetailContent() {
   // Derived filtered/sorted media
   const filteredMedia = React.useMemo(() => {
     const { types, hasNoteOnly, dateFrom, dateTo, sortBy } = mediaFilters;
+    const allTypes = types.photo && types.video && types.doc;
+    const hasActiveFilters = hasNoteOnly || !allTypes || !!dateFrom || !!dateTo || sortBy !== 'date_desc';
+    const isLarge = media.length >= 300;
+    if (hasActiveFilters && (isLarge || currentFolder !== null)) {
+      const selectedTypes: Array<MediaItem['type']> = [];
+      if (types.photo) selectedTypes.push('photo');
+      if (types.video) selectedTypes.push('video');
+      if (types.doc) selectedTypes.push('doc');
+      return getMediaFiltered(id!, {
+        folderId: currentFolder === undefined ? undefined : currentFolder,
+        types: selectedTypes.length === 3 ? undefined : selectedTypes,
+        hasNoteOnly,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+        sortBy,
+      });
+    }
+    // Fallback to in-memory pipeline for small/default cases
     const filtered = media.filter((m) => {
       if (!types[m.type]) return false;
       if (hasNoteOnly && !(m.note && m.note.trim().length > 0)) return false;
@@ -219,7 +237,6 @@ function ProjectDetailContent() {
     const sorted = [...filtered].sort((a, b) => {
       switch (sortBy) {
         case 'name_asc':
-          // approximate name via note or filename in uri
           return (a.note || a.uri).localeCompare(b.note || b.uri);
         case 'type_asc':
           return a.type.localeCompare(b.type);
@@ -231,7 +248,7 @@ function ProjectDetailContent() {
       }
     });
     return sorted;
-  }, [media, mediaFilters]);
+  }, [media, mediaFilters, currentFolder, id]);
 
   // Load view mode preference when component mounts
   useEffect(() => {

@@ -89,6 +89,19 @@ export function migrate() {
         console.log('Unexpected error adding folder_id column:', error);
       }
     }
+
+    // Create performance indexes (idempotent)
+    try {
+      db.execSync(`
+        CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(created_at);
+        CREATE INDEX IF NOT EXISTS idx_media_project_created_at ON media(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_media_project_type_created_at ON media(project_id, type, created_at);
+        CREATE INDEX IF NOT EXISTS idx_media_project_folder_created_at ON media(project_id, folder_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_media_project_note_present ON media(project_id) WHERE note IS NOT NULL AND length(trim(note)) > 0;
+      `);
+    } catch (error) {
+      console.log('Error creating indexes:', error);
+    }
   }, 'Database migration', false); // Don't show alert for expected errors
 }
 
@@ -206,6 +219,71 @@ export function getMediaById(id: string): MediaItem | null {
     const result = db.getFirstSync('SELECT * FROM media WHERE id = ?', [id]) as MediaItem | null;
     return result;
   }, 'Get media by ID');
+}
+
+export function getMediaFiltered(
+  projectId: string,
+  opts: {
+    folderId?: string | null;
+    types?: Array<MediaItem['type']>;
+    hasNoteOnly?: boolean;
+    dateFrom?: number | null;
+    dateTo?: number | null;
+    sortBy?: 'date_desc' | 'date_asc' | 'name_asc' | 'type_asc';
+  }
+): MediaItem[] {
+  return withErrorHandlingSync(() => {
+    const where: string[] = ['project_id = ?'];
+    const params: any[] = [projectId];
+
+    if (opts.folderId === null) {
+      where.push('folder_id IS NULL');
+    } else if (typeof opts.folderId === 'string') {
+      where.push('folder_id = ?');
+      params.push(opts.folderId);
+    }
+
+    if (opts.types && opts.types.length > 0 && opts.types.length < 3) {
+      const placeholders = opts.types.map(() => '?').join(',');
+      where.push(`type IN (${placeholders})`);
+      params.push(...opts.types);
+    }
+
+    if (opts.hasNoteOnly) {
+      where.push('note IS NOT NULL AND length(trim(note)) > 0');
+    }
+
+    if (opts.dateFrom) {
+      where.push('created_at >= ?');
+      params.push(opts.dateFrom);
+    }
+    if (opts.dateTo) {
+      where.push('created_at <= ?');
+      params.push(opts.dateTo);
+    }
+
+    const sortBy = opts.sortBy || 'date_desc';
+    let orderBy = 'ORDER BY created_at DESC';
+    switch (sortBy) {
+      case 'date_asc':
+        orderBy = 'ORDER BY created_at ASC';
+        break;
+      case 'name_asc':
+        orderBy = 'ORDER BY COALESCE(note, uri) COLLATE NOCASE ASC, created_at DESC';
+        break;
+      case 'type_asc':
+        orderBy = 'ORDER BY type ASC, created_at DESC';
+        break;
+      case 'date_desc':
+      default:
+        orderBy = 'ORDER BY created_at DESC';
+        break;
+    }
+
+    const sql = `SELECT * FROM media WHERE ${where.join(' AND ')} ${orderBy}`;
+    const result = db.getAllSync(sql, params) as MediaItem[];
+    return result;
+  }, 'Get media filtered');
 }
 
 // User management functions
