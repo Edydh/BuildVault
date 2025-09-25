@@ -64,7 +64,7 @@ export const GlassTextInput: React.FC<GlassTextInputProps> = ({
           {
             backgroundColor:
               Platform.OS === 'android'
-                ? 'rgba(30, 41, 59, 0.85)'
+                ? (isFocused ? 'rgba(30, 41, 59, 0.95)' : 'rgba(30, 41, 59, 0.85)')
                 : theme.colors.background,
             borderColor: resolvedBorderColor,
           },
@@ -123,5 +123,4 @@ const styles = StyleSheet.create({
 });
 
 export default GlassTextInput;
-
 
