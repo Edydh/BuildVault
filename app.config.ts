@@ -1,6 +1,7 @@
 import type { ExpoConfig } from 'expo/config';
 
 // Load env from process.env (EAS sets these; locally loaded from .env by expo-cli)
+// These are public values, not secrets - Supabase anon keys are meant to be public
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 

@@ -6,15 +6,25 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "SUPABASE_URL": "public",
+        "SUPABASE_ANON_KEY": "public"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "SUPABASE_URL": "public",
+        "SUPABASE_ANON_KEY": "public"
+      }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "SUPABASE_URL": "public",
+        "SUPABASE_ANON_KEY": "public"
       }
     }
   }
