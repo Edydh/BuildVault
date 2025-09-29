@@ -675,7 +675,7 @@ export default function Settings() {
         <SettingItem
           icon="information-circle"
           title="About BuildVault"
-          subtitle="Version 1.0.1"
+          subtitle="Version 1.0.2"
           onPress={handleAbout}
         />
 
@@ -781,7 +781,7 @@ export default function Settings() {
         visible={showAboutSheet}
         onClose={() => setShowAboutSheet(false)}
         title="About BuildVault"
-        message={'BuildVault v1.0.1\n\nA comprehensive construction project management app for organizing projects, capturing media, and managing documentation.\n\n© 2025 uniQubit\nBuilt with React Native & Expo'}
+        message={'BuildVault v1.0.2\n\nA comprehensive construction project management app for organizing projects, capturing media, and managing documentation.\n\n© 2025 uniQubit\nBuilt with React Native & Expo'}
         actions={[
           {
             label: 'OK',
