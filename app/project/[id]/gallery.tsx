@@ -422,7 +422,7 @@ function FullScreenPhotoViewer({
               fontSize: 12,
               fontWeight: '500',
             }}>
-              Tap to show controls • Double-tap to reset zoom
+              Tap edges to toggle controls • Tap photo to reset zoom
             </Text>
           </View>
         </View>
