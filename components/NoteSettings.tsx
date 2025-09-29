@@ -13,8 +13,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 interface NoteSettingsProps {
   onSettingsChange?: () => void;
 }
-
-interface NoteSettings {
+ 
+export interface NoteSettings {
   showPrompts: boolean;
   showVisualIndicators: boolean;
   showQuickAdd: boolean;
@@ -29,6 +29,27 @@ const DEFAULT_SETTINGS: NoteSettings = {
 };
 
 const STORAGE_KEY = 'note_encouragement_settings';
+
+type NoteSettingsListener = (settings: NoteSettings) => void;
+
+const noteSettingsListeners = new Set<NoteSettingsListener>();
+
+export const subscribeToNoteSettings = (listener: NoteSettingsListener) => {
+  noteSettingsListeners.add(listener);
+  return () => {
+    noteSettingsListeners.delete(listener);
+  };
+};
+
+const notifyNoteSettingsListeners = (settings: NoteSettings) => {
+  noteSettingsListeners.forEach((listener) => {
+    try {
+      listener(settings);
+    } catch (error) {
+      console.error('Error notifying note settings listener:', error);
+    }
+  });
+};
 
 export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
   const [settings, setSettings] = useState<NoteSettings>(DEFAULT_SETTINGS);
@@ -58,6 +79,7 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
       setSettings(newSettings);
       onSettingsChange?.();
+      notifyNoteSettingsListeners(newSettings);
     } catch (error) {
       console.error('Error saving note settings:', error);
       Alert.alert('Error', 'Failed to save settings');

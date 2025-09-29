@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassCard } from './glass';
+import { getNoteSettings, subscribeToNoteSettings } from './NoteSettings';
 
 interface NoteEncouragementProps {
   mediaId: string;
@@ -24,12 +24,15 @@ export default function NoteEncouragement({
   onAddNotePress,
 }: NoteEncouragementProps) {
   const [pulseAnim] = useState(new Animated.Value(1));
-  const insets = useSafeAreaInsets();
-
+  const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const [showVisualIndicators, setShowVisualIndicators] = useState(true);
   // Pulse animation for visual indicator
   useEffect(() => {
-    if (!hasNote) {
-      const pulse = Animated.loop(
+    const startPulse = () => {
+      if (pulseLoopRef.current) {
+        return;
+      }
+      pulseLoopRef.current = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
             toValue: 1.2,
@@ -43,10 +46,50 @@ export default function NoteEncouragement({
           }),
         ])
       );
-      pulse.start();
-      return () => pulse.stop();
+      pulseLoopRef.current.start();
+    };
+
+    const stopPulse = () => {
+      if (pulseLoopRef.current) {
+        pulseLoopRef.current.stop();
+        pulseLoopRef.current = null;
+      }
+      pulseAnim.setValue(1);
+    };
+
+    if (!hasNote && showVisualIndicators) {
+      startPulse();
+    } else {
+      stopPulse();
     }
-  }, [hasNote]);
+
+    return () => {
+      stopPulse();
+    };
+  }, [hasNote, showVisualIndicators, pulseAnim]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    getNoteSettings()
+      .then((settings) => {
+        if (isMounted) {
+          setShowVisualIndicators(settings.showVisualIndicators);
+        }
+      })
+      .catch((error) => {
+        console.error('Error loading note indicator settings:', error);
+      });
+
+    const unsubscribe = subscribeToNoteSettings((settings) => {
+      setShowVisualIndicators(settings.showVisualIndicators);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   const handleAddNotePress = () => {
     // Navigate to media detail view instead of showing modal
@@ -55,7 +98,7 @@ export default function NoteEncouragement({
   };
 
   // Visual indicator for media without notes
-  if (!hasNote) {
+  if (!hasNote && showVisualIndicators) {
     return (
       <View style={{
         position: 'absolute',
