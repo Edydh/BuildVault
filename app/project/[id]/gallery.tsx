@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MediaItem, getMediaByProject, updateMediaNote } from '../../../lib/db';
+import { MediaItem, getMediaByProject, getMediaByFolder, updateMediaNote } from '../../../lib/db';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
@@ -432,11 +432,23 @@ function FullScreenPhotoViewer({
 }
 
 function PhotoGalleryContent() {
-  const { id, initialIndex } = useLocalSearchParams<{ id: string; initialIndex: string }>();
+  const { id, initialIndex, folderId } = useLocalSearchParams<{
+    id: string;
+    initialIndex?: string;
+    folderId?: string;
+  }>();
+  const parsedInitialIndex = Number.parseInt(initialIndex ?? '0', 10);
+  const resolvedInitialIndex = Number.isNaN(parsedInitialIndex) ? 0 : Math.max(0, parsedInitialIndex);
+  const normalizedFolderId: string | null | undefined =
+    folderId === undefined || folderId === 'undefined'
+      ? undefined
+      : folderId === '' || folderId === 'null'
+        ? null
+        : folderId;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [media, setMedia] = useState<MediaItem[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(parseInt(initialIndex || '0'));
+  const [currentIndex, setCurrentIndex] = useState(resolvedInitialIndex);
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [note, setNote] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
@@ -502,13 +514,19 @@ function PhotoGalleryContent() {
 
     const loadMedia = async () => {
       try {
-        const allMedia = getMediaByProject(id);
+        const sourceMedia = normalizedFolderId === undefined
+          ? getMediaByProject(id)
+          : getMediaByFolder(id, normalizedFolderId);
         // Filter only photos for the gallery
-        const photos = allMedia.filter(item => item.type === 'photo');
+        const photos = sourceMedia.filter(item => item.type === 'photo');
         setMedia(photos);
-        // Set initial note for the first photo
+
+        const safeIndex = photos.length > 0 ? Math.min(resolvedInitialIndex, photos.length - 1) : 0;
+        setCurrentIndex(prev => (prev === safeIndex ? prev : safeIndex));
+
+        // Set initial note for the current photo
         if (photos.length > 0) {
-          const currentPhoto = photos[parseInt(initialIndex || '0')];
+          const currentPhoto = photos[safeIndex];
           setNote(currentPhoto?.note || '');
           
           // Check if we should show note prompt for current photo
@@ -528,7 +546,7 @@ function PhotoGalleryContent() {
     };
 
     loadMedia();
-  }, [id]);
+  }, [id, normalizedFolderId, resolvedInitialIndex]);
 
   React.useEffect(() => {
     // Scroll to initial index when media is loaded

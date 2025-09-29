@@ -1041,7 +1041,8 @@ function ProjectDetailContent() {
         if (item.type === 'photo') {
           // For photos, find the index and navigate to gallery
           const photoIndex = media.filter(m => m.type === 'photo').findIndex(m => m.id === item.id);
-          router.push(`/project/${id}/gallery?initialIndex=${photoIndex}`);
+          const folderQueryParam = `&folderId=${encodeURIComponent(currentFolder ?? '')}`;
+          router.push(`/project/${id}/gallery?initialIndex=${photoIndex}${folderQueryParam}`);
         } else {
           // For videos and documents, navigate to media detail
           router.push(`/project/${id}/media/${item.id}`);
@@ -1322,7 +1323,8 @@ function ProjectDetailContent() {
         if (item.type === 'photo') {
           // For photos, find the index and navigate to gallery
           const photoIndex = media.filter(m => m.type === 'photo').findIndex(m => m.id === item.id);
-          router.push(`/project/${id}/gallery?initialIndex=${photoIndex}`);
+          const folderQueryParam = `&folderId=${encodeURIComponent(currentFolder ?? '')}`;
+          router.push(`/project/${id}/gallery?initialIndex=${photoIndex}${folderQueryParam}`);
         } else {
           // For videos and documents, navigate to media detail
           router.push(`/project/${id}/media/${item.id}`);
