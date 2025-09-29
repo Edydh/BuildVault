@@ -20,7 +20,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MediaItem, getMediaByProject, updateMediaNote } from '../../../lib/db';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import LazyImage from '../../../components/LazyImage';
