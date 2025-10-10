@@ -78,6 +78,7 @@ BuildVault is a React Native construction project management app built with Expo
   - Scroll animations: Dynamic header and tab bar transparency
   - Cross-platform: Optimized for both iOS and Android
   - Project editing: Full CRUD modal with glass UI
+  - Project gallery & media detail: Glass headers, overlays, and action sheets now live end-to-end
 
 ## Critical Issues Identified
 

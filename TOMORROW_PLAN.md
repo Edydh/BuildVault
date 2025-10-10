@@ -28,48 +28,42 @@
 
 ---
 
-## 🎯 Tomorrow's Priorities (September 17, 2025)
+## 🎯 Updated Priorities (September 17, 2025)
 
-### Priority 1: Glassify Remaining Project Screens
-1) Gallery (`app/project/[id]/gallery.tsx`)
-   - Add `GlassHeader` with back/toolbar
-   - Use `GlassCard` overlays for metadata and counters
-   - Hook into `ScrollContext` for fade/translate
+### ✅ Completed Since Last Plan
+- Gallery screen (`app/project/[id]/gallery.tsx`) now runs full glass header, overlays, and delete/share action sheets.
+- Media detail screen (`app/project/[id]/media/[mediaId].tsx`) ships with glass toolbars, overlays, and Hermes-ready action sheets.
+- FAB spacing helpers (`components/glass/layout.ts`) and Android input focus polish (`components/glass/GlassTextInput.tsx`) verified across project flows.
 
-2) Media Detail (`app/project/[id]/media/[mediaId].tsx`)
-   - Glass top/bottom toolbars (share, delete, info)
-   - Use `GlassActionSheet` for actions
-   - Ensure video/photo viewer theme contrast
-
-### Priority 2: Consistency & Polish
-- Unify FAB spacing across Projects and Project Detail
-- Calibrate input focus states (border/cursor) on Android
-- Verify safe-area and keyboard avoidance in all modals
-
-### Priority 3: Performance & QA
+### Priority 1: Performance & QA
 - Audit blur intensity on Android (prefer darker bg + lower blur)
 - Test heavy lists (grid/list) for frame drops
 - Add quick perf flag in `GlassThemeProvider` (reduced effects)
 
-### Priority 4: Nice-to-haves (time permitting)
+### Priority 2: Consistency & Polish
+- Reconfirm safe-area and keyboard avoidance in all modals after recent tweaks
+- Spot-check FAB alignment in edge cases (e.g., tablets, landscape)
+- Ensure glass overlays degrade gracefully when `quickPerformanceMode` is active
+
+### Priority 3: Nice-to-haves (time permitting)
 - Convert remaining alerts (Sign Out sheet already routed) and About dialog
-- Small haptic cues on action-sheet selections
+- Add light haptics on action-sheet selections and critical buttons
 
 ---
 
 ## 📋 Timeboxed Plan
 
 Morning (9–12)
-- Gallery glass header + overlays
-- Media Detail toolbars skeleton
+- Run Android blur/performance audit across gallery and media detail
+- Add/verify quick performance flag handling in `GlassThemeProvider`
 
 Afternoon (1–5)
-- Wire `GlassActionSheet` actions, share/delete flows
-- Tune Android contrast and performance
+- Stress-test large project galleries and grids; profile for frame drops
+- Revisit modal safe-area + keyboard avoidance; adjust spacing helpers if needed
 
 Late (5–6)
-- QA pass on iOS + Android devices
-- Commit, push, and update docs
+- QA pass on both platforms with `quickPerformanceMode` toggled
+- Commit, push, and capture perf findings in docs
 
 ---
 
@@ -89,4 +83,3 @@ Late (5–6)
 ## 📝 Notes
 - Prefer darker backgrounds on Android (`rgba(16,24,38,…)`) with `tint="dark"`
 - Use `GlassActionSheet` for all destructive actions going forward
-
