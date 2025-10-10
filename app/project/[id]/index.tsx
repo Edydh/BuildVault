@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered } from '../../../lib/db';
+import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -42,6 +42,8 @@ function ProjectDetailContent() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [folderModalMode, setFolderModalMode] = useState<'create' | 'edit'>('create');
+  const [folderBeingEdited, setFolderBeingEdited] = useState<Folder | null>(null);
   const [actionSheet, setActionSheet] = useState<{
     visible: boolean;
     title?: string;
@@ -129,7 +131,7 @@ function ProjectDetailContent() {
     }
   }, []);
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback((folderOverride?: string | null) => {
     if (!id) return;
 
     try {
@@ -147,7 +149,8 @@ function ProjectDetailContent() {
       setFolders(projectFolders);
 
       // Get media for current folder (or root if no folder selected)
-      const mediaItems = getMediaByFolder(id, currentFolder);
+      const targetFolder = folderOverride !== undefined ? folderOverride : currentFolder;
+      const mediaItems = getMediaByFolder(id, targetFolder);
       setMedia(mediaItems);
       
       // Check for videos that need thumbnail regeneration
@@ -577,63 +580,123 @@ function ProjectDetailContent() {
   };
 
   // Folder management functions
-  const handleCreateFolder = () => {
-    if (!newFolderName.trim()) {
+  const resetFolderForm = () => {
+    setFolderModalMode('create');
+    setFolderBeingEdited(null);
+    setNewFolderName('');
+  };
+
+  const closeFolderModal = () => {
+    setShowFolderModal(false);
+    resetFolderForm();
+  };
+
+  const openCreateFolderModal = () => {
+    resetFolderForm();
+    setShowFolderModal(true);
+  };
+
+  const startRenameFolder = (folder: Folder) => {
+    setFolderModalMode('edit');
+    setFolderBeingEdited(folder);
+    setNewFolderName(folder.name);
+    setShowFolderModal(true);
+  };
+
+  const handleFolderSubmit = () => {
+    const trimmedName = newFolderName.trim();
+    if (!trimmedName) {
       Alert.alert('Error', 'Please enter a folder name');
       return;
     }
 
     try {
-      const folder = createFolder({
-        project_id: id!,
-        name: newFolderName.trim(),
-      });
-      
-      setFolders(prev => [...prev, folder]);
-      setNewFolderName('');
-      setShowFolderModal(false);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      Alert.alert('Success', 'Folder created successfully!');
+      if (folderModalMode === 'edit' && folderBeingEdited) {
+        const folderId = folderBeingEdited.id;
+        updateFolderName(folderId, trimmedName);
+        setFolders(prev =>
+          prev.map(folder =>
+            folder.id === folderId ? { ...folder, name: trimmedName } : folder
+          )
+        );
+        closeFolderModal();
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Alert.alert('Success', 'Folder renamed successfully!');
+        loadData(folderId);
+      } else {
+        const folder = createFolder({
+          project_id: id!,
+          name: trimmedName,
+        });
+        setFolders(prev => [...prev, folder]);
+        closeFolderModal();
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        Alert.alert('Success', 'Folder created successfully!');
+        loadData(currentFolder ?? null);
+      }
     } catch (error) {
-      console.error('Error creating folder:', error);
-      Alert.alert('Error', 'Failed to create folder');
+      console.error('Error saving folder:', error);
+      Alert.alert('Error', folderModalMode === 'edit' ? 'Failed to rename folder' : 'Failed to create folder');
     }
   };
 
-  const handleDeleteFolder = (folderId: string, folderName: string) => {
-    Alert.alert(
-      'Delete Folder',
-      `Are you sure you want to delete "${folderName}"? All media in this folder will be moved to the root level.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
+  const confirmDeleteFolder = (folder: Folder) => {
+    setActionSheet({
+      visible: true,
+      title: `Delete "${folder.name}"`,
+      message: 'All media in this folder will be moved back to All Media.',
+      actions: [
         {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            try {
-              deleteFolder(folderId);
-              setFolders(prev => prev.filter(f => f.id !== folderId));
-              
-              // If we're currently viewing this folder, go back to root
-              if (currentFolder === folderId) {
-                setCurrentFolder(null);
-              }
-              
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              Alert.alert('Success', 'Folder deleted successfully!');
-            } catch (error) {
-              console.error('Error deleting folder:', error);
-              Alert.alert('Error', 'Failed to delete folder');
-            }
-          },
+          label: 'Delete Folder',
+          destructive: true,
+          onPress: () => executeDeleteFolder(folder),
         },
-      ]
-    );
+      ],
+    });
+  };
+
+  const executeDeleteFolder = (folder: Folder) => {
+    try {
+      deleteFolder(folder.id);
+      setFolders(prev => prev.filter(f => f.id !== folder.id));
+
+      const nextFolder = currentFolder === folder.id ? null : currentFolder;
+      if (currentFolder === folder.id) {
+        setCurrentFolder(null);
+      }
+
+      loadData(nextFolder ?? null);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Alert.alert('Success', 'Folder deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting folder:', error);
+      Alert.alert('Error', 'Failed to delete folder');
+    }
   };
 
   const handleSelectFolder = (folderId: string | null) => {
     setCurrentFolder(folderId);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    loadData(folderId ?? null);
+  };
+
+  const openFolderOptions = (folder: Folder) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setActionSheet({
+      visible: true,
+      title: folder.name,
+      actions: [
+        {
+          label: 'Rename Folder',
+          onPress: () => startRenameFolder(folder),
+        },
+        {
+          label: 'Delete Folder',
+          destructive: true,
+          onPress: () => confirmDeleteFolder(folder),
+        },
+      ],
+    });
   };
 
   const handleMoveMedia = (mediaItem: MediaItem) => {
@@ -1782,6 +1845,8 @@ function ProjectDetailContent() {
                   >
                     <TouchableOpacity
                       onPress={() => handleSelectFolder(folder.id)}
+                      onLongPress={() => openFolderOptions(folder)}
+                      delayLongPress={200}
                       style={{
                         paddingHorizontal: 12,
                         paddingVertical: 8,
@@ -1798,6 +1863,12 @@ function ProjectDetailContent() {
                       }}>
                         {folder.name}
                       </Text>
+                      <Ionicons
+                        name="ellipsis-horizontal"
+                        size={14}
+                        color={currentFolder === folder.id ? '#FF7A1A' : '#94A3B8'}
+                        style={{ marginLeft: 6 }}
+                      />
                     </TouchableOpacity>
                   </GlassCard>
                 ))}
@@ -1811,7 +1882,7 @@ function ProjectDetailContent() {
                   shadowEnabled={true}
                 >
                   <TouchableOpacity
-                    onPress={() => setShowFolderModal(true)}
+                    onPress={openCreateFolderModal}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 8,
@@ -1897,7 +1968,7 @@ function ProjectDetailContent() {
 
   {/* Folder Creation Modal */}
       {showFolderModal && (
-        <GlassModal visible={showFolderModal} onRequestClose={() => setShowFolderModal(false)}>
+        <GlassModal visible={showFolderModal} onRequestClose={closeFolderModal}>
           <View style={{ padding: 24 }}>
             <Text style={{ 
               color: '#F8FAFC', 
@@ -1906,7 +1977,7 @@ function ProjectDetailContent() {
               marginBottom: 16,
               textAlign: 'center'
             }}>
-              Create New Folder
+              {folderModalMode === 'edit' ? 'Rename Folder' : 'Create New Folder'}
             </Text>
             
             <GlassTextInput
@@ -1916,10 +1987,10 @@ function ProjectDetailContent() {
               label="Folder Name"
               value={newFolderName}
               onChangeText={setNewFolderName}
-              placeholder="Enter folder name..."
+              placeholder={folderModalMode === 'edit' ? 'Update folder name...' : 'Enter folder name...'}
               autoFocus
               returnKeyType="done"
-              onSubmitEditing={handleCreateFolder}
+              onSubmitEditing={handleFolderSubmit}
             />
             
             <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -1927,17 +1998,14 @@ function ProjectDetailContent() {
                 variant="secondary"
                 size="large"
                 title="Cancel"
-                onPress={() => {
-                  setShowFolderModal(false);
-                  setNewFolderName('');
-                }}
+                onPress={closeFolderModal}
                 style={{ flex: 1 }}
               />
               <GlassButton
                 variant="primary"
                 size="large"
-                title="Create"
-                onPress={handleCreateFolder}
+                title={folderModalMode === 'edit' ? 'Save' : 'Create'}
+                onPress={handleFolderSubmit}
                 style={{ flex: 1 }}
               />
             </View>
