@@ -26,6 +26,7 @@ const config: ExpoConfig = {
     ],
     'expo-apple-authentication',
     'expo-secure-store',
+    'expo-web-browser',
   ],
   splash: {
     image: './assets/splash-icon.png',

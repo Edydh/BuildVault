@@ -18,7 +18,7 @@
     "@supabase/supabase-js": "^2.57.2",
     "babel-plugin-module-resolver": "^5.0.0",
     "cosmiconfig": "^9.0.0",
-    "expo": "~54.0.10",
+    "expo": "54.0.13",
     "expo-apple-authentication": "~8.0.7",
     "expo-auth-session": "~7.0.8",
     "expo-av": "~16.0.7",
@@ -26,16 +26,16 @@
     "expo-camera": "~17.0.8",
     "expo-constants": "~18.0.8",
     "expo-crypto": "~15.0.7",
-    "expo-dev-client": "~6.0.12",
+    "expo-dev-client": "~6.0.14",
     "expo-document-picker": "~14.0.7",
     "expo-file-system": "~19.0.13",
     "expo-font": "~14.0.8",
     "expo-haptics": "~15.0.7",
-    "expo-image": "~3.0.8",
+    "expo-image": "~3.0.9",
     "expo-image-manipulator": "~14.0.7",
     "expo-linear-gradient": "~15.0.7",
     "expo-linking": "~8.0.8",
-    "expo-router": "~6.0.8",
+    "expo-router": "~6.0.11",
     "expo-secure-store": "~15.0.7",
     "expo-sharing": "~14.0.7",
     "expo-splash-screen": "~31.0.10",
@@ -43,7 +43,7 @@
     "expo-status-bar": "~3.0.8",
     "expo-video": "~3.0.11",
     "expo-video-thumbnails": "~10.0.7",
-    "expo-web-browser": "~15.0.7",
+    "expo-web-browser": "~15.0.8",
     "jsonwebtoken": "^9.0.2",
     "npm-package-arg": "^13.0.0",
     "patch-package": "^8.0.0",
@@ -72,6 +72,7 @@
   "overrides": {
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "react-native-renderer": "19.1.0"
+    "react-native-renderer": "19.1.0",
+    "expo-dev-menu": "7.0.14"
   }
 }
