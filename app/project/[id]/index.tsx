@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity, updateActivity, deleteActivity } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -44,6 +44,11 @@ const MANUAL_ACTIVITY_OPTIONS: Array<{
   { value: 'meeting_notes', label: 'Meeting', icon: 'document-text-outline', color: bvColors.brand.primaryLight },
   { value: 'site_visit', label: 'Site Visit', icon: 'car-outline', color: bvColors.brand.primaryLight },
 ];
+const MANUAL_ACTIVITY_TYPES = new Set<ManualActivityType>(MANUAL_ACTIVITY_OPTIONS.map((option) => option.value));
+
+function isManualActivityType(value: string): value is ManualActivityType {
+  return MANUAL_ACTIVITY_TYPES.has(value as ManualActivityType);
+}
 
 function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -128,6 +133,8 @@ function ProjectDetailContent() {
   const [noteText, setNoteText] = useState<string>('');
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
+  const [activityModalMode, setActivityModalMode] = useState<'create' | 'edit'>('create');
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [manualActivityType, setManualActivityType] = useState<ManualActivityType>('material_purchase');
   const [manualActivityDescription, setManualActivityDescription] = useState('');
   const [manualActivityAmount, setManualActivityAmount] = useState('');
@@ -530,6 +537,8 @@ function ProjectDetailContent() {
   };
 
   const handleOpenActivityModal = () => {
+    setActivityModalMode('create');
+    setEditingActivityId(null);
     setManualActivityType('material_purchase');
     setManualActivityDescription('');
     setManualActivityAmount('');
@@ -538,8 +547,92 @@ function ProjectDetailContent() {
 
   const handleCloseActivityModal = () => {
     setShowActivityModal(false);
+    setActivityModalMode('create');
+    setEditingActivityId(null);
     setManualActivityDescription('');
     setManualActivityAmount('');
+  };
+
+  const parseActivityAmount = (metadata: Record<string, unknown> | null): string => {
+    if (!metadata) return '';
+    if (typeof metadata.amount === 'number' && Number.isFinite(metadata.amount)) {
+      return String(metadata.amount);
+    }
+    if (typeof metadata.amount === 'string') {
+      const parsed = Number(metadata.amount);
+      return Number.isFinite(parsed) ? String(parsed) : '';
+    }
+    return '';
+  };
+
+  const handleEditActivityPress = (entry: {
+    id: string;
+    actionType: string;
+    metadataRaw: string | null;
+  }) => {
+    if (!isManualActivityType(entry.actionType)) {
+      return;
+    }
+
+    const metadata = parseActivityMetadata(entry.metadataRaw);
+    const description = typeof metadata?.description === 'string' ? metadata.description.trim() : '';
+
+    setActivityModalMode('edit');
+    setEditingActivityId(entry.id);
+    setManualActivityType(entry.actionType);
+    setManualActivityDescription(description);
+    setManualActivityAmount(parseActivityAmount(metadata));
+    setShowActivityModal(true);
+  };
+
+  const handleDeleteActivityPress = (entry: { id: string }) => {
+    setActionSheet({
+      visible: true,
+      title: 'Delete Activity',
+      message: 'This activity will be permanently removed from the timeline.',
+      actions: [
+        {
+          label: 'Delete Activity',
+          destructive: true,
+          onPress: () => {
+            try {
+              deleteActivity(entry.id);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              loadData();
+            } catch (error) {
+              console.error('Error deleting activity:', error);
+              Alert.alert('Error', 'Could not delete activity. Please try again.');
+            }
+          },
+        },
+      ],
+    });
+  };
+
+  const handleActivityCardPress = (entry: {
+    id: string;
+    actionType: string;
+    metadataRaw: string | null;
+    canManage: boolean;
+  }) => {
+    if (!entry.canManage) return;
+
+    setActionSheet({
+      visible: true,
+      title: 'Activity Options',
+      message: 'Manage this timeline entry.',
+      actions: [
+        {
+          label: 'Edit Activity',
+          onPress: () => handleEditActivityPress(entry),
+        },
+        {
+          label: 'Delete Activity',
+          destructive: true,
+          onPress: () => handleDeleteActivityPress(entry),
+        },
+      ],
+    });
   };
 
   const handleSaveActivity = () => {
@@ -562,16 +655,30 @@ function ProjectDetailContent() {
     }
 
     try {
-      createActivity(id, manualActivityType, null, {
-        description,
-        amount,
-      });
+      if (activityModalMode === 'edit') {
+        if (!editingActivityId) {
+          Alert.alert('Error', 'No activity selected to edit.');
+          return;
+        }
+        updateActivity(editingActivityId, {
+          actionType: manualActivityType,
+          metadata: {
+            description,
+            amount,
+          },
+        });
+      } else {
+        createActivity(id, manualActivityType, null, {
+          description,
+          amount,
+        });
+      }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       handleCloseActivityModal();
       loadData();
     } catch (error) {
-      console.error('Error creating manual activity:', error);
-      Alert.alert('Error', 'Could not add activity. Please try again.');
+      console.error('Error saving activity:', error);
+      Alert.alert('Error', activityModalMode === 'edit' ? 'Could not update activity. Please try again.' : 'Could not add activity. Please try again.');
     }
   };
 
@@ -678,11 +785,26 @@ function ProjectDetailContent() {
       : typeof metadata?.amount === 'string'
         ? Number(metadata.amount)
         : null;
+    const metadataEmail = typeof metadata?.email === 'string' ? metadata.email.trim() : '';
+    const metadataName = typeof metadata?.name === 'string' ? metadata.name.trim() : '';
+    const metadataRole = typeof metadata?.role === 'string' ? metadata.role.trim() : '';
+    const metadataFromRole = typeof metadata?.from_role === 'string' ? metadata.from_role.trim() : '';
+    const metadataToRole = typeof metadata?.to_role === 'string' ? metadata.to_role.trim() : '';
+    const metadataFromStatus = typeof metadata?.from_status === 'string' ? metadata.from_status.trim() : '';
+    const metadataToStatus = typeof metadata?.to_status === 'string' ? metadata.to_status.trim() : '';
     const folderName = typeof metadata?.name === 'string'
       ? metadata.name
       : typeof metadata?.to === 'string'
         ? metadata.to
         : 'folder';
+    const formatRoleLabel = (rawRole: string): string => {
+      if (!rawRole) return 'Team Member';
+      return rawRole.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+    };
+    const formatStatusLabel = (rawStatus: string): string => {
+      if (!rawStatus) return 'Status';
+      return rawStatus.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+    };
 
     switch (entry.action_type) {
       case 'project_created':
@@ -821,6 +943,72 @@ function ProjectDetailContent() {
           description: metadataDescription || 'Site visit was logged.',
           icon: 'car-outline',
           iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'member_invited':
+        return {
+          title: 'Member Invited',
+          description: metadataEmail
+            ? `Invitation sent to ${metadataEmail} as ${formatRoleLabel(metadataRole)}.`
+            : `Team invitation sent as ${formatRoleLabel(metadataRole)}.`,
+          icon: 'person-add-outline',
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'invite_accepted':
+        return {
+          title: 'Invite Accepted',
+          description: metadataName
+            ? `${metadataName} joined as ${formatRoleLabel(metadataRole)}.`
+            : `A team member joined as ${formatRoleLabel(metadataRole)}.`,
+          icon: 'checkmark-done-circle-outline',
+          iconBg: bvColors.semantic.success,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'member_added':
+        return {
+          title: 'Member Added',
+          description: metadataName
+            ? `${metadataName} was added as ${formatRoleLabel(metadataRole)}.`
+            : `A member was added as ${formatRoleLabel(metadataRole)}.`,
+          icon: 'person-add-outline',
+          iconBg: bvColors.semantic.success,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'member_role_updated':
+        return {
+          title: 'Member Role Updated',
+          description: metadataName
+            ? `${metadataName}: ${formatRoleLabel(metadataFromRole)} -> ${formatRoleLabel(metadataToRole)}.`
+            : `Role updated: ${formatRoleLabel(metadataFromRole)} -> ${formatRoleLabel(metadataToRole)}.`,
+          icon: 'swap-horizontal-outline',
+          iconBg: bvColors.semantic.warning,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'member_status_updated':
+        return {
+          title: 'Member Status Updated',
+          description: metadataName
+            ? `${metadataName}: ${formatStatusLabel(metadataFromStatus)} -> ${formatStatusLabel(metadataToStatus)}.`
+            : `Member status changed: ${formatStatusLabel(metadataFromStatus)} -> ${formatStatusLabel(metadataToStatus)}.`,
+          icon: 'pulse-outline',
+          iconBg: bvColors.semantic.warning,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'member_removed':
+        return {
+          title: 'Member Removed',
+          description: metadataName
+            ? `${metadataName} was removed from this project.`
+            : 'A team member was removed from this project.',
+          icon: 'person-remove-outline',
+          iconBg: bvColors.semantic.danger,
           iconColor: bvColors.neutral[0],
           expandable: false,
         };
@@ -1897,9 +2085,17 @@ function ProjectDetailContent() {
     return recentActivity.slice(0, 8).map((entry, index) => {
       const presentation = mapActivityPresentation(entry);
       const canExpand = presentation.expandable && projectPreviewUris.length > 0 && index === 0;
+      const canManage = isManualActivityType(entry.action_type);
+      const actorName = typeof entry.actor_name_snapshot === 'string' && entry.actor_name_snapshot.trim().length > 0
+        ? entry.actor_name_snapshot.trim()
+        : null;
       return {
         id: entry.id,
+        actionType: entry.action_type,
+        metadataRaw: entry.metadata ?? null,
+        canManage,
         timestampLabel: formatRelativeTime(entry.created_at),
+        actorName,
         previewUris: canExpand ? projectPreviewUris : [],
         expanded: canExpand,
         ...presentation,
@@ -2374,66 +2570,87 @@ function ProjectDetailContent() {
                         </View>
                       </View>
 
-                      <BVCard style={{ flex: 1 }} contentStyle={{ padding: 14 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: bvColors.text.primary, fontSize: 18, fontWeight: '700', lineHeight: 24 }}>
-                              {entry.title}
-                            </Text>
-                            <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 2 }}>
-                              {entry.timestampLabel}
-                            </Text>
+                      <View style={{ flex: 1 }}>
+                        <BVCard
+                          style={{ width: '100%' }}
+                          contentStyle={{ padding: 14 }}
+                          onPress={entry.canManage ? () => handleActivityCardPress(entry) : undefined}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: bvColors.text.primary, fontSize: 18, fontWeight: '700', lineHeight: 24 }}>
+                                {entry.title}
+                              </Text>
+                              <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 2 }}>
+                                {entry.actorName ? `${entry.timestampLabel} • by ${entry.actorName}` : entry.timestampLabel}
+                              </Text>
+                            </View>
+                            {entry.expanded ? (
+                              <View
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  borderWidth: 1,
+                                  borderColor: bvFx.neutralBorderSoft,
+                                  backgroundColor: bvColors.surface.chrome,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Ionicons name="chevron-up" size={18} color={bvColors.text.secondary} />
+                              </View>
+                            ) : entry.canManage ? (
+                              <View
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  borderWidth: 1,
+                                  borderColor: bvFx.neutralBorderSoft,
+                                  backgroundColor: bvColors.surface.chrome,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Ionicons name="ellipsis-horizontal" size={18} color={bvColors.text.secondary} />
+                              </View>
+                            ) : null}
                           </View>
-                          {entry.expanded && (
+
+                          <Text style={{ color: bvColors.text.secondary, fontSize: 15, marginTop: 8, lineHeight: 20 }}>
+                            {entry.description}
+                          </Text>
+
+                          {entry.previewUris.length > 0 && (
                             <View
                               style={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: 16,
-                                borderWidth: 1,
-                                borderColor: bvFx.neutralBorderSoft,
-                                backgroundColor: bvColors.surface.chrome,
-                                alignItems: 'center',
-                                justifyContent: 'center',
+                                marginTop: 12,
+                                paddingTop: 12,
+                                borderTopWidth: 1,
+                                borderTopColor: bvFx.neutralBorder,
+                                flexDirection: 'row',
+                                justifyContent: 'space-between',
                               }}
                             >
-                              <Ionicons name="chevron-up" size={18} color={bvColors.text.secondary} />
+                              {entry.previewUris.map((uri, previewIndex) => (
+                                <ExpoImage
+                                  key={`${entry.id}-${previewIndex}`}
+                                  source={{ uri }}
+                                  style={{
+                                    width: '31%',
+                                    aspectRatio: 1.55,
+                                    borderRadius: 12,
+                                    backgroundColor: bvColors.surface.muted,
+                                  }}
+                                  contentFit="cover"
+                                  transition={200}
+                                />
+                              ))}
                             </View>
                           )}
-                        </View>
-
-                        <Text style={{ color: bvColors.text.secondary, fontSize: 15, marginTop: 8, lineHeight: 20 }}>
-                          {entry.description}
-                        </Text>
-
-                        {entry.previewUris.length > 0 && (
-                          <View
-                            style={{
-                              marginTop: 12,
-                              paddingTop: 12,
-                              borderTopWidth: 1,
-                              borderTopColor: bvFx.neutralBorder,
-                              flexDirection: 'row',
-                              justifyContent: 'space-between',
-                            }}
-                          >
-                            {entry.previewUris.map((uri, previewIndex) => (
-                              <ExpoImage
-                                key={`${entry.id}-${previewIndex}`}
-                                source={{ uri }}
-                                style={{
-                                  width: '31%',
-                                  aspectRatio: 1.55,
-                                  borderRadius: 12,
-                                  backgroundColor: bvColors.surface.muted,
-                                }}
-                                contentFit="cover"
-                                transition={200}
-                              />
-                            ))}
-                          </View>
-                        )}
-                      </BVCard>
+                        </BVCard>
+                      </View>
                     </View>
                   ))}
                 </View>
@@ -2525,7 +2742,7 @@ function ProjectDetailContent() {
             textAlign: 'center',
             marginBottom: 8,
           }}>
-            Add Activity
+            {activityModalMode === 'edit' ? 'Edit Activity' : 'Add Activity'}
           </Text>
           <Text style={{
             fontSize: 14,
@@ -2533,7 +2750,9 @@ function ProjectDetailContent() {
             textAlign: 'center',
             marginBottom: 18,
           }}>
-            Log internal process updates for this project.
+            {activityModalMode === 'edit'
+              ? 'Update this timeline entry.'
+              : 'Log internal process updates for this project.'}
           </Text>
 
           <Text style={{ fontSize: 15, fontWeight: '600', color: bvColors.text.primary, marginBottom: 10 }}>
@@ -2615,7 +2834,7 @@ function ProjectDetailContent() {
               variant="secondary"
             />
             <GlassButton
-              title="Save Activity"
+              title={activityModalMode === 'edit' ? 'Update Activity' : 'Save Activity'}
               onPress={handleSaveActivity}
               style={{ flex: 1 }}
               variant="primary"

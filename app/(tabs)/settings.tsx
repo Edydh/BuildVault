@@ -17,14 +17,23 @@ import { getProjects, deleteProject } from '../../lib/db';
 import { deleteProjectDir, clearAllProjectDirs } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
 import NoteSettings from '../../components/NoteSettings';
-import { useGlassTheme, GlassCard, GlassSwitch, GlassActionSheet, GLASS_THEME_STORAGE_KEY } from '../../components/glass';
+import {
+  useGlassTheme,
+  GlassCard,
+  GlassSwitch,
+  GlassActionSheet,
+  GlassModal,
+  GlassTextInput,
+  GlassButton,
+  GLASS_THEME_STORAGE_KEY,
+} from '../../components/glass';
 import { BVHeader, BVCard, BVButton } from '../../components/ui';
 import { bvColors, bvFx, bvRadius, bvSpacing, bvTypography } from '../../lib/theme/tokens';
 import * as Haptics from 'expo-haptics';
 
 export default function Settings() {
   const insets = useSafeAreaInsets();
-  const { user, signOut } = useAuth();
+  const { user, signOut, updateDisplayName } = useAuth();
   const glassTheme = useGlassTheme();
   type IoniconName = keyof typeof Ionicons.glyphMap;
   
@@ -66,6 +75,14 @@ export default function Settings() {
   const [sheetMessage, setSheetMessage] = React.useState('');
   const [showAboutSheet, setShowAboutSheet] = React.useState(false);
   const [preferDbFiltering, setPreferDbFiltering] = React.useState(false);
+  const [showProfileModal, setShowProfileModal] = React.useState(false);
+  const [profileNameDraft, setProfileNameDraft] = React.useState('');
+  const [isSavingProfile, setIsSavingProfile] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!user) return;
+    setProfileNameDraft(user.name);
+  }, [user]);
 
   // Load/save performance preference
   React.useEffect(() => {
@@ -196,6 +213,35 @@ export default function Settings() {
 
   const handleSignOut = () => {
     setShowSignOutSheet(true);
+  };
+
+  const openProfileModal = () => {
+    if (!user) return;
+    setProfileNameDraft(user.name);
+    setShowProfileModal(true);
+  };
+
+  const handleSaveProfile = async () => {
+    const trimmedName = profileNameDraft.trim();
+    if (!trimmedName) {
+      setSheetMessage('Display name cannot be empty.');
+      setShowErrorSheet(true);
+      return;
+    }
+
+    try {
+      setIsSavingProfile(true);
+      await updateDisplayName(trimmedName);
+      setShowProfileModal(false);
+      setSheetMessage('Profile updated. New activities will show this name.');
+      setShowSuccessSheet(true);
+    } catch (error) {
+      console.error('Profile update error:', error);
+      setSheetMessage('Failed to update profile. Please try again.');
+      setShowErrorSheet(true);
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   // Toggle Glass Effects expansion
@@ -633,6 +679,23 @@ export default function Settings() {
               </View>
             </View>
 
+            <Text
+              style={{
+                color: bvColors.text.muted,
+                fontSize: 13,
+                marginBottom: 12,
+              }}
+            >
+              Activity attribution name: {user.name}
+            </Text>
+
+            <BVButton
+              title="Edit Display Name"
+              variant="secondary"
+              icon="create-outline"
+              onPress={openProfileModal}
+              style={{ marginBottom: 10 }}
+            />
             <BVButton
               title="Sign Out"
               variant="danger"
@@ -710,6 +773,66 @@ export default function Settings() {
         </Text>
       </View>
       </ScrollView>
+
+      <GlassModal
+        visible={showProfileModal}
+        onRequestClose={() => {
+          if (!isSavingProfile) {
+            setShowProfileModal(false);
+          }
+        }}
+      >
+        <View style={{ padding: 20 }}>
+          <Text
+            style={{
+              color: bvColors.text.primary,
+              fontSize: 20,
+              fontWeight: '700',
+              textAlign: 'center',
+              marginBottom: 8,
+            }}
+          >
+            Edit Display Name
+          </Text>
+          <Text
+            style={{
+              color: bvColors.text.muted,
+              fontSize: 14,
+              textAlign: 'center',
+              marginBottom: 16,
+            }}
+          >
+            This name is used on project activities you create.
+          </Text>
+
+          <GlassTextInput
+            label="Display Name"
+            value={profileNameDraft}
+            onChangeText={setProfileNameDraft}
+            placeholder="Enter your name"
+            autoCapitalize="words"
+            returnKeyType="done"
+            onSubmitEditing={handleSaveProfile}
+          />
+
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <GlassButton
+              title="Cancel"
+              variant="secondary"
+              onPress={() => setShowProfileModal(false)}
+              disabled={isSavingProfile}
+              style={{ flex: 1 }}
+            />
+            <GlassButton
+              title={isSavingProfile ? 'Saving...' : 'Save'}
+              variant="primary"
+              onPress={handleSaveProfile}
+              disabled={isSavingProfile}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </View>
+      </GlassModal>
 
       <GlassActionSheet
         visible={showDangerSheet}

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { router } from 'expo-router';
 import { authService, AuthResult } from './auth';
 import { User } from './db';
+import * as dbModule from './db';
 import { supabase } from './supabase';
 
 interface AuthContextType {
@@ -9,6 +10,7 @@ interface AuthContextType {
   isLoading: boolean;
   signInWithApple: () => Promise<AuthResult>;
   signInWithGoogle: () => Promise<AuthResult>;
+  updateDisplayName: (name: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -53,6 +55,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Debug: Track user state changes
   useEffect(() => {
     console.log('AuthContext user state changed:', user ? `User: ${user.name}` : 'No user');
+
+    // Keep DB activity attribution linked to the active authenticated user.
+    const setActivityActor = (dbModule as {
+      setActivityActor?: (actor: { userId: string; name?: string | null } | null) => void;
+    }).setActivityActor;
+    if (typeof setActivityActor === 'function') {
+      setActivityActor(user ? { userId: user.id, name: user.name } : null);
+    }
   }, [user]);
 
   const checkAuthState = async () => {
@@ -150,11 +160,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  const updateDisplayName = async (name: string) => {
+    const updatedUser = await authService.updateDisplayName(name);
+    setUser(updatedUser);
+  };
+
   const value: AuthContextType = {
     user,
     isLoading,
     signInWithApple,
     signInWithGoogle,
+    updateDisplayName,
     signOut,
   };
 

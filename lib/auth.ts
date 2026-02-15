@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import * as WebBrowser from 'expo-web-browser';
-import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, User } from './db';
+import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, updateUserProfile, User } from './db';
 import { ErrorHandler, withErrorHandling } from './errorHandler';
 import * as Crypto from 'expo-crypto';
 
@@ -310,6 +310,43 @@ export class AuthService {
     } catch (error) {
       console.error('Sign out error:', error);
     }
+  }
+
+  async updateDisplayName(name: string): Promise<User> {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new Error('Display name cannot be empty');
+    }
+
+    let activeUser = this.currentUser;
+    if (!activeUser) {
+      activeUser = await this.getCurrentUser();
+    }
+    if (!activeUser) {
+      throw new Error('No authenticated user found');
+    }
+
+    const updated = updateUserProfile(activeUser.id, { name: trimmedName });
+    if (!updated) {
+      throw new Error('Unable to update user profile');
+    }
+
+    this.currentUser = updated;
+    await this.storeUserSession(updated);
+
+    // Attempt to sync profile metadata upstream when available.
+    try {
+      await supabase.auth.updateUser({
+        data: {
+          full_name: trimmedName,
+          name: trimmedName,
+        },
+      });
+    } catch (error) {
+      console.log('Supabase profile metadata sync failed (non-fatal):', error);
+    }
+
+    return updated;
   }
 
   private async storeUserSession(user: User): Promise<void> {
