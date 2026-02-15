@@ -1,9 +1,16 @@
 import React from 'react';
 import { View, Text, StyleProp, TextStyle } from 'react-native';
 import { BVCard, BVStatChip } from './ui';
-import { Project, getMediaByProject } from '../lib/db';
+import { Project, ProjectStatus, getMediaByProject } from '../lib/db';
 import { formatDate } from '../lib/format';
-import { bvColors, bvSpacing, bvTypography } from '../lib/theme/tokens';
+import {
+  bvColors,
+  bvFx,
+  bvRadius,
+  bvSpacing,
+  bvStatusColors,
+  bvTypography,
+} from '../lib/theme/tokens';
 
 type Props = {
   project: Project;
@@ -11,6 +18,58 @@ type Props = {
   onLongPress?: () => void;
   searchTerm?: string;
 };
+
+const STATUS_LABELS: Record<ProjectStatus, string> = {
+  active: 'Active',
+  delayed: 'Delayed',
+  completed: 'Completed',
+  neutral: 'On Hold',
+};
+
+function hexToRgba(hex: string, alpha: number): string {
+  const cleanHex = hex.replace('#', '');
+  const normalized = cleanHex.length === 3
+    ? cleanHex.split('').map((ch) => `${ch}${ch}`).join('')
+    : cleanHex;
+
+  const int = parseInt(normalized, 16);
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function formatShortDate(ms?: number | null): string {
+  if (!ms) return 'TBD';
+  return new Date(ms).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatBudget(amount?: number | null): string {
+  if (!amount || amount <= 0) return '—';
+  if (amount >= 1_000_000) {
+    return `$${(amount / 1_000_000).toFixed(1)}M`;
+  }
+  if (amount >= 1_000) {
+    return `$${(amount / 1_000).toFixed(1)}K`;
+  }
+  return `$${Math.round(amount).toLocaleString()}`;
+}
+
+function getDisplayStatus(project: Project): ProjectStatus {
+  if (project.progress >= 100) {
+    return 'completed';
+  }
+
+  if (project.end_date && Date.now() > project.end_date) {
+    return 'delayed';
+  }
+
+  return project.status || 'active';
+}
 
 function HighlightText({
   text,
@@ -63,7 +122,34 @@ export default function ProjectCard({ project, onPress, onLongPress, searchTerm 
   const photoCount = mediaItems.filter((item) => item.type === 'photo').length;
   const videoCount = mediaItems.filter((item) => item.type === 'video').length;
   const noteCount = mediaItems.filter((item) => !!item.note?.trim()).length;
-  const lastUpdatedAt = mediaItems[0]?.created_at ?? project.created_at;
+  const lastUpdatedAt = project.updated_at || mediaItems[0]?.created_at || project.created_at;
+
+  const status = getDisplayStatus(project);
+  const statusColor = bvStatusColors[status];
+  const progress = Math.max(0, Math.min(100, Math.round(project.progress ?? 0)));
+
+  const metrics = [
+    {
+      id: 'start',
+      label: 'Start Date',
+      value: formatShortDate(project.start_date || project.created_at),
+    },
+    {
+      id: 'end',
+      label: 'End Date',
+      value: formatShortDate(project.end_date),
+    },
+    {
+      id: 'budget',
+      label: 'Budget',
+      value: formatBudget(project.budget),
+    },
+    {
+      id: 'progress',
+      label: 'Progress',
+      value: `${progress}%`,
+    },
+  ];
 
   return (
     <BVCard
@@ -91,18 +177,82 @@ export default function ProjectCard({ project, onPress, onLongPress, searchTerm 
           }}
         />
       )}
+
+      <View
+        style={{
+          marginTop: bvSpacing[12],
+          paddingTop: bvSpacing[12],
+          borderTopWidth: 1,
+          borderTopColor: bvFx.neutralBorder,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={{ ...bvTypography.label, color: bvColors.text.muted }}>Status</Text>
+          <View
+            style={{
+              paddingHorizontal: bvSpacing[12],
+              paddingVertical: bvSpacing[4],
+              borderRadius: bvRadius.pill,
+              backgroundColor: hexToRgba(statusColor, 0.18),
+              borderWidth: 1,
+              borderColor: hexToRgba(statusColor, 0.35),
+            }}
+          >
+            <Text style={{ ...bvTypography.label, color: statusColor }}>{STATUS_LABELS[status]}</Text>
+          </View>
+        </View>
+
+        <View
+          style={{
+            marginTop: bvSpacing[8],
+            height: 8,
+            borderRadius: bvRadius.pill,
+            backgroundColor: bvColors.neutral[200],
+            overflow: 'hidden',
+          }}
+        >
+          <View
+            style={{
+              width: `${progress}%`,
+              height: '100%',
+              borderRadius: bvRadius.pill,
+              backgroundColor: bvColors.brand.primaryLight,
+            }}
+          />
+        </View>
+      </View>
+
+      <View
+        style={{
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          justifyContent: 'space-between',
+          marginTop: bvSpacing[12],
+        }}
+      >
+        {metrics.map((metric) => (
+          <View key={metric.id} style={{ width: '48%', marginBottom: bvSpacing[8] }}>
+            <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.tertiary }}>{metric.label}</Text>
+            <Text style={{ ...bvTypography.bodyRegular, color: bvColors.text.primary, fontWeight: '600' }}>
+              {metric.value}
+            </Text>
+          </View>
+        ))}
+      </View>
+
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
           gap: bvSpacing[8],
-          marginTop: bvSpacing[12],
+          marginTop: bvSpacing[4],
         }}
       >
         <BVStatChip icon="image" label={`${photoCount}`} tone="brand" />
         <BVStatChip icon="videocam" label={`${videoCount}`} tone="neutral" />
         <BVStatChip icon="document-text" label={`${noteCount} notes`} tone="success" />
       </View>
+
       <View style={{ marginTop: bvSpacing[12] }}>
         <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted }}>
           Updated {formatDate(lastUpdatedAt)}

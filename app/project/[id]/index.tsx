@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -38,6 +38,7 @@ function ProjectDetailContent() {
   const insets = useSafeAreaInsets();
   const [project, setProject] = useState<Project | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityLogEntry[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -155,6 +156,10 @@ function ProjectDetailContent() {
       const targetFolder = folderOverride !== undefined ? folderOverride : currentFolder;
       const mediaItems = getMediaByFolder(id, targetFolder);
       setMedia(mediaItems);
+
+      // Recent activity feed (always scoped to full project, not folder)
+      const activityItems = getActivityByProject(id, 12);
+      setRecentActivity(activityItems);
       
       // Check for videos that need thumbnail regeneration
       const videosNeedingThumbnails = mediaItems.filter(item => 
@@ -546,6 +551,149 @@ function ProjectDetailContent() {
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleString();
+  };
+
+  const formatRelativeTime = (timestamp: number): string => {
+    const diffMs = Date.now() - timestamp;
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+
+    if (diffMs < minute) return 'Just now';
+    if (diffMs < hour) {
+      const value = Math.max(1, Math.floor(diffMs / minute));
+      return `${value} min ago`;
+    }
+    if (diffMs < day) {
+      const value = Math.floor(diffMs / hour);
+      return `${value}h ago`;
+    }
+    if (diffMs < 7 * day) {
+      const value = Math.floor(diffMs / day);
+      return `${value}d ago`;
+    }
+    return new Date(timestamp).toLocaleDateString();
+  };
+
+  const parseActivityMetadata = (metadata: string | null | undefined): Record<string, unknown> | null => {
+    if (!metadata) return null;
+    try {
+      const parsed = JSON.parse(metadata) as Record<string, unknown>;
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const mapActivityPresentation = (
+    entry: ActivityLogEntry
+  ): { title: string; description: string; icon: IoniconName; iconBg: string; iconColor: string } => {
+    const metadata = parseActivityMetadata(entry.metadata);
+    const type = typeof metadata?.type === 'string' ? metadata.type : '';
+    const folderName = typeof metadata?.name === 'string'
+      ? metadata.name
+      : typeof metadata?.to === 'string'
+        ? metadata.to
+        : 'folder';
+
+    switch (entry.action_type) {
+      case 'project_created':
+        return {
+          title: 'Project created',
+          description: 'Initial project setup completed.',
+          icon: 'sparkles',
+          iconBg: 'rgba(58, 99, 243, 0.20)',
+          iconColor: bvColors.brand.primaryLight,
+        };
+      case 'project_updated':
+        return {
+          title: 'Project details updated',
+          description: 'Core project information was edited.',
+          icon: 'create-outline',
+          iconBg: 'rgba(58, 99, 243, 0.20)',
+          iconColor: bvColors.brand.primaryLight,
+        };
+      case 'media_added':
+        return {
+          title: type ? `${type.charAt(0).toUpperCase()}${type.slice(1)} added` : 'Media added',
+          description: 'New file captured or uploaded to this project.',
+          icon: type === 'video' ? 'videocam' : type === 'doc' ? 'document-text' : 'camera',
+          iconBg: 'rgba(22, 163, 74, 0.20)',
+          iconColor: bvColors.semantic.success,
+        };
+      case 'media_deleted':
+        return {
+          title: 'Media removed',
+          description: 'A file was deleted from this project.',
+          icon: 'trash-outline',
+          iconBg: 'rgba(220, 38, 38, 0.20)',
+          iconColor: bvColors.semantic.danger,
+        };
+      case 'note_added':
+        return {
+          title: 'Note added',
+          description: 'A note was attached to a media item.',
+          icon: 'document-text-outline',
+          iconBg: 'rgba(58, 99, 243, 0.20)',
+          iconColor: bvColors.brand.primaryLight,
+        };
+      case 'note_updated':
+        return {
+          title: 'Note updated',
+          description: 'A media note was edited.',
+          icon: 'create-outline',
+          iconBg: 'rgba(58, 99, 243, 0.20)',
+          iconColor: bvColors.brand.primaryLight,
+        };
+      case 'note_removed':
+        return {
+          title: 'Note removed',
+          description: 'A media note was removed.',
+          icon: 'remove-circle-outline',
+          iconBg: 'rgba(220, 38, 38, 0.20)',
+          iconColor: bvColors.semantic.danger,
+        };
+      case 'folder_created':
+        return {
+          title: 'Folder created',
+          description: `Folder "${folderName}" added.`,
+          icon: 'folder-open-outline',
+          iconBg: 'rgba(245, 158, 11, 0.20)',
+          iconColor: bvColors.semantic.warning,
+        };
+      case 'folder_renamed':
+        return {
+          title: 'Folder renamed',
+          description: `Folder renamed to "${folderName}".`,
+          icon: 'create-outline',
+          iconBg: 'rgba(245, 158, 11, 0.20)',
+          iconColor: bvColors.semantic.warning,
+        };
+      case 'folder_deleted':
+        return {
+          title: 'Folder deleted',
+          description: `Folder "${folderName}" removed.`,
+          icon: 'folder-outline',
+          iconBg: 'rgba(220, 38, 38, 0.20)',
+          iconColor: bvColors.semantic.danger,
+        };
+      case 'media_moved':
+        return {
+          title: 'Media moved',
+          description: 'A file was moved between folders.',
+          icon: 'swap-horizontal-outline',
+          iconBg: 'rgba(58, 99, 243, 0.20)',
+          iconColor: bvColors.brand.primaryLight,
+        };
+      default:
+        return {
+          title: 'Project event',
+          description: 'A project activity was recorded.',
+          icon: 'pulse-outline',
+          iconBg: 'rgba(148, 163, 184, 0.20)',
+          iconColor: bvColors.text.muted,
+        };
+    }
   };
 
   // Multi-select functions
@@ -1599,6 +1747,14 @@ function ProjectDetailContent() {
     { id: 'select', icon: 'checkbox-outline', label: 'Select', onPress: toggleSelectionMode, enabled: media.length > 0 },
   ];
 
+  const recentActivityFeed = React.useMemo(() => {
+    return recentActivity.slice(0, 8).map((entry) => ({
+      id: entry.id,
+      timestampLabel: formatRelativeTime(entry.created_at),
+      ...mapActivityPresentation(entry),
+    }));
+  }, [recentActivity]);
+
   if (!project) {
     return (
       <View style={{ flex: 1, backgroundColor: bvColors.surface.inverse, justifyContent: 'center', alignItems: 'center' }}>
@@ -2016,6 +2172,60 @@ function ProjectDetailContent() {
                   </BVCard>
                 ))}
               </View>
+
+              <Text style={{ color: bvColors.text.primary, fontSize: 22, fontWeight: '700', marginTop: 8, marginBottom: 12 }}>
+                Recent Activity
+              </Text>
+
+              {recentActivityFeed.length === 0 ? (
+                <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 16 }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '600' }}>
+                    No activity yet
+                  </Text>
+                  <Text style={{ color: bvColors.text.muted, fontSize: 13, marginTop: 4 }}>
+                    Capture media or add notes to build your project timeline.
+                  </Text>
+                </BVCard>
+              ) : (
+                <View>
+                  {recentActivityFeed.map((entry) => (
+                    <View
+                      key={entry.id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'flex-start',
+                        marginBottom: 10,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 34,
+                          height: 34,
+                          borderRadius: 17,
+                          marginRight: 10,
+                          marginTop: 6,
+                          backgroundColor: entry.iconBg,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Ionicons name={entry.icon} size={18} color={entry.iconColor} />
+                      </View>
+                      <BVCard style={{ flex: 1 }} contentStyle={{ padding: 12 }}>
+                        <Text style={{ color: bvColors.text.primary, fontSize: 20, fontWeight: '700', lineHeight: 24 }}>
+                          {entry.title}
+                        </Text>
+                        <Text style={{ color: bvColors.text.tertiary, fontSize: 12, marginTop: 2 }}>
+                          {entry.timestampLabel}
+                        </Text>
+                        <Text style={{ color: bvColors.text.secondary, fontSize: 15, marginTop: 6, lineHeight: 20 }}>
+                          {entry.description}
+                        </Text>
+                      </BVCard>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           )
         }

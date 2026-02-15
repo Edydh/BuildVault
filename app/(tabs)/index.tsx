@@ -80,6 +80,55 @@ interface StatCardConfig {
   accentBorder: string;
 }
 
+type CreateProjectForm = {
+  name: string;
+  client: string;
+  location: string;
+  search: string;
+  status: Project['status'];
+  progress: string;
+  budget: string;
+  startDate: string;
+  endDate: string;
+};
+
+type DateParseResult = number | null | 'invalid';
+
+const DEFAULT_CREATE_FORM: CreateProjectForm = {
+  name: '',
+  client: '',
+  location: '',
+  search: '',
+  status: 'active',
+  progress: '0',
+  budget: '',
+  startDate: '',
+  endDate: '',
+};
+
+const PROJECT_STATUS_OPTIONS: Array<{ value: Project['status']; label: string; color: string; icon: IoniconName }> = [
+  { value: 'active', label: 'Active', color: '#16A34A', icon: 'checkmark-circle-outline' },
+  { value: 'delayed', label: 'Delayed', color: '#F59E0B', icon: 'time-outline' },
+  { value: 'completed', label: 'Completed', color: '#3A63F3', icon: 'trophy-outline' },
+  { value: 'neutral', label: 'On Hold', color: '#94A3B8', icon: 'pause-circle-outline' },
+];
+
+const parseDateInput = (value: string): DateParseResult => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed)) return 'invalid';
+  return parsed;
+};
+
+const parseBudgetInput = (value: string): number | null | 'invalid' => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return 'invalid';
+  return parsed;
+};
+
 const StatCard: React.FC<StatCardConfig & { style?: ViewStyle }> = ({
   label,
   value,
@@ -132,7 +181,7 @@ export default function ProjectsList() {
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [form, setForm] = useState({ name: '', client: '', location: '', search: '' });
+  const [form, setForm] = useState<CreateProjectForm>(DEFAULT_CREATE_FORM);
   const [sortBy, setSortBy] = useState<'date_desc'|'date_asc'|'name_asc'|'client_asc'|'location_asc'>('date_desc');
   const [hasNotesOnly, setHasNotesOnly] = useState(false);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
@@ -312,18 +361,57 @@ export default function ProjectsList() {
       return;
     }
 
+    const progress = Number(form.progress.trim());
+    if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
+      setSheetMessage('Progress must be a number between 0 and 100');
+      setShowErrorSheet(true);
+      return;
+    }
+
+    const parsedStartDate = parseDateInput(form.startDate);
+    if (parsedStartDate === 'invalid') {
+      setSheetMessage('Start Date must be valid (YYYY-MM-DD)');
+      setShowErrorSheet(true);
+      return;
+    }
+
+    const parsedEndDate = parseDateInput(form.endDate);
+    if (parsedEndDate === 'invalid') {
+      setSheetMessage('End Date must be valid (YYYY-MM-DD)');
+      setShowErrorSheet(true);
+      return;
+    }
+
+    if (typeof parsedStartDate === 'number' && typeof parsedEndDate === 'number' && parsedEndDate < parsedStartDate) {
+      setSheetMessage('End Date cannot be before Start Date');
+      setShowErrorSheet(true);
+      return;
+    }
+
+    const parsedBudget = parseBudgetInput(form.budget);
+    if (parsedBudget === 'invalid') {
+      setSheetMessage('Budget must be a positive number');
+      setShowErrorSheet(true);
+      return;
+    }
+
     try {
       const project = createProject({
         name: form.name.trim(),
         client: form.client.trim() || undefined,
         location: form.location.trim() || undefined,
+        status: form.status,
+        progress: Math.round(progress),
+        start_date: parsedStartDate,
+        end_date: parsedEndDate,
+        budget: parsedBudget,
       });
 
       await ensureProjectDir(project.id);
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setShowCreate(false);
-      setForm({ name: '', client: '', location: '', search: '' });
+      setForm((prev) => ({ ...DEFAULT_CREATE_FORM, search: prev.search }));
       await loadProjects();
     } catch {
       setSheetMessage('Failed to create project');
@@ -336,7 +424,19 @@ export default function ProjectsList() {
     setShowEdit(true);
   };
 
-  const handleUpdateProject = async (id: string, data: { name: string; client?: string; location?: string }) => {
+  const handleUpdateProject = async (
+    id: string,
+    data: {
+      name: string;
+      client?: string;
+      location?: string;
+      status?: Project['status'];
+      progress?: number;
+      start_date?: number | null;
+      end_date?: number | null;
+      budget?: number | null;
+    }
+  ) => {
     try {
       updateProject(id, data);
       await loadProjects();
@@ -730,7 +830,79 @@ export default function ProjectsList() {
                 onChangeText={(text) => setForm(prev => ({ ...prev, location: text }))}
                 placeholder="Enter project location (optional)"
                 autoCapitalize="words"
+                returnKeyType="next"
+              />
+
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#F8FAFC', marginBottom: 8 }}>
+                Status
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20 }}>
+                {PROJECT_STATUS_OPTIONS.map((status) => {
+                  const selected = form.status === status.value;
+                  return (
+                    <TouchableOpacity
+                      key={status.value}
+                      onPress={() => setForm((prev) => ({ ...prev, status: status.value }))}
+                      activeOpacity={0.85}
+                      style={{
+                        width: '48%',
+                        marginBottom: 8,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: selected ? status.color : 'rgba(148, 163, 184, 0.28)',
+                        backgroundColor: selected ? `${status.color}26` : 'rgba(30, 41, 59, 0.85)',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <Ionicons name={status.icon} size={15} color={selected ? status.color : '#94A3B8'} />
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: selected ? status.color : '#CBD5E1' }}>
+                        {status.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <GlassTextInput
+                label="Progress (%)"
+                value={form.progress}
+                onChangeText={(text) => setForm((prev) => ({ ...prev, progress: text }))}
+                placeholder="0 to 100"
+                keyboardType="numeric"
+                returnKeyType="next"
+              />
+
+              <GlassTextInput
+                label="Budget (Optional)"
+                value={form.budget}
+                onChangeText={(text) => setForm((prev) => ({ ...prev, budget: text }))}
+                placeholder="e.g. 1250000"
+                keyboardType="numeric"
+                returnKeyType="next"
+              />
+
+              <GlassTextInput
+                label="Start Date"
+                value={form.startDate}
+                onChangeText={(text) => setForm((prev) => ({ ...prev, startDate: text }))}
+                placeholder="YYYY-MM-DD"
+                autoCapitalize="none"
+                returnKeyType="next"
+              />
+
+              <GlassTextInput
+                label="End Date"
+                value={form.endDate}
+                onChangeText={(text) => setForm((prev) => ({ ...prev, endDate: text }))}
+                placeholder="YYYY-MM-DD"
+                autoCapitalize="none"
                 returnKeyType="done"
+                onSubmitEditing={handleCreateProject}
               />
 
               <View style={{ flexDirection: 'row', gap: 16 }}>
