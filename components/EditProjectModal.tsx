@@ -12,14 +12,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Project, ProjectStatus } from '../lib/db';
+import { Project } from '../lib/db';
 import { GlassButton, GlassTextInput, GlassModal } from './glass';
 
 type EditProjectPayload = {
   name: string;
   client?: string;
   location?: string;
-  status?: ProjectStatus;
   progress?: number;
   start_date?: number | null;
   end_date?: number | null;
@@ -39,19 +38,11 @@ type FormState = {
   name: string;
   client: string;
   location: string;
-  status: ProjectStatus;
   progress: string;
   budget: string;
   startDate: string;
   endDate: string;
 };
-
-const STATUS_META: Array<{ value: ProjectStatus; label: string; color: string; icon: keyof typeof Ionicons.glyphMap }> = [
-  { value: 'active', label: 'Active', color: '#16A34A', icon: 'checkmark-circle-outline' },
-  { value: 'delayed', label: 'Delayed', color: '#F59E0B', icon: 'time-outline' },
-  { value: 'completed', label: 'Completed', color: '#3A63F3', icon: 'trophy-outline' },
-  { value: 'neutral', label: 'On Hold', color: '#94A3B8', icon: 'pause-circle-outline' },
-];
 
 const toDateInput = (value?: number | null): string => {
   if (!value) return '';
@@ -84,7 +75,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
     name: '',
     client: '',
     location: '',
-    status: 'active',
     progress: '0',
     budget: '',
     startDate: '',
@@ -97,7 +87,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         name: project.name || '',
         client: project.client || '',
         location: project.location || '',
-        status: project.status || 'active',
         progress: String(project.progress ?? 0),
         budget: project.budget != null ? String(project.budget) : '',
         startDate: toDateInput(project.start_date),
@@ -108,7 +97,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         name: '',
         client: '',
         location: '',
-        status: 'active',
         progress: '0',
         budget: '',
         startDate: '',
@@ -159,7 +147,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         name: form.name.trim(),
         client: form.client.trim() || undefined,
         location: form.location.trim() || undefined,
-        status: form.status,
         progress: Math.round(progress),
         start_date: parsedStartDate,
         end_date: parsedEndDate,
@@ -259,41 +246,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                 autoCapitalize="words"
                 returnKeyType="next"
               />
-
-              <Text style={{ fontSize: 16, fontWeight: '600', color: '#F8FAFC', marginBottom: 8 }}>
-                Status
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20 }}>
-                {STATUS_META.map((status) => {
-                  const selected = form.status === status.value;
-                  return (
-                    <TouchableOpacity
-                      key={status.value}
-                      onPress={() => setForm((prev) => ({ ...prev, status: status.value }))}
-                      activeOpacity={0.85}
-                      style={{
-                        width: '48%',
-                        marginBottom: 8,
-                        paddingVertical: 10,
-                        paddingHorizontal: 12,
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: selected ? status.color : 'rgba(148, 163, 184, 0.28)',
-                        backgroundColor: selected ? `${status.color}26` : 'rgba(30, 41, 59, 0.85)',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <Ionicons name={status.icon} size={15} color={selected ? status.color : '#94A3B8'} />
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: selected ? status.color : '#CBD5E1' }}>
-                        {status.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
 
               <GlassTextInput
                 label="Progress (%)"

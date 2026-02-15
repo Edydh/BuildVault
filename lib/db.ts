@@ -13,6 +13,7 @@ export interface Project {
   start_date?: number | null;
   end_date?: number | null;
   budget?: number | null;
+  last_activity_at?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -55,8 +56,8 @@ export interface ActivityLogEntry {
   created_at: number;
 }
 
-const PROJECT_STATUS_VALUES: ProjectStatus[] = ['active', 'delayed', 'completed', 'neutral'];
 const db = SQLite.openDatabaseSync('buildvault.db');
+const STALE_ACTIVITY_MS = 7 * 24 * 60 * 60 * 1000;
 
 function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -65,10 +66,6 @@ function createId(): string {
 function isDuplicateColumnError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '');
   return message.includes('duplicate column name');
-}
-
-function isProjectStatus(value: unknown): value is ProjectStatus {
-  return typeof value === 'string' && PROJECT_STATUS_VALUES.includes(value as ProjectStatus);
 }
 
 function clampProgress(value: unknown): number {
@@ -82,6 +79,18 @@ function toNullableNumber(value: unknown): number | null {
   const numeric = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(numeric)) return null;
   return numeric;
+}
+
+function deriveStatusFromActivity(
+  progress: number,
+  endDate: number | null,
+  lastActivityAt: number | null
+): ProjectStatus {
+  if (progress >= 100) return 'completed';
+  if (endDate !== null && Date.now() > endDate) return 'delayed';
+  if (!lastActivityAt) return 'neutral';
+  if (Date.now() - lastActivityAt > STALE_ACTIVITY_MS) return 'delayed';
+  return 'active';
 }
 
 function touchProject(projectId: string, at: number = Date.now()) {
@@ -124,15 +133,8 @@ function mapProjectRow(row: Record<string, unknown>): Project {
   const createdAt = toNullableNumber(row.created_at) ?? Date.now();
   const progress = clampProgress(row.progress);
   const endDate = toNullableNumber(row.end_date);
-
-  let status: ProjectStatus = isProjectStatus(row.status) ? row.status : 'active';
-  if (!isProjectStatus(row.status)) {
-    if (progress >= 100) {
-      status = 'completed';
-    } else if (endDate !== null && Date.now() > endDate) {
-      status = 'delayed';
-    }
-  }
+  const lastActivityAt = toNullableNumber(row.last_activity_at);
+  const status = deriveStatusFromActivity(progress, endDate, lastActivityAt);
 
   return {
     id: String(row.id),
@@ -144,6 +146,7 @@ function mapProjectRow(row: Record<string, unknown>): Project {
     start_date: toNullableNumber(row.start_date),
     end_date: endDate,
     budget: toNullableNumber(row.budget),
+    last_activity_at: lastActivityAt,
     created_at: createdAt,
     updated_at: toNullableNumber(row.updated_at) ?? createdAt,
   };
@@ -168,7 +171,7 @@ export function migrate() {
         name TEXT NOT NULL,
         client TEXT,
         location TEXT,
-        status TEXT NOT NULL DEFAULT 'active',
+        status TEXT NOT NULL DEFAULT 'neutral',
         progress INTEGER NOT NULL DEFAULT 0,
         start_date INTEGER,
         end_date INTEGER,
@@ -206,7 +209,7 @@ export function migrate() {
 
     const alterStatements = [
       `ALTER TABLE media ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL`,
-      `ALTER TABLE projects ADD COLUMN status TEXT DEFAULT 'active'`,
+      `ALTER TABLE projects ADD COLUMN status TEXT DEFAULT 'neutral'`,
       `ALTER TABLE projects ADD COLUMN progress INTEGER DEFAULT 0`,
       `ALTER TABLE projects ADD COLUMN start_date INTEGER`,
       `ALTER TABLE projects ADD COLUMN end_date INTEGER`,
@@ -225,7 +228,7 @@ export function migrate() {
     }
 
     db.execSync(`
-      UPDATE projects SET status = 'active' WHERE status IS NULL OR trim(status) = '';
+      UPDATE projects SET status = 'neutral' WHERE status IS NULL OR trim(status) = '';
       UPDATE projects SET progress = 0 WHERE progress IS NULL;
       UPDATE projects SET start_date = created_at WHERE start_date IS NULL;
       UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL;
@@ -251,8 +254,23 @@ export function migrate() {
 export function getProjects(search?: string): Project[] {
   return withErrorHandlingSync(() => {
     const query = search
-      ? `SELECT * FROM projects WHERE name LIKE ? OR COALESCE(client, '') LIKE ? OR COALESCE(location, '') LIKE ? ORDER BY updated_at DESC, created_at DESC`
-      : `SELECT * FROM projects ORDER BY updated_at DESC, created_at DESC`;
+      ? `SELECT p.*, (
+          SELECT MAX(a.created_at)
+          FROM activity_log a
+          WHERE a.project_id = p.id
+            AND a.action_type NOT IN ('project_created', 'project_updated')
+        ) AS last_activity_at
+        FROM projects p
+        WHERE p.name LIKE ? OR COALESCE(p.client, '') LIKE ? OR COALESCE(p.location, '') LIKE ?
+        ORDER BY p.updated_at DESC, p.created_at DESC`
+      : `SELECT p.*, (
+          SELECT MAX(a.created_at)
+          FROM activity_log a
+          WHERE a.project_id = p.id
+            AND a.action_type NOT IN ('project_created', 'project_updated')
+        ) AS last_activity_at
+        FROM projects p
+        ORDER BY p.updated_at DESC, p.created_at DESC`;
 
     const params = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
     const result = db.getAllSync(query, params) as Array<Record<string, unknown>>;
@@ -264,7 +282,6 @@ export function createProject(data: {
   name: string;
   client?: string;
   location?: string;
-  status?: ProjectStatus;
   progress?: number;
   start_date?: number | null;
   end_date?: number | null;
@@ -274,7 +291,7 @@ export function createProject(data: {
     const id = createId();
     const created_at = Date.now();
     const updated_at = created_at;
-    const status = isProjectStatus(data.status) ? data.status : 'active';
+    const status: ProjectStatus = 'neutral';
     const progress = clampProgress(data.progress);
     const start_date = data.start_date ?? created_at;
     const end_date = data.end_date ?? null;
@@ -299,7 +316,6 @@ export function createProject(data: {
 
     logActivityInternal(id, 'project_created', id, {
       name: data.name,
-      status,
       progress,
     }, created_at);
 
@@ -313,13 +329,17 @@ export function createProject(data: {
       start_date,
       end_date,
       budget,
+      last_activity_at: null,
       created_at,
       updated_at,
     };
   }, 'Create project');
 }
 
-export function updateProject(id: string, data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at'>>): void {
+export function updateProject(
+  id: string,
+  data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at' | 'status' | 'last_activity_at'>>
+): void {
   return withErrorHandlingSync(() => {
     const updates: string[] = [];
     const values: Array<string | number | null> = [];
@@ -335,10 +355,6 @@ export function updateProject(id: string, data: Partial<Omit<Project, 'id' | 'cr
     if (data.location !== undefined) {
       updates.push('location = ?');
       values.push(data.location || null);
-    }
-    if (data.status !== undefined) {
-      updates.push('status = ?');
-      values.push(isProjectStatus(data.status) ? data.status : 'active');
     }
     if (data.progress !== undefined) {
       updates.push('progress = ?');
@@ -381,7 +397,17 @@ export function deleteProject(id: string) {
 
 export function getProjectById(id: string): Project | null {
   return withErrorHandlingSync(() => {
-    const result = db.getFirstSync('SELECT * FROM projects WHERE id = ?', [id]) as Record<string, unknown> | null;
+    const result = db.getFirstSync(
+      `SELECT p.*, (
+        SELECT MAX(a.created_at)
+        FROM activity_log a
+        WHERE a.project_id = p.id
+          AND a.action_type NOT IN ('project_created', 'project_updated')
+      ) AS last_activity_at
+      FROM projects p
+      WHERE p.id = ?`,
+      [id]
+    ) as Record<string, unknown> | null;
     return result ? mapProjectRow(result) : null;
   }, 'Get project by ID');
 }
@@ -702,6 +728,7 @@ export function createActivity(
     if (!created) {
       throw new Error('Unable to create activity');
     }
+    touchProject(projectId, created.created_at);
     return created;
   }, 'Create activity');
 }

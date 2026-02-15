@@ -23,7 +23,7 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
   active: 'Active',
   delayed: 'Delayed',
   completed: 'Completed',
-  neutral: 'On Hold',
+  neutral: 'No Activity',
 };
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -57,18 +57,6 @@ function formatBudget(amount?: number | null): string {
     return `$${(amount / 1_000).toFixed(1)}K`;
   }
   return `$${Math.round(amount).toLocaleString()}`;
-}
-
-function getDisplayStatus(project: Project): ProjectStatus {
-  if (project.progress >= 100) {
-    return 'completed';
-  }
-
-  if (project.end_date && Date.now() > project.end_date) {
-    return 'delayed';
-  }
-
-  return project.status || 'active';
 }
 
 function HighlightText({
@@ -124,7 +112,7 @@ export default function ProjectCard({ project, onPress, onLongPress, searchTerm 
   const noteCount = mediaItems.filter((item) => !!item.note?.trim()).length;
   const lastUpdatedAt = project.updated_at || mediaItems[0]?.created_at || project.created_at;
 
-  const status = getDisplayStatus(project);
+  const status = project.status || 'neutral';
   const statusColor = bvStatusColors[status];
   const progress = Math.max(0, Math.min(100, Math.round(project.progress ?? 0)));
 

@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -31,6 +31,19 @@ import { bvColors, bvFx } from '../../../lib/theme/tokens';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
+type ManualActivityType = 'material_purchase' | 'safety_inspection' | 'meeting_notes' | 'site_visit';
+
+const MANUAL_ACTIVITY_OPTIONS: Array<{
+  value: ManualActivityType;
+  label: string;
+  icon: IoniconName;
+  color: string;
+}> = [
+  { value: 'material_purchase', label: 'Material', icon: 'cash-outline', color: bvColors.semantic.success },
+  { value: 'safety_inspection', label: 'Safety', icon: 'clipboard-outline', color: bvColors.semantic.danger },
+  { value: 'meeting_notes', label: 'Meeting', icon: 'document-text-outline', color: bvColors.brand.primaryLight },
+  { value: 'site_visit', label: 'Site Visit', icon: 'car-outline', color: bvColors.brand.primaryLight },
+];
 
 function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -38,6 +51,7 @@ function ProjectDetailContent() {
   const insets = useSafeAreaInsets();
   const [project, setProject] = useState<Project | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
+  const [projectMedia, setProjectMedia] = useState<MediaItem[]>([]);
   const [recentActivity, setRecentActivity] = useState<ActivityLogEntry[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
@@ -113,6 +127,10 @@ function ProjectDetailContent() {
   const [editingNoteItem, setEditingNoteItem] = useState<MediaItem | null>(null);
   const [noteText, setNoteText] = useState<string>('');
   const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [manualActivityType, setManualActivityType] = useState<ManualActivityType>('material_purchase');
+  const [manualActivityDescription, setManualActivityDescription] = useState('');
+  const [manualActivityAmount, setManualActivityAmount] = useState('');
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -156,6 +174,7 @@ function ProjectDetailContent() {
       const targetFolder = folderOverride !== undefined ? folderOverride : currentFolder;
       const mediaItems = getMediaByFolder(id, targetFolder);
       setMedia(mediaItems);
+      setProjectMedia(getMediaByProject(id));
 
       // Recent activity feed (always scoped to full project, not folder)
       const activityItems = getActivityByProject(id, 12);
@@ -510,6 +529,52 @@ function ProjectDetailContent() {
     }
   };
 
+  const handleOpenActivityModal = () => {
+    setManualActivityType('material_purchase');
+    setManualActivityDescription('');
+    setManualActivityAmount('');
+    setShowActivityModal(true);
+  };
+
+  const handleCloseActivityModal = () => {
+    setShowActivityModal(false);
+    setManualActivityDescription('');
+    setManualActivityAmount('');
+  };
+
+  const handleSaveActivity = () => {
+    if (!id) return;
+
+    const description = manualActivityDescription.trim();
+    if (!description) {
+      Alert.alert('Missing details', 'Please add a short description for this activity.');
+      return;
+    }
+
+    let amount: number | null = null;
+    if (manualActivityType === 'material_purchase' && manualActivityAmount.trim().length > 0) {
+      const parsedAmount = Number(manualActivityAmount.replace(/,/g, '').trim());
+      if (!Number.isFinite(parsedAmount) || parsedAmount < 0) {
+        Alert.alert('Invalid amount', 'Enter a valid purchase amount.');
+        return;
+      }
+      amount = parsedAmount;
+    }
+
+    try {
+      createActivity(id, manualActivityType, null, {
+        description,
+        amount,
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      handleCloseActivityModal();
+      loadData();
+    } catch (error) {
+      console.error('Error creating manual activity:', error);
+      Alert.alert('Error', 'Could not add activity. Please try again.');
+    }
+  };
+
   const handleDeleteMedia = (mediaItem: MediaItem) => {
     const mediaTypeName = mediaItem.type === 'photo' ? 'photo' : 
                          mediaItem.type === 'video' ? 'video' : 'document';
@@ -553,6 +618,14 @@ function ProjectDetailContent() {
     return new Date(timestamp).toLocaleString();
   };
 
+  const formatCurrency = (value: number): string => {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+    }).format(value);
+  };
+
   const formatRelativeTime = (timestamp: number): string => {
     const diffMs = Date.now() - timestamp;
     const minute = 60 * 1000;
@@ -587,9 +660,24 @@ function ProjectDetailContent() {
 
   const mapActivityPresentation = (
     entry: ActivityLogEntry
-  ): { title: string; description: string; icon: IoniconName; iconBg: string; iconColor: string } => {
+  ): {
+    title: string;
+    description: string;
+    icon: IoniconName;
+    iconBg: string;
+    iconColor: string;
+    expandable: boolean;
+  } => {
     const metadata = parseActivityMetadata(entry.metadata);
     const type = typeof metadata?.type === 'string' ? metadata.type : '';
+    const metadataDescription = typeof metadata?.description === 'string'
+      ? metadata.description.trim()
+      : '';
+    const metadataAmount = typeof metadata?.amount === 'number'
+      ? metadata.amount
+      : typeof metadata?.amount === 'string'
+        ? Number(metadata.amount)
+        : null;
     const folderName = typeof metadata?.name === 'string'
       ? metadata.name
       : typeof metadata?.to === 'string'
@@ -602,96 +690,148 @@ function ProjectDetailContent() {
           title: 'Project created',
           description: 'Initial project setup completed.',
           icon: 'sparkles',
-          iconBg: 'rgba(58, 99, 243, 0.20)',
-          iconColor: bvColors.brand.primaryLight,
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'project_updated':
         return {
           title: 'Project details updated',
           description: 'Core project information was edited.',
           icon: 'create-outline',
-          iconBg: 'rgba(58, 99, 243, 0.20)',
-          iconColor: bvColors.brand.primaryLight,
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'media_added':
         return {
-          title: type ? `${type.charAt(0).toUpperCase()}${type.slice(1)} added` : 'Media added',
-          description: 'New file captured or uploaded to this project.',
+          title: type === 'photo' ? 'Site Progress Photos' : type ? `${type.charAt(0).toUpperCase()} Added` : 'Media Added',
+          description: type === 'photo'
+            ? 'New site progress photos were added to the timeline.'
+            : 'New file captured or uploaded to this project.',
           icon: type === 'video' ? 'videocam' : type === 'doc' ? 'document-text' : 'camera',
-          iconBg: 'rgba(22, 163, 74, 0.20)',
-          iconColor: bvColors.semantic.success,
+          iconBg: type === 'photo' ? bvColors.semantic.warning : bvColors.semantic.success,
+          iconColor: bvColors.neutral[0],
+          expandable: type === 'photo',
         };
       case 'media_deleted':
         return {
           title: 'Media removed',
           description: 'A file was deleted from this project.',
           icon: 'trash-outline',
-          iconBg: 'rgba(220, 38, 38, 0.20)',
-          iconColor: bvColors.semantic.danger,
+          iconBg: bvColors.semantic.danger,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'note_added':
         return {
           title: 'Note added',
           description: 'A note was attached to a media item.',
           icon: 'document-text-outline',
-          iconBg: 'rgba(58, 99, 243, 0.20)',
-          iconColor: bvColors.brand.primaryLight,
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'note_updated':
         return {
           title: 'Note updated',
           description: 'A media note was edited.',
           icon: 'create-outline',
-          iconBg: 'rgba(58, 99, 243, 0.20)',
-          iconColor: bvColors.brand.primaryLight,
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'note_removed':
         return {
           title: 'Note removed',
           description: 'A media note was removed.',
           icon: 'remove-circle-outline',
-          iconBg: 'rgba(220, 38, 38, 0.20)',
-          iconColor: bvColors.semantic.danger,
+          iconBg: bvColors.semantic.danger,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'folder_created':
         return {
           title: 'Folder created',
           description: `Folder "${folderName}" added.`,
           icon: 'folder-open-outline',
-          iconBg: 'rgba(245, 158, 11, 0.20)',
-          iconColor: bvColors.semantic.warning,
+          iconBg: bvColors.semantic.warning,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'folder_renamed':
         return {
           title: 'Folder renamed',
           description: `Folder renamed to "${folderName}".`,
           icon: 'create-outline',
-          iconBg: 'rgba(245, 158, 11, 0.20)',
-          iconColor: bvColors.semantic.warning,
+          iconBg: bvColors.semantic.warning,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'folder_deleted':
         return {
           title: 'Folder deleted',
           description: `Folder "${folderName}" removed.`,
           icon: 'folder-outline',
-          iconBg: 'rgba(220, 38, 38, 0.20)',
-          iconColor: bvColors.semantic.danger,
+          iconBg: bvColors.semantic.danger,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       case 'media_moved':
         return {
           title: 'Media moved',
           description: 'A file was moved between folders.',
           icon: 'swap-horizontal-outline',
-          iconBg: 'rgba(58, 99, 243, 0.20)',
-          iconColor: bvColors.brand.primaryLight,
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'material_purchase':
+        return {
+          title: 'Material Purchase',
+          description: metadataAmount && Number.isFinite(metadataAmount) && metadataAmount > 0
+            ? `${metadataDescription || 'Materials purchased'} - ${formatCurrency(metadataAmount)}`
+            : metadataDescription || 'Materials purchase logged.',
+          icon: 'cash-outline',
+          iconBg: bvColors.semantic.success,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'safety_inspection':
+        return {
+          title: 'Safety Inspection',
+          description: metadataDescription || 'Safety inspection was logged.',
+          icon: 'clipboard-outline',
+          iconBg: bvColors.semantic.danger,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'meeting_notes':
+        return {
+          title: 'Meeting Notes',
+          description: metadataDescription || 'Meeting notes were added.',
+          icon: 'document-text-outline',
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'site_visit':
+        return {
+          title: 'Site Visit',
+          description: metadataDescription || 'Site visit was logged.',
+          icon: 'car-outline',
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
       default:
         return {
           title: 'Project event',
-          description: 'A project activity was recorded.',
+          description: metadataDescription || 'A project activity was recorded.',
           icon: 'pulse-outline',
-          iconBg: 'rgba(148, 163, 184, 0.20)',
-          iconColor: bvColors.text.muted,
+          iconBg: bvColors.text.muted,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
         };
     }
   };
@@ -1724,7 +1864,7 @@ function ProjectDetailContent() {
       notes: 0,
     };
 
-    for (const item of media) {
+    for (const item of projectMedia) {
       if (item.type === 'photo') summary.photos += 1;
       if (item.type === 'video') summary.videos += 1;
       if (item.type === 'doc') summary.docs += 1;
@@ -1732,7 +1872,7 @@ function ProjectDetailContent() {
     }
 
     return summary;
-  }, [media]);
+  }, [projectMedia]);
 
   const quickActions: Array<{
     id: string;
@@ -1744,16 +1884,28 @@ function ProjectDetailContent() {
     { id: 'capture', icon: 'camera-outline', label: 'Capture', onPress: handleCaptureMedia, enabled: true },
     { id: 'upload', icon: 'cloud-upload-outline', label: 'Upload', onPress: handleDocumentUpload, enabled: true },
     { id: 'share', icon: 'share-social-outline', label: 'Share', onPress: handleShareProject, enabled: true },
-    { id: 'select', icon: 'checkbox-outline', label: 'Select', onPress: toggleSelectionMode, enabled: media.length > 0 },
+    { id: 'activity', icon: 'add-circle-outline', label: 'Activity', onPress: handleOpenActivityModal, enabled: true },
   ];
 
   const recentActivityFeed = React.useMemo(() => {
-    return recentActivity.slice(0, 8).map((entry) => ({
-      id: entry.id,
-      timestampLabel: formatRelativeTime(entry.created_at),
-      ...mapActivityPresentation(entry),
-    }));
-  }, [recentActivity]);
+    const projectPreviewUris = projectMedia
+      .filter((item) => item.type === 'photo' || item.type === 'video')
+      .slice(0, 3)
+      .map((item) => (item.type === 'video' ? item.thumb_uri || item.uri : item.uri))
+      .filter((uri): uri is string => !!uri);
+
+    return recentActivity.slice(0, 8).map((entry, index) => {
+      const presentation = mapActivityPresentation(entry);
+      const canExpand = presentation.expandable && projectPreviewUris.length > 0 && index === 0;
+      return {
+        id: entry.id,
+        timestampLabel: formatRelativeTime(entry.created_at),
+        previewUris: canExpand ? projectPreviewUris : [],
+        expanded: canExpand,
+        ...presentation,
+      };
+    });
+  }, [recentActivity, projectMedia]);
 
   if (!project) {
     return (
@@ -2187,40 +2339,100 @@ function ProjectDetailContent() {
                   </Text>
                 </BVCard>
               ) : (
-                <View>
+                <View style={{ position: 'relative', paddingBottom: 6 }}>
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: 24,
+                      top: 42,
+                      bottom: 14,
+                      width: 2,
+                      backgroundColor: 'rgba(148,163,184,0.28)',
+                    }}
+                  />
+
                   {recentActivityFeed.map((entry) => (
-                    <View
-                      key={entry.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'flex-start',
-                        marginBottom: 10,
-                      }}
-                    >
+                    <View key={entry.id} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 }}>
                       <View
                         style={{
-                          width: 34,
-                          height: 34,
-                          borderRadius: 17,
-                          marginRight: 10,
-                          marginTop: 6,
-                          backgroundColor: entry.iconBg,
+                          width: 48,
                           alignItems: 'center',
-                          justifyContent: 'center',
+                          marginRight: 10,
                         }}
                       >
-                        <Ionicons name={entry.icon} size={18} color={entry.iconColor} />
+                        <View
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 20,
+                            backgroundColor: entry.iconBg,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Ionicons name={entry.icon} size={20} color={entry.iconColor} />
+                        </View>
                       </View>
-                      <BVCard style={{ flex: 1 }} contentStyle={{ padding: 12 }}>
-                        <Text style={{ color: bvColors.text.primary, fontSize: 20, fontWeight: '700', lineHeight: 24 }}>
-                          {entry.title}
-                        </Text>
-                        <Text style={{ color: bvColors.text.tertiary, fontSize: 12, marginTop: 2 }}>
-                          {entry.timestampLabel}
-                        </Text>
-                        <Text style={{ color: bvColors.text.secondary, fontSize: 15, marginTop: 6, lineHeight: 20 }}>
+
+                      <BVCard style={{ flex: 1 }} contentStyle={{ padding: 14 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: bvColors.text.primary, fontSize: 18, fontWeight: '700', lineHeight: 24 }}>
+                              {entry.title}
+                            </Text>
+                            <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 2 }}>
+                              {entry.timestampLabel}
+                            </Text>
+                          </View>
+                          {entry.expanded && (
+                            <View
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 16,
+                                borderWidth: 1,
+                                borderColor: bvFx.neutralBorderSoft,
+                                backgroundColor: bvColors.surface.chrome,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Ionicons name="chevron-up" size={18} color={bvColors.text.secondary} />
+                            </View>
+                          )}
+                        </View>
+
+                        <Text style={{ color: bvColors.text.secondary, fontSize: 15, marginTop: 8, lineHeight: 20 }}>
                           {entry.description}
                         </Text>
+
+                        {entry.previewUris.length > 0 && (
+                          <View
+                            style={{
+                              marginTop: 12,
+                              paddingTop: 12,
+                              borderTopWidth: 1,
+                              borderTopColor: bvFx.neutralBorder,
+                              flexDirection: 'row',
+                              justifyContent: 'space-between',
+                            }}
+                          >
+                            {entry.previewUris.map((uri, previewIndex) => (
+                              <ExpoImage
+                                key={`${entry.id}-${previewIndex}`}
+                                source={{ uri }}
+                                style={{
+                                  width: '31%',
+                                  aspectRatio: 1.55,
+                                  borderRadius: 12,
+                                  backgroundColor: bvColors.surface.muted,
+                                }}
+                                contentFit="cover"
+                                transition={200}
+                              />
+                            ))}
+                          </View>
+                        )}
                       </BVCard>
                     </View>
                   ))}
@@ -2302,6 +2514,115 @@ function ProjectDetailContent() {
           </View>
         </GlassModal>
       )}
+
+      {/* Manual Activity Modal */}
+      <GlassModal visible={showActivityModal} onRequestClose={handleCloseActivityModal}>
+        <ScrollView style={{ maxHeight: '88%' }} contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+          <Text style={{
+            fontSize: 20,
+            fontWeight: '700',
+            color: bvColors.text.primary,
+            textAlign: 'center',
+            marginBottom: 8,
+          }}>
+            Add Activity
+          </Text>
+          <Text style={{
+            fontSize: 14,
+            color: bvColors.text.muted,
+            textAlign: 'center',
+            marginBottom: 18,
+          }}>
+            Log internal process updates for this project.
+          </Text>
+
+          <Text style={{ fontSize: 15, fontWeight: '600', color: bvColors.text.primary, marginBottom: 10 }}>
+            Activity Type
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 16 }}>
+            {MANUAL_ACTIVITY_OPTIONS.map((option) => {
+              const isSelected = manualActivityType === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  onPress={() => setManualActivityType(option.value)}
+                  activeOpacity={0.86}
+                  style={{
+                    width: '48%',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: isSelected ? option.color : bvFx.neutralBorderSoft,
+                    backgroundColor: isSelected ? `${option.color}20` : bvColors.surface.chrome,
+                    paddingVertical: 10,
+                    paddingHorizontal: 10,
+                    marginBottom: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Ionicons name={option.icon} size={16} color={isSelected ? option.color : bvColors.text.tertiary} />
+                  <Text
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 13,
+                      fontWeight: '600',
+                      color: isSelected ? option.color : bvColors.text.secondary,
+                    }}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <GlassTextInput
+            label="Description"
+            value={manualActivityDescription}
+            onChangeText={setManualActivityDescription}
+            placeholder={
+              manualActivityType === 'material_purchase'
+                ? 'e.g. Steel beams and concrete'
+                : manualActivityType === 'safety_inspection'
+                  ? 'e.g. All checks passed with no violations'
+                  : manualActivityType === 'meeting_notes'
+                    ? 'e.g. Weekly progress review with stakeholders'
+                    : 'e.g. Follow-up site coordination visit'
+            }
+            multiline
+            numberOfLines={4}
+            inputStyle={{ minHeight: 96, textAlignVertical: 'top' }}
+            returnKeyType="done"
+          />
+
+          {manualActivityType === 'material_purchase' && (
+            <GlassTextInput
+              label="Amount (Optional)"
+              value={manualActivityAmount}
+              onChangeText={setManualActivityAmount}
+              placeholder="e.g. 45230"
+              keyboardType="numeric"
+              returnKeyType="done"
+            />
+          )}
+
+          <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
+            <GlassButton
+              title="Cancel"
+              onPress={handleCloseActivityModal}
+              style={{ flex: 1 }}
+              variant="secondary"
+            />
+            <GlassButton
+              title="Save Activity"
+              onPress={handleSaveActivity}
+              style={{ flex: 1 }}
+              variant="primary"
+            />
+          </View>
+        </ScrollView>
+      </GlassModal>
 
       {/* Note Editing Modal */}
       <GlassModal visible={showNoteModal} onRequestClose={handleCancelNote}>
