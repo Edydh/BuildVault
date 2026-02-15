@@ -9,7 +9,7 @@ const config: ExpoConfig = {
   name: 'BuildVault',
   slug: 'buildvault',
   scheme: 'buildvault',
-  version: '1.0.2',
+  version: '1.0.3',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',

@@ -394,7 +394,7 @@ function ProjectDetailContent() {
           created_at: item.created_at,
         })),
         exportDate: new Date().toISOString(),
-        version: '1.0.2',
+        version: '1.0.3',
         note: 'This is a project summary. Media files are not included.',
       };
 
@@ -449,7 +449,7 @@ function ProjectDetailContent() {
           filename: `${item.type}_${item.created_at}.${item.type === 'photo' ? 'jpg' : item.type === 'video' ? 'mp4' : 'pdf'}`,
         })),
         exportDate: new Date().toISOString(),
-        version: '1.0.2',
+        version: '1.0.3',
         note: 'This project includes all media files. Open the project_info.json file for details.',
       };
       

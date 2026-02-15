@@ -369,7 +369,7 @@ export default function ProjectsList() {
           created_at: project.created_at,
         },
         exportDate: new Date().toISOString(),
-        version: '1.0.0',
+        version: '1.0.3',
         note: 'This is a project summary from BuildVault. Media files are not included in this export.',
       };
 
@@ -429,7 +429,7 @@ export default function ProjectsList() {
           filename: `${item.type}_${item.created_at}.${item.type === 'photo' ? 'jpg' : item.type === 'video' ? 'mp4' : 'pdf'}`,
         })),
         exportDate: new Date().toISOString(),
-        version: '1.0.0',
+        version: '1.0.3',
         note: 'This project includes all media files. Open the project_info.json file for details.',
       };
       
