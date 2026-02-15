@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, Animated, Platform } from 'react-native';
+import { View, ActivityIndicator, Animated, Platform, StyleProp, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { ImageVariants, getImageUriForState } from '@/lib/imageOptimization';
 
 interface LazyImageProps {
   variants: ImageVariants;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
   contentFit?: 'cover' | 'contain' | 'fill' | 'scale-down' | 'none';
   onLoadStart?: () => void;
   onLoadEnd?: () => void;
-  onError?: (error: any) => void;
+  onError?: (error: unknown) => void;
   showLoadingIndicator?: boolean;
   loadingIndicatorColor?: string;
   progressiveLoading?: boolean;
@@ -100,7 +100,7 @@ export default function LazyImage({
     ]).start();
   };
 
-  const handleError = (error: any) => {
+  const handleError = (error: unknown) => {
     setHasError(true);
     setIsLoading(false);
     onError?.(error);

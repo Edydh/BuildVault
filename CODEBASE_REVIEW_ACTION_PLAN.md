@@ -1,0 +1,254 @@
+# BuildVault Action Plan (Stabilize + Rebuild)
+
+Date: 2026-02-14
+Scope: Expo React Native app (`app/`, `lib/`, `components/`)
+Inputs: codebase review + UI wireframe blueprint + SQLite target model + Figma token JSON
+
+## Product direction (agreed)
+
+BuildVault should feel like “Apple Notes for construction media”:
+- Fast capture and retrieval
+- Offline-first
+- Minimal UI clutter
+- Large touch targets and thumb-first actions
+- Project-centric structure with evidence-grade history
+- Collaboration-ready: owner invites coworkers/clients into project workspaces
+
+## Track A: Stabilization (must do before visual rebuild)
+
+### A0.1 Data isolation by user
+- Add `user_id` to `projects`, `media`, `folders`, `notes`, `activity_log`.
+- Scope all reads/writes by active user.
+- Decide sign-out policy explicitly (partitioned local data vs clear local data).
+
+### A0.2 File handling correctness
+- Fix document share MIME/UTI handling (currently photo/video-first).
+- Unify media + image variants into one filesystem root under `buildvault/`.
+- Add cleanup migration for legacy variant directories.
+
+### A0.3 Runtime reliability fixes
+- Replace `Date.now().toString()` IDs with UUIDs.
+- Fix empty media-type filter behavior (all toggles off should return zero items).
+- Persist regenerated video thumbnails in DB.
+- Normalize auth provider mapping for UI/account consistency.
+- Handle Apple sign-in non-cancel failures with user-visible feedback.
+- Implement real “Never show again” behavior in note prompts.
+
+### A0.4 Access control
+- Add route guard for non-tab protected routes (`/project/*`).
+- Ensure deep links cannot bypass auth.
+
+### A0.5 Supabase migration prep
+- Refactor direct SQLite access behind repository interfaces (`ProjectRepo`, `MediaRepo`, `NotesRepo`).
+- Keep SQLite as offline cache abstraction so cloud sync can be introduced without screen rewrites.
+- Define sync queue contract now (`pending_mutations`, `last_synced_at`) even before backend rollout.
+
+## Track B: Rebuild architecture (UI + data v2)
+
+### B1 Navigation and screen architecture
+
+Target route shape:
+
+```text
+app/
+  _layout.tsx
+  (auth)/
+    sign-in.tsx
+  (tabs)/
+    _layout.tsx
+    index.tsx
+    settings.tsx
+  project/
+    [projectId]/
+      index.tsx
+      capture.tsx
+      gallery.tsx
+      notes.tsx
+      share.tsx
+```
+
+Screen priorities:
+1. Projects Dashboard
+2. Project Overview (quick actions above fold)
+3. Capture (single-purpose, zero clutter)
+4. Gallery (high-performance grid + multi-select)
+5. Notes
+6. Share (sheet/modal flow)
+
+### B2 Design system implementation (from Figma tokens)
+
+Create tokenized theme layer (`lib/theme/tokens.ts` + `components/ui/*`) with:
+- Brand colors:
+  - `primary: #1C3F94`
+  - `primaryLight: #3A63F3`
+- Neutrals:
+  - `900: #0F172A`, `700: #334155`, `400: #94A3B8`, `100: #F1F5F9`
+- Semantic:
+  - `success: #16A34A`, `warning: #F59E0B`, `danger: #DC2626`
+- Glass surface:
+  - `rgba(255,255,255,0.08)`
+- Spacing scale:
+  - `4/8/12/16/20/24/32/40`
+- Radius:
+  - `sm 12`, `md 16`, `lg 20`, `pill 999`
+- Blur:
+  - `glass 20`, `navigation 30`
+- Typography (DM Sans):
+  - `headingLarge 22/28 700`
+  - `headingMedium 18/24 600`
+  - `bodyRegular 14/20 400`
+  - `bodySmall 12/16 400`
+  - `label 13/18 500`
+
+Core components to standardize:
+- `BVHeader`, `BVCard`, `BVButton`, `BVFloatingAction`
+- `BVSearchBar`, `BVStatChip`, `BVEmptyState`, `BVFilterSheet`, `BVTabBar`
+
+### B3 SQLite schema v2 (project-centric + audit-ready)
+
+Primary tables:
+- `projects`
+- `media`
+- `folders`
+- `notes`
+- `tags`
+- `media_tags`
+- `activity_log`
+- optional later: `project_members`
+
+Required additions for production readiness:
+- `user_id` on project-owned entities
+- ISO timestamps (`created_at`, `updated_at`, `taken_at`)
+- evidence metadata (`latitude`, `longitude`, `duration`, `size`, `mime_type`)
+- lifecycle fields (`project_type`, `status`, `cover_media_id`)
+
+Core indexes:
+- `idx_media_project`
+- `idx_media_folder`
+- `idx_media_taken_at`
+- `idx_notes_project`
+- `idx_activity_project`
+- plus compound indexes for gallery filters/sorting
+
+### B4 Interaction/UX standards (field mode)
+
+- Minimum touch target: `48px` (preferred `56px+`)
+- FAB size: `64px+`
+- Horizontal screen padding: `16px`
+- Card spacing: `12px`
+- Section spacing: `24px`
+- Project creation: target `<10s`
+- Capture action reachable in 1 tap from project overview
+
+### B4.1 UI implementation spec (from current Figma direction)
+
+Visual improvements to apply in implementation:
+- Increase secondary text contrast on cards and metadata rows.
+- Use semantic status chips:
+  - active = success
+  - delayed = warning/danger
+  - completed = neutral/success
+- Add explicit progress value labels on bars.
+- Normalize disabled button appearance (reduced contrast and no active shadow).
+- Increase tab bar active-state contrast and safe-area spacing.
+- Keep quick actions as equal-size, high-contrast tiles with icon + label.
+- Add filter chips to activity/timeline views (`All`, `Media`, `Finance`, `Safety`).
+- Add media-type badges and strong multi-select states in gallery cards.
+- Make empty-state CTAs task-specific (avoid generic “Add Entry”).
+
+Component-level acceptance criteria:
+- `BVButton`:
+  - variants `primary | secondary | ghost | danger`
+  - states `default | loading | disabled`
+  - minimum height `56`
+- `BVCard`:
+  - glass surface, rounded corners, optional press behavior
+  - consistent internal padding (`16`)
+- `BVHeader`:
+  - title, optional subtitle, optional back button, optional right actions
+- `BVFloatingAction`:
+  - size `64`, anchored with safe-area awareness
+- `BVSearchBar`:
+  - search icon, clear action, high-contrast placeholder/text
+- `BVTabBar`:
+  - icon + label, active indicator, touch target >= `56`
+- `BVFilterSheet`:
+  - bottom-sheet style with selectable chips and apply/reset actions
+- `BVEmptyState`:
+  - icon, title, description, context-aware primary CTA
+
+### B5 Supabase collaboration backend
+
+Goal:
+- Move from local-only persistence to Supabase-backed collaboration while preserving offline-first UX.
+
+Core server tables:
+- `projects` (`owner_user_id`, metadata)
+- `project_members` (`project_id`, `user_id`, `role`, `status`)
+- `project_invites` (`project_id`, `inviter_user_id`, `invitee_email`, `role`, `token`, `expires_at`, `status`)
+- `media`, `folders`, `notes`, `activity_log` (project-scoped)
+
+Roles:
+- `owner`: manage project, invites, members, destructive actions
+- `coworker`: create/edit media/notes and contribute activity
+- `client`: read-only follower view (optionally comments later)
+
+Security requirements:
+- Enable RLS on all project-owned tables.
+- Access requires active membership in `project_members`.
+- Owner-only policies for membership and invites.
+- Storage policies scoped by `project_id` path membership.
+
+Storage and sync:
+- Store media in Supabase Storage with project namespace paths.
+- Keep local file cache for offline usage.
+- Local-first writes enqueue mutations; background sync pushes/pulls when online.
+- Conflict policy v1: server `updated_at` wins for editable fields; media rows append-only.
+
+## Phased execution plan
+
+### Phase 0: Hardening sprint (1 week)
+- Complete Track A0.1 to A0.5.
+- Ship bugfix release before structural rebuild.
+
+### Phase 1: Design system + route scaffold (1 week)
+- Implement token layer and DM Sans loading.
+- Add `components/ui` primitives.
+- Scaffold new route tree and shared layouts.
+
+### Phase 2: Data layer migration (1 week)
+- Introduce schema v2 migrations and repository helpers.
+- Migrate existing local data safely.
+- Add activity logging hooks for create/update/delete actions.
+
+### Phase 2.5: Supabase foundation (1 week)
+- Create Supabase schema for collaboration tables and project-owned entities.
+- Implement invite flow (owner invites coworker/client by email token).
+- Implement RLS + storage policies.
+- Add backend smoke tests for permission boundaries.
+
+### Phase 3: Core screen rebuild (2 weeks)
+- Rebuild Dashboard, Project Overview, Capture, Gallery, Notes, Share.
+- Keep offline-first behavior and optimistic UI.
+- Replace heavy render-time DB work with efficient selectors.
+
+### Phase 4: Sync + performance + export/reporting (1 week)
+- Ship sync queue worker with retry/backoff and basic conflict handling.
+- FlashList tuning for 1000+ media items.
+- Multi-select share/export reliability.
+- Basic PDF snapshot/report output (project summary + evidence list).
+
+### Phase 5: QA + release prep (1 week)
+- E2E manual checklist on iOS + Android.
+- Add smoke tests for auth/data/filter/share.
+- Final polish and rollout notes.
+
+## Definition of done
+
+- No P0 regressions in auth, media, or data privacy.
+- Rebuilt screens match agreed wireframe hierarchy and token system.
+- Schema v2 is live with migration path and per-user scoping.
+- Supabase collaboration is live with owner invite flow and role-based access.
+- RLS guarantees users only access projects where they are members.
+- App remains offline-first and performant with large media sets.
+- `npm run typecheck` and `npm run lint` pass for release branch.

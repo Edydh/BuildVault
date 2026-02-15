@@ -25,7 +25,6 @@ export default function CaptureScreen() {
   const [zoom, setZoom] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [cameraReady, setCameraReady] = useState(false);
   const [isSliderActive, setIsSliderActive] = useState(false);
   
   const scale = useRef(new Animated.Value(1)).current;
@@ -35,6 +34,31 @@ export default function CaptureScreen() {
   
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
+
+  type CameraRecorder = {
+    recordAsync: (options: {
+      maxDuration: number;
+      quality: string;
+      mute: boolean;
+      mirror: boolean;
+      codec: string;
+      bitrate: number;
+      fps: number;
+    }) => Promise<{ uri: string }>;
+    stopRecording: () => void;
+  };
+
+  const getCameraRecorder = (): CameraRecorder | null => {
+    const candidate = cameraRef.current as unknown as Partial<CameraRecorder> | null;
+    if (
+      candidate &&
+      typeof candidate.recordAsync === 'function' &&
+      typeof candidate.stopRecording === 'function'
+    ) {
+      return candidate as CameraRecorder;
+    }
+    return null;
+  };
 
   // Zoom functions with smooth animation
   const zoomIn = useCallback(() => {
@@ -85,14 +109,15 @@ export default function CaptureScreen() {
       }, 1000);
 
       // Check if recordAsync is available
-      if (!cameraRef.current || typeof (cameraRef.current as any).recordAsync !== 'function') {
+      const recorder = getCameraRecorder();
+      if (!recorder) {
         throw new Error('Recording not supported on this device');
       }
 
       // Wait a bit to ensure camera is ready
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const video = await (cameraRef.current as any).recordAsync({
+      const video = await recorder.recordAsync({
         maxDuration: 30, // 30 seconds max
         quality: '1080p',
         mute: false,
@@ -114,7 +139,7 @@ export default function CaptureScreen() {
         // Save video
         console.log('Saving video to project...');
         const { fileUri, thumbUri } = await saveMediaToProject(id, video.uri, 'video');
-        const mediaItem = createMedia({
+        createMedia({
           project_id: id,
           uri: fileUri,
           thumb_uri: thumbUri,
@@ -122,7 +147,7 @@ export default function CaptureScreen() {
           folder_id: folderId || null, // Associate with folder if provided
         });
 
-        console.log('Video saved successfully:', mediaItem);
+        console.log('Video saved successfully:', fileUri);
         Alert.alert(
           'Video Saved', 
           folderId 
@@ -150,8 +175,9 @@ export default function CaptureScreen() {
   }, [id, facing, folderId]);
 
   const stopRecording = useCallback(() => {
-    if (cameraRef.current && 'stopRecording' in cameraRef.current) {
-      (cameraRef.current as any).stopRecording();
+    const recorder = getCameraRecorder();
+    if (recorder) {
+      recorder.stopRecording();
     }
   }, []);
 
@@ -171,7 +197,7 @@ export default function CaptureScreen() {
       }
 
       const { fileUri, thumbUri } = await saveMediaToProject(id, photo.uri, 'photo');
-      const mediaItem = createMedia({
+      createMedia({
         project_id: id,
         uri: fileUri,
         thumb_uri: thumbUri,
@@ -209,7 +235,7 @@ export default function CaptureScreen() {
     { useNativeDriver: true }
   );
 
-  const onPinchHandlerStateChange = (event: any) => {
+  const onPinchHandlerStateChange = (event: { nativeEvent: { state: number; scale: number } }) => {
     if (event.nativeEvent.state === State.BEGAN) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else if (event.nativeEvent.state === State.ACTIVE) {
@@ -330,7 +356,6 @@ export default function CaptureScreen() {
               zoom={Math.max(0, Math.min(1, zoom))}
               onCameraReady={() => {
                 console.log('Camera is ready');
-                setCameraReady(true);
               }}
             />
           </Animated.View>
@@ -505,7 +530,7 @@ export default function CaptureScreen() {
                 {...{
                   onStartShouldSetResponder: () => true,
                   onMoveShouldSetResponder: () => true,
-                  onResponderGrant: (evt) => {
+                  onResponderGrant: (_evt) => {
                     setIsSliderActive(true);
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   },

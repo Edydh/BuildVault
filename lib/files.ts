@@ -1,5 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { makeVideoThumb, VideoThumbnailResult, generateSmartVideoThumbnail } from './media';
+import { VideoThumbnailResult, generateSmartVideoThumbnail } from './media';
 
 const ROOT_DIR = FileSystem.documentDirectory + 'buildvault/';
 
@@ -59,7 +59,7 @@ export async function saveMediaToProject(
   projectId: string,
   uri: string,
   type: 'photo' | 'video' | 'doc',
-  note?: string
+  _note?: string
 ): Promise<{ fileUri: string; thumbUri?: string }> {
   const mediaDir = await getProjectMediaDir(projectId);
 
@@ -78,12 +78,6 @@ export async function saveMediaToProject(
   }
   
   const fileUri = mediaDir + filename;
-
-  // For video, we might need to handle different URI formats
-  let processedUri = uri;
-  if (type === 'video' && uri.startsWith('file://')) {
-    processedUri = uri;
-  }
 
   // Copy file to project directory
   await FileSystem.copyAsync({

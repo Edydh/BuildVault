@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  Modal,
-  TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
   Keyboard,
@@ -11,11 +9,10 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Project } from '../lib/db';
-import { GlassCard, GlassButton, GlassTextInput, GlassModal } from './glass';
+import { GlassButton, GlassTextInput, GlassModal } from './glass';
 
 interface EditProjectModalProps {
   visible: boolean;
@@ -30,7 +27,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const insets = useSafeAreaInsets();
   const [form, setForm] = useState({
     name: '',
     client: '',
@@ -67,7 +63,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       onClose();
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to update project');
     }
   };

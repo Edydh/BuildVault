@@ -104,12 +104,7 @@ export const GlassHeader: React.FC<GlassHeaderProps> = ({
       Extrapolate.CLAMP
     );
 
-    borderOpacity.value = interpolate(
-      scrollY.value,
-      [0, 100],
-      [0, 1],
-      Extrapolate.CLAMP
-    );
+    borderOpacity.value = interpolate(blurIntensity, [minBlur, maxBlur], [0, 1], Extrapolate.CLAMP);
 
     return {
       opacity,

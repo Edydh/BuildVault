@@ -55,7 +55,7 @@ function ZoomableImage({ uri }: { uri: string }) {
     { useNativeDriver: true }
   );
 
-  const onPinchHandlerStateChange = (event: any) => {
+  const onPinchHandlerStateChange = (event: { nativeEvent: { oldState: number; scale: number } }) => {
     if (event.nativeEvent.oldState === State.ACTIVE) {
       const newScale = lastScale.current * event.nativeEvent.scale;
       
@@ -138,7 +138,9 @@ function ZoomableImage({ uri }: { uri: string }) {
     ]).start();
   };
 
-  const onPanHandlerStateChange = (event: any) => {
+  const onPanHandlerStateChange = (event: {
+    nativeEvent: { oldState: number; translationX: number; translationY: number };
+  }) => {
     if (event.nativeEvent.oldState === State.ACTIVE) {
       // Only allow panning when zoomed in
       if (lastScale.current > MIN_SCALE) {
@@ -610,20 +612,24 @@ function PhotoGalleryContent() {
       console.log('Share completed successfully');
     } catch (error) {
       console.error('Error sharing photo:', error);
+      const errorCode =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? (error as { code?: unknown }).code
+          : undefined;
       console.error('Error details:', {
         message: (error as Error).message,
-        code: (error as any).code,
+        code: errorCode,
         uri: uri,
       });
       Alert.alert('Error', `Failed to share photo: ${(error as Error).message || 'Unknown error'}. Please try again.`);
     }
   };
 
-  const handleQualityShare = async (uri: string, quality: string) => {
+  const handleQualityShare = async (uri: string, _quality: string) => {
     await shareMedia(uri);
   };
 
-  const handleDelete = (mediaItem: MediaItem) => {
+  const handleDelete = (_mediaItem: MediaItem) => {
     setShowDeleteSheet(true);
   };
   
@@ -682,10 +688,11 @@ function PhotoGalleryContent() {
     }
   };
 
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
     if (viewableItems.length > 0) {
       const newIndex = viewableItems[0].index;
-      if (newIndex !== currentIndex) {
+      if (typeof newIndex === 'number' && newIndex !== currentIndex) {
         setCurrentIndex(newIndex);
         // Update note when changing photos
         setNote(media[newIndex]?.note || '');
@@ -738,7 +745,7 @@ function PhotoGalleryContent() {
     minimumViewTime: 100,
   }).current;
 
-  const renderPhoto: ListRenderItem<MediaItem> = ({ item, index }) => {
+  const renderPhoto: ListRenderItem<MediaItem> = ({ item, index: _index }) => {
     const variants = imageVariants.get(item.id);
     
     return (

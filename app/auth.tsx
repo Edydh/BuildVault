@@ -4,8 +4,6 @@ import {
   Text,
   Alert,
   StyleSheet,
-  Dimensions,
-  ActivityIndicator,
   Image,
   ImageBackground,
   StatusBar,
@@ -13,17 +11,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuth } from '../lib/AuthContext';
-import { GlassCard, GlassButton } from '../components/glass';
+import { GlassButton } from '../components/glass';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const { width, height } = Dimensions.get('window');
-
 export default function AuthScreen() {
-  const router = useRouter();
   const { signInWithApple, signInWithGoogle } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const insets = useSafeAreaInsets();
@@ -35,14 +27,19 @@ export default function AuthScreen() {
       await signInWithApple();
       // If successful, the AuthContext will update and the protected route will redirect
       // No need to manually navigate here
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if it's a user cancellation
-      if (error.code === 'ERR_CANCELED' || error.message?.includes('canceled') || error.message?.includes('USER_CANCELED')) {
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : '';
+      const errorMessage = error instanceof Error ? error.message : String(error ?? '');
+
+      if (errorCode === 'ERR_CANCELED' || errorMessage.includes('canceled') || errorMessage.includes('USER_CANCELED')) {
         console.log('User canceled Apple Sign-In');
         // No alert needed - user intentionally canceled
       } else {
         console.error('Apple Sign-In error:', error);
-        Alert.alert('Sign In Failed', error.message || 'Apple Sign-In failed. Please try again.');
+        Alert.alert('Sign In Failed', errorMessage || 'Apple Sign-In failed. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -65,9 +62,10 @@ export default function AuthScreen() {
       }
       // If successful, the AuthContext will update and redirect
       
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error ?? '');
       console.error('Google Sign-In error:', error);
-      Alert.alert('Sign In Failed', error.message || 'Google Sign-In failed. Please try again.');
+      Alert.alert('Sign In Failed', errorMessage || 'Google Sign-In failed. Please try again.');
     } finally {
       setIsLoading(false);
     }

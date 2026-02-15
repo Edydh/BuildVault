@@ -3,8 +3,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/AuthContext';
 import { Redirect } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
-import { CustomTabBar } from '../../components/glass/CustomTabBar';
 import { ScrollProvider } from '../../components/glass/ScrollContext';
+import { BVTabBar } from '../../components/ui';
 
 export default function TabLayout() {
   const { user, isLoading } = useAuth();
@@ -37,7 +37,7 @@ export default function TabLayout() {
   return (
     <ScrollProvider>
       <Tabs
-        tabBar={(props) => <CustomTabBar {...props} />}
+        tabBar={(props) => <BVTabBar {...props} />}
         screenOptions={{
           headerStyle: {
             backgroundColor: '#101826',

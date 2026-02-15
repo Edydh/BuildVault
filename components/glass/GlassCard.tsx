@@ -7,7 +7,6 @@ import Animated, {
   useSharedValue,
   withSpring,
   withTiming,
-  interpolate,
   Easing,
 } from 'react-native-reanimated';
 import { useGlassMorphism } from './GlassThemeProvider';
@@ -29,7 +28,7 @@ const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 export const GlassCard: React.FC<GlassCardProps> = ({
   children,
   intensity = 80,
-  tint,
+  tint: _tint,
   gradient = true,
   animated = true,
   glassTint,
@@ -39,8 +38,6 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   ...rest
 }) => {
   const glassTheme = useGlassMorphism(intensity);
-  // Force dark tint on Android for better visibility
-  const defaultTint = Platform.OS === 'android' ? 'dark' : (tint || glassTheme.tint);
   
   // Animation values
   const scale = useSharedValue(0.95);

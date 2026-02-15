@@ -18,6 +18,14 @@ interface NotePromptProps {
   onNeverShowAgain: () => void;
 }
 
+type IoniconName = keyof typeof Ionicons.glyphMap;
+type MediaTypeInfo = {
+  icon: IoniconName;
+  title: string;
+  description: string;
+  benefits: string[];
+};
+
 export default function NotePrompt({
   visible,
   mediaType,
@@ -78,7 +86,7 @@ export default function NotePrompt({
     onNeverShowAgain();
   };
 
-  const getMediaTypeInfo = () => {
+  const getMediaTypeInfo = (): MediaTypeInfo => {
     switch (mediaType) {
       case 'photo':
         return {
@@ -146,7 +154,7 @@ export default function NotePrompt({
         <View style={styles.headerRow}>
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
             <View style={styles.iconPill}>
-              <Ionicons name={mediaInfo.icon as any} size={22} color="#3B82F6" />
+              <Ionicons name={mediaInfo.icon} size={22} color="#3B82F6" />
             </View>
           </Animated.View>
           <View style={styles.headerTextContainer}>

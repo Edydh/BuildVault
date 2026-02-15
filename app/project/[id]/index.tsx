@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { MediaItem, getMediaByProject, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered } from '../../../lib/db';
+import { MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -24,9 +24,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
-import { GlassCard, GlassFAB, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
+import { GlassCard, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
+import { BVCard, BVEmptyState, BVFloatingAction } from '../../../components/ui';
 import { FAB_BOTTOM_OFFSET } from '../../../components/glass/layout';
+import { bvColors, bvFx } from '../../../lib/theme/tokens';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+
+type IoniconName = keyof typeof Ionicons.glyphMap;
 
 function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -36,7 +40,6 @@ function ProjectDetailContent() {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -332,7 +335,7 @@ function ProjectDetailContent() {
       const { fileUri, thumbUri } = await saveMediaToProject(id!, document.uri, mediaType);
       
       // Save to database with correct type
-      const mediaItem = createMedia({
+      createMedia({
         project_id: id!,
         folder_id: currentFolder,
         type: mediaType,
@@ -480,9 +483,6 @@ function ProjectDetailContent() {
       // Share all files together
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
-        // Create a list of all files to share
-        const filesToShare = [projectInfoPath, ...copiedFiles];
-        
         // Share the first file (project info) and let user know about others
         await Sharing.shareAsync(projectInfoPath, {
           mimeType: 'application/json',
@@ -1119,9 +1119,9 @@ function ProjectDetailContent() {
           width: '48%', // Two columns with gap
           aspectRatio: 1, // Square aspect ratio
           marginBottom: 8,
-          backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.2)' : undefined,
+          backgroundColor: isSelected ? bvFx.selectionSoft : undefined,
           borderWidth: isSelected ? 1 : 0,
-          borderColor: isSelected ? '#3B82F6' : 'transparent',
+          borderColor: isSelected ? bvColors.interactive.selected : 'transparent',
         }}
         intensity={60}
         shadowEnabled={true}
@@ -1164,14 +1164,14 @@ function ProjectDetailContent() {
               height: 20,
               borderRadius: 10,
               borderWidth: 2,
-              borderColor: isSelected ? '#3B82F6' : '#64748B',
-              backgroundColor: isSelected ? '#3B82F6' : 'transparent',
+              borderColor: isSelected ? bvColors.interactive.selected : bvColors.text.tertiary,
+              backgroundColor: isSelected ? bvColors.interactive.selected : 'transparent',
               justifyContent: 'center',
               alignItems: 'center',
               zIndex: 2,
             }}>
               {isSelected && (
-                <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                <Ionicons name="checkmark" size={12} color={bvColors.neutral[0]} />
               )}
             </View>
           )}
@@ -1181,7 +1181,7 @@ function ProjectDetailContent() {
             flex: 1,
             borderRadius: 8,
             overflow: 'hidden',
-            backgroundColor: '#1F2A37',
+            backgroundColor: bvColors.surface.muted,
             justifyContent: 'center',
             alignItems: 'center',
           }}>
@@ -1227,7 +1227,7 @@ function ProjectDetailContent() {
                       left: 0,
                       right: 0,
                       bottom: 0,
-                      backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                      backgroundColor: bvFx.blackTint10,
                       justifyContent: 'center',
                       alignItems: 'center',
                     }}>
@@ -1236,23 +1236,23 @@ function ProjectDetailContent() {
                         width: 48,
                         height: 48,
                         borderRadius: 24,
-                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                        backgroundColor: bvFx.blackTint60,
                         justifyContent: 'center',
                         alignItems: 'center',
-                        shadowColor: '#000',
+                        shadowColor: bvColors.surface.shadow,
                         shadowOffset: { width: 0, height: 2 },
                         shadowOpacity: 0.3,
                         shadowRadius: 4,
                         elevation: 5,
                       }}>
-                        <Ionicons name="play" size={20} color="#FFFFFF" />
+                        <Ionicons name="play" size={20} color={bvColors.neutral[0]} />
                       </View>
                     </View>
                   </>
                 ) : (
-                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1F2A37' }}>
-                    <Ionicons name="videocam" size={32} color="#FF7A1A" />
-                    <Text style={{ color: '#94A3B8', fontSize: 10, marginTop: 4 }}>Loading...</Text>
+                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: bvColors.surface.muted }}>
+                    <Ionicons name="videocam" size={32} color={bvColors.brand.accent} />
+                    <Text style={{ color: bvColors.text.muted, fontSize: 10, marginTop: 4 }}>Loading...</Text>
                   </View>
                 )}
                 {/* Video duration badge */}
@@ -1260,22 +1260,22 @@ function ProjectDetailContent() {
                   position: 'absolute',
                   bottom: 8,
                   right: 8,
-                  backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                  backgroundColor: bvFx.blackTint80,
                   borderRadius: 6,
                   paddingHorizontal: 6,
                   paddingVertical: 3,
                   flexDirection: 'row',
                   alignItems: 'center',
                 }}>
-                  <Ionicons name="time" size={10} color="#FFFFFF" />
-                  <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
+                  <Ionicons name="time" size={10} color={bvColors.neutral[0]} />
+                  <Text style={{ color: bvColors.neutral[0], fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
                     --:--
                   </Text>
                 </View>
               </View>
             ) : (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                <Ionicons name="document" size={32} color="#FF7A1A" />
+                <Ionicons name="document" size={32} color={bvColors.brand.accent} />
               </View>
             )}
           </View>
@@ -1285,7 +1285,7 @@ function ProjectDetailContent() {
             position: 'absolute',
             top: 8,
             left: 8,
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: bvFx.blackTint70,
             borderRadius: 4,
             paddingHorizontal: 6,
             paddingVertical: 2,
@@ -1299,9 +1299,9 @@ function ProjectDetailContent() {
                 item.type === 'video' ? 'videocam' : 'document'
               }
               size={12}
-              color="#FFFFFF"
+              color={bvColors.neutral[0]}
             />
-            <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '600' }}>
+            <Text style={{ color: bvColors.neutral[0], fontSize: 10, fontWeight: '600' }}>
               {item.type.toUpperCase()}
             </Text>
           </View>
@@ -1315,7 +1315,7 @@ function ProjectDetailContent() {
               width: 16,
               height: 16,
               borderRadius: 8,
-              backgroundColor: 'rgba(255, 122, 26, 0.9)',
+              backgroundColor: bvFx.accentSoftStrong,
               justifyContent: 'center',
               alignItems: 'center',
             }}>
@@ -1323,13 +1323,13 @@ function ProjectDetailContent() {
                 width: 8,
                 height: 8,
                 borderRadius: 4,
-                backgroundColor: '#0B0F14',
+                backgroundColor: bvColors.surface.inverse,
               }} />
             </View>
           )}
           
           <Text style={{ 
-            color: '#F8FAFC', 
+            color: bvColors.text.primary, 
             fontSize: 14, 
             fontWeight: '600',
             textAlign: 'center',
@@ -1339,7 +1339,7 @@ function ProjectDetailContent() {
           </Text>
           
           <Text style={{ 
-            color: '#64748B', 
+            color: bvColors.text.tertiary, 
             fontSize: 10, 
             textAlign: 'center',
             marginBottom: 4,
@@ -1350,7 +1350,7 @@ function ProjectDetailContent() {
           {item.note && (
             <Text 
               style={{ 
-                color: '#94A3B8', 
+                color: bvColors.text.muted, 
                 fontSize: 11, 
                 textAlign: 'center',
                 lineHeight: 14,
@@ -1399,9 +1399,9 @@ function ProjectDetailContent() {
       <GlassCard
         style={{
           marginBottom: 12,
-          backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.2)' : undefined,
+          backgroundColor: isSelected ? bvFx.selectionSoft : undefined,
           borderWidth: isSelected ? 1 : 0,
-          borderColor: isSelected ? '#3B82F6' : 'transparent',
+          borderColor: isSelected ? bvColors.interactive.selected : 'transparent',
         }}
         intensity={60}
         shadowEnabled={true}
@@ -1440,14 +1440,14 @@ function ProjectDetailContent() {
             height: 24,
             borderRadius: 12,
             borderWidth: 2,
-            borderColor: isSelected ? '#3B82F6' : '#64748B',
-            backgroundColor: isSelected ? '#3B82F6' : 'transparent',
+            borderColor: isSelected ? bvColors.interactive.selected : bvColors.text.tertiary,
+            backgroundColor: isSelected ? bvColors.interactive.selected : 'transparent',
             justifyContent: 'center',
             alignItems: 'center',
             marginRight: 12,
           }}>
             {isSelected && (
-              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              <Ionicons name="checkmark" size={16} color={bvColors.neutral[0]} />
             )}
           </View>
         )}
@@ -1455,7 +1455,7 @@ function ProjectDetailContent() {
           width: 48,
           height: 48,
           borderRadius: 12,
-          backgroundColor: '#FF7A1A',
+          backgroundColor: bvColors.brand.accent,
           justifyContent: 'center',
           alignItems: 'center',
           marginRight: 12,
@@ -1482,7 +1482,7 @@ function ProjectDetailContent() {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                backgroundColor: bvFx.blackTint25,
                 justifyContent: 'center',
                 alignItems: 'center',
               }}>
@@ -1490,11 +1490,11 @@ function ProjectDetailContent() {
                   width: 26,
                   height: 26,
                   borderRadius: 13,
-                  backgroundColor: 'rgba(11, 15, 20, 0.7)',
+                  backgroundColor: bvFx.appOverlay,
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}>
-                  <Ionicons name="play" size={14} color="#FFFFFF" />
+                  <Ionicons name="play" size={14} color={bvColors.neutral[0]} />
                 </View>
               </View>
             </>
@@ -1504,7 +1504,7 @@ function ProjectDetailContent() {
                 item.type === 'video' ? 'videocam' : 'document'
               }
               size={22}
-              color="#0B0F14"
+              color={bvColors.surface.inverse}
             />
           )}
           {item.type === 'photo' && (
@@ -1512,48 +1512,48 @@ function ProjectDetailContent() {
               position: 'absolute',
               top: -2,
               right: -2,
-              backgroundColor: '#FF7A1A',
+              backgroundColor: bvColors.brand.accent,
               borderRadius: 8,
               width: 16,
               height: 16,
               justifyContent: 'center',
               alignItems: 'center',
               borderWidth: 2,
-              borderColor: '#0B0F14',
+              borderColor: bvColors.surface.inverse,
             }}>
-              <Ionicons name="albums" size={8} color="#0B0F14" />
+              <Ionicons name="albums" size={8} color={bvColors.surface.inverse} />
             </View>
           )}
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
+          <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '600' }}>
             {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
           </Text>
-          <Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
+          <Text style={{ color: bvColors.text.tertiary, fontSize: 12, marginTop: 2 }}>
             {formatDate(item.created_at)}
           </Text>
           {item.note && (
-            <Text style={{ color: '#94A3B8', fontSize: 14, marginTop: 4 }}>
+            <Text style={{ color: bvColors.text.muted, fontSize: 14, marginTop: 4 }}>
               {item.note}
             </Text>
           )}
           {item.type === 'video' && item.uri.includes('placeholder') && (
-            <Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
+            <Text style={{ color: bvColors.text.tertiary, fontSize: 12, marginTop: 2 }}>
               🎬 3s • MP4 • ~2MB • Simulation
             </Text>
           )}
           {item.type === 'video' && !item.uri.includes('placeholder') && (
-            <Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
+            <Text style={{ color: bvColors.text.tertiary, fontSize: 12, marginTop: 2 }}>
               🎬 Recorded • MP4 • Ready to play
             </Text>
           )}
           {item.type === 'photo' && (
-            <Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
+            <Text style={{ color: bvColors.text.tertiary, fontSize: 12, marginTop: 2 }}>
               📸 Tap to view in gallery • Swipe to browse
             </Text>
           )}
         </View>
-        <Ionicons name="chevron-forward" size={20} color="#64748B" />
+        <Ionicons name="chevron-forward" size={20} color={bvColors.text.tertiary} />
       </View>
       
       {/* Note Encouragement */}
@@ -1568,20 +1568,51 @@ function ProjectDetailContent() {
     );
   };
 
+  const mediaSummary = React.useMemo(() => {
+    const summary = {
+      photos: 0,
+      videos: 0,
+      docs: 0,
+      notes: 0,
+    };
+
+    for (const item of media) {
+      if (item.type === 'photo') summary.photos += 1;
+      if (item.type === 'video') summary.videos += 1;
+      if (item.type === 'doc') summary.docs += 1;
+      if (item.note && item.note.trim().length > 0) summary.notes += 1;
+    }
+
+    return summary;
+  }, [media]);
+
+  const quickActions: Array<{
+    id: string;
+    icon: IoniconName;
+    label: string;
+    onPress: () => void;
+    enabled: boolean;
+  }> = [
+    { id: 'capture', icon: 'camera-outline', label: 'Capture', onPress: handleCaptureMedia, enabled: true },
+    { id: 'upload', icon: 'cloud-upload-outline', label: 'Upload', onPress: handleDocumentUpload, enabled: true },
+    { id: 'share', icon: 'share-social-outline', label: 'Share', onPress: handleShareProject, enabled: true },
+    { id: 'select', icon: 'checkbox-outline', label: 'Select', onPress: toggleSelectionMode, enabled: media.length > 0 },
+  ];
+
   if (!project) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#0B0F14', justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: '#94A3B8' }}>Loading project...</Text>
+      <View style={{ flex: 1, backgroundColor: bvColors.surface.inverse, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: bvColors.text.muted }}>Loading project...</Text>
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
+    <View style={{ flex: 1, backgroundColor: bvColors.surface.inverse }}>
       {/* Header (animated opacity, overlay) */}
       <Reanimated.View 
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-        style={[{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: '#0B0F14', pointerEvents: 'box-none' }, headerAnimatedStyle]}
+        style={[{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 12, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, backgroundColor: bvColors.surface.inverse, pointerEvents: 'box-none' }, headerAnimatedStyle]}
       >
         <View style={{ pointerEvents: 'auto' }}>
         {/* Top action bar: left and right clusters, no absolute positioning */}
@@ -1595,13 +1626,13 @@ function ProjectDetailContent() {
                     width: 40,
                     height: 40,
                     borderRadius: 20,
-                    backgroundColor: '#101826',
+                    backgroundColor: bvColors.surface.chrome,
                     justifyContent: 'center',
                     alignItems: 'center',
                     marginRight: 8,
                   }}
                 >
-                  <Ionicons name="close" size={20} color="#F8FAFC" />
+                  <Ionicons name="close" size={20} color={bvColors.text.primary} />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={selectedItems.size === media.length ? clearSelection : selectAllItems}
@@ -1609,7 +1640,7 @@ function ProjectDetailContent() {
                     width: 40,
                     height: 40,
                     borderRadius: 20,
-                    backgroundColor: '#101826',
+                    backgroundColor: bvColors.surface.chrome,
                     justifyContent: 'center',
                     alignItems: 'center',
                   }}
@@ -1617,7 +1648,7 @@ function ProjectDetailContent() {
                   <Ionicons 
                     name={selectedItems.size === media.length ? 'square-outline' : 'checkbox'}
                     size={20}
-                    color="#F8FAFC"
+                    color={bvColors.text.primary}
                   />
                 </TouchableOpacity>
               </>
@@ -1629,13 +1660,13 @@ function ProjectDetailContent() {
                     width: 40,
                     height: 40,
                     borderRadius: 20,
-                    backgroundColor: '#101826',
+                    backgroundColor: bvColors.surface.chrome,
                     justifyContent: 'center',
                     alignItems: 'center',
                     marginRight: 8,
                   }}
                 >
-                  <Ionicons name="arrow-back" size={20} color="#F8FAFC" />
+                  <Ionicons name="arrow-back" size={20} color={bvColors.text.primary} />
                 </TouchableOpacity>
                 {media.length > 0 && (
                   <>
@@ -1645,7 +1676,7 @@ function ProjectDetailContent() {
                         width: 40,
                         height: 40,
                         borderRadius: 20,
-                        backgroundColor: '#101826',
+                        backgroundColor: bvColors.surface.chrome,
                         justifyContent: 'center',
                         alignItems: 'center',
                         marginRight: 8,
@@ -1654,7 +1685,7 @@ function ProjectDetailContent() {
                       <Ionicons 
                         name={viewMode === 'list' ? 'grid' : 'list'}
                         size={20}
-                        color="#F8FAFC"
+                        color={bvColors.text.primary}
                       />
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -1663,12 +1694,12 @@ function ProjectDetailContent() {
                         width: 40,
                         height: 40,
                         borderRadius: 20,
-                        backgroundColor: '#101826',
+                        backgroundColor: bvColors.surface.chrome,
                         justifyContent: 'center',
                         alignItems: 'center',
                       }}
                     >
-                      <Ionicons name="checkbox-outline" size={20} color="#F8FAFC" />
+                      <Ionicons name="checkbox-outline" size={20} color={bvColors.text.primary} />
                     </TouchableOpacity>
                   </>
                 )}
@@ -1684,7 +1715,7 @@ function ProjectDetailContent() {
                     width: 40,
                     height: 40,
                     borderRadius: 20,
-                    backgroundColor: selectedItems.size > 0 ? '#3B82F6' : '#1F2A37',
+                    backgroundColor: selectedItems.size > 0 ? bvColors.interactive.selected : bvColors.surface.muted,
                     justifyContent: 'center',
                     alignItems: 'center',
                     marginRight: 8,
@@ -1694,7 +1725,7 @@ function ProjectDetailContent() {
                   <Ionicons 
                     name="share"
                     size={20}
-                    color={selectedItems.size > 0 ? '#FFFFFF' : '#64748B'}
+                    color={selectedItems.size > 0 ? bvColors.neutral[0] : bvColors.text.tertiary}
                   />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1703,7 +1734,7 @@ function ProjectDetailContent() {
                     width: 40,
                     height: 40,
                     borderRadius: 20,
-                    backgroundColor: selectedItems.size > 0 ? '#EF4444' : '#1F2A37',
+                    backgroundColor: selectedItems.size > 0 ? bvColors.semantic.dangerStrong : bvColors.surface.muted,
                     justifyContent: 'center',
                     alignItems: 'center',
                   }}
@@ -1712,7 +1743,7 @@ function ProjectDetailContent() {
                   <Ionicons 
                     name="trash"
                     size={20}
-                    color={selectedItems.size > 0 ? '#FFFFFF' : '#64748B'}
+                    color={selectedItems.size > 0 ? bvColors.neutral[0] : bvColors.text.tertiary}
                   />
                 </TouchableOpacity>
               </>
@@ -1725,14 +1756,14 @@ function ProjectDetailContent() {
                       width: 40,
                       height: 40,
                       borderRadius: 20,
-                      backgroundColor: mediaActiveFilterCount > 0 ? 'rgba(255, 122, 26, 0.2)' : '#101826',
+                      backgroundColor: mediaActiveFilterCount > 0 ? bvFx.accentSoft : bvColors.surface.chrome,
                       justifyContent: 'center',
                       alignItems: 'center',
                       borderWidth: 1,
-                      borderColor: mediaActiveFilterCount > 0 ? 'rgba(255, 122, 26, 0.35)' : 'rgba(148, 163, 184, 0.25)'
+                      borderColor: mediaActiveFilterCount > 0 ? bvFx.accentBorder : bvFx.neutralBorder
                     }}
                   >
-                    <Ionicons name="filter" size={20} color={mediaActiveFilterCount > 0 ? '#FF7A1A' : '#F8FAFC'} />
+                    <Ionicons name="filter" size={20} color={mediaActiveFilterCount > 0 ? bvColors.brand.accent : bvColors.text.primary} />
                   </TouchableOpacity>
                   {mediaActiveFilterCount > 0 && (
                     <View style={{
@@ -1742,13 +1773,13 @@ function ProjectDetailContent() {
                       minWidth: 18,
                       height: 18,
                       borderRadius: 9,
-                      backgroundColor: '#FF7A1A',
+                      backgroundColor: bvColors.brand.accent,
                       justifyContent: 'center',
                       alignItems: 'center',
                       borderWidth: 1,
-                      borderColor: 'rgba(0,0,0,0.2)'
+                      borderColor: bvFx.blackTint20
                     }}>
-                      <Text style={{ color: '#0B0F14', fontSize: 11, fontWeight: '700' }}>{mediaActiveFilterCount}</Text>
+                      <Text style={{ color: bvColors.surface.inverse, fontSize: 11, fontWeight: '700' }}>{mediaActiveFilterCount}</Text>
                     </View>
                   )}
                 </View>
@@ -1758,12 +1789,12 @@ function ProjectDetailContent() {
                     width: 40,
                     height: 40,
                     borderRadius: 20,
-                    backgroundColor: '#101826',
+                    backgroundColor: bvColors.surface.chrome,
                     justifyContent: 'center',
                     alignItems: 'center',
                   }}
                 >
-                  <Ionicons name="share" size={20} color="#F8FAFC" />
+                  <Ionicons name="share" size={20} color={bvColors.text.primary} />
                 </TouchableOpacity>
               </>
             )}
@@ -1772,15 +1803,15 @@ function ProjectDetailContent() {
 
         {/* Title and description */}
         <View style={{ alignItems: 'center', marginTop: 12 }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 24, fontWeight: 'bold' }}>
+          <Text style={{ color: bvColors.text.primary, fontSize: 24, fontWeight: 'bold' }}>
             {isSelectionMode ? `${selectedItems.size} Selected` : project.name}
           </Text>
           {!isSelectionMode && currentFolder && (
-            <Text style={{ color: '#FF7A1A', fontSize: 16, marginTop: 2 }}>
+            <Text style={{ color: bvColors.brand.accent, fontSize: 16, marginTop: 2 }}>
               📁 {folders.find(f => f.id === currentFolder)?.name || 'Folder'}
             </Text>
           )}
-          <Text style={{ color: '#94A3B8', fontSize: 14, marginTop: 4 }}>
+          <Text style={{ color: bvColors.text.muted, fontSize: 14, marginTop: 4 }}>
             {isSelectionMode 
               ? 'Tap items to select • Use buttons to share or delete' 
               : `Project Details • ${viewMode === 'list' ? 'List' : 'Grid'} View`}
@@ -1804,9 +1835,9 @@ function ProjectDetailContent() {
                 <GlassCard
                   style={{
                     marginRight: 8,
-                    backgroundColor: currentFolder === null ? 'rgba(255, 122, 26, 0.2)' : undefined,
+                    backgroundColor: currentFolder === null ? bvFx.accentSoft : undefined,
                     borderWidth: currentFolder === null ? 1 : 0,
-                    borderColor: currentFolder === null ? '#FF7A1A' : 'transparent',
+                    borderColor: currentFolder === null ? bvColors.brand.accent : 'transparent',
                   }}
                   intensity={60}
                   shadowEnabled={true}
@@ -1820,9 +1851,9 @@ function ProjectDetailContent() {
                       alignItems: 'center',
                     }}
                   >
-                    <Ionicons name="home" size={16} color={currentFolder === null ? '#FF7A1A' : '#F8FAFC'} />
+                    <Ionicons name="home" size={16} color={currentFolder === null ? bvColors.brand.accent : bvColors.text.primary} />
                     <Text style={{ 
-                      color: currentFolder === null ? '#FF7A1A' : '#F8FAFC', 
+                      color: currentFolder === null ? bvColors.brand.accent : bvColors.text.primary, 
                       fontSize: 12, 
                       fontWeight: '600',
                       marginLeft: 4 
@@ -1836,9 +1867,9 @@ function ProjectDetailContent() {
                     key={folder.id}
                     style={{
                       marginRight: 8,
-                      backgroundColor: currentFolder === folder.id ? 'rgba(255, 122, 26, 0.2)' : undefined,
+                      backgroundColor: currentFolder === folder.id ? bvFx.accentSoft : undefined,
                       borderWidth: currentFolder === folder.id ? 1 : 0,
-                      borderColor: currentFolder === folder.id ? '#FF7A1A' : 'transparent',
+                      borderColor: currentFolder === folder.id ? bvColors.brand.accent : 'transparent',
                     }}
                     intensity={60}
                     shadowEnabled={true}
@@ -1854,9 +1885,9 @@ function ProjectDetailContent() {
                         alignItems: 'center',
                       }}
                     >
-                      <Ionicons name="folder" size={16} color={currentFolder === folder.id ? '#FF7A1A' : '#F8FAFC'} />
+                      <Ionicons name="folder" size={16} color={currentFolder === folder.id ? bvColors.brand.accent : bvColors.text.primary} />
                       <Text style={{ 
-                        color: currentFolder === folder.id ? '#FF7A1A' : '#F8FAFC', 
+                        color: currentFolder === folder.id ? bvColors.brand.accent : bvColors.text.primary, 
                         fontSize: 12, 
                         fontWeight: '600',
                         marginLeft: 4 
@@ -1866,7 +1897,7 @@ function ProjectDetailContent() {
                       <Ionicons
                         name="ellipsis-horizontal"
                         size={14}
-                        color={currentFolder === folder.id ? '#FF7A1A' : '#94A3B8'}
+                        color={currentFolder === folder.id ? bvColors.brand.accent : bvColors.text.muted}
                         style={{ marginLeft: 6 }}
                       />
                     </TouchableOpacity>
@@ -1875,8 +1906,8 @@ function ProjectDetailContent() {
                 <GlassCard
                   style={{
                     borderWidth: 1,
-                    borderColor: '#FF7A1A',
-                    backgroundColor: 'rgba(255, 122, 26, 0.1)',
+                    borderColor: bvColors.brand.accent,
+                    backgroundColor: bvFx.accentTint,
                   }}
                   intensity={60}
                   shadowEnabled={true}
@@ -1890,8 +1921,8 @@ function ProjectDetailContent() {
                       alignItems: 'center',
                     }}
                   >
-                    <Ionicons name="add" size={16} color="#FF7A1A" />
-                    <Text style={{ color: '#FF7A1A', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
+                    <Ionicons name="add" size={16} color={bvColors.brand.accent} />
+                    <Text style={{ color: bvColors.brand.accent, fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
                       New Folder
                     </Text>
                   </TouchableOpacity>
@@ -1900,9 +1931,9 @@ function ProjectDetailContent() {
               {/* Current Folder Indicator */}
               <GlassCard
                 style={{
-                  backgroundColor: 'rgba(255, 122, 26, 0.05)',
+                  backgroundColor: bvFx.accentHint,
                   borderWidth: 1,
-                  borderColor: 'rgba(255, 122, 26, 0.2)',
+                  borderColor: bvFx.accentSoft,
                 }}
                 intensity={40}
                 shadowEnabled={false}
@@ -1914,9 +1945,9 @@ function ProjectDetailContent() {
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}>
-                  <Ionicons name="camera" size={14} color="#FF7A1A" />
-                  <Text style={{ color: '#94A3B8', fontSize: 12, marginLeft: 6 }}>
-                    New media will be saved to: <Text style={{ color: '#FF7A1A', fontWeight: '600' }}>
+                  <Ionicons name="camera" size={14} color={bvColors.brand.accent} />
+                  <Text style={{ color: bvColors.text.muted, fontSize: 12, marginLeft: 6 }}>
+                    New media will be saved to: <Text style={{ color: bvColors.brand.accent, fontWeight: '600' }}>
                       {currentFolder ? folders.find(f => f.id === currentFolder)?.name : 'All Media'}
                     </Text>
                   </Text>
@@ -1931,39 +1962,88 @@ function ProjectDetailContent() {
 
       <AnimatedFlatList
         data={filteredMedia}
-        keyExtractor={(item: any) => (item as MediaItem).id}
+        keyExtractor={(item) => (item as MediaItem).id}
         contentContainerStyle={{ 
           paddingHorizontal: 16, 
           paddingTop: topOverlayHeight,
           paddingBottom: 100,
         }}
         numColumns={viewMode === 'grid' ? 2 : 1}
+        columnWrapperStyle={viewMode === 'grid' ? { justifyContent: 'space-between' } : undefined}
         key={viewMode} // Force re-render when view mode changes
-        renderItem={({ item }: any) => {
+        ListHeaderComponent={() =>
+          isSelectionMode ? null : (
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ color: bvColors.text.primary, fontSize: 22, fontWeight: '700', marginBottom: 12 }}>
+                Quick Actions
+              </Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+                {quickActions.map((action) => (
+                  <TouchableOpacity
+                    key={action.id}
+                    onPress={action.onPress}
+                    disabled={!action.enabled}
+                    style={{ width: '23.5%', opacity: action.enabled ? 1 : 0.45 }}
+                    activeOpacity={0.88}
+                  >
+                    <BVCard style={{ width: '100%' }} contentStyle={{ paddingVertical: 14, alignItems: 'center' }}>
+                      <Ionicons
+                        name={action.icon}
+                        size={22}
+                        color={action.enabled ? bvColors.brand.primaryLight : bvColors.text.tertiary}
+                      />
+                      <Text style={{ color: bvColors.text.primary, fontSize: 12, fontWeight: '600', marginTop: 8, textAlign: 'center' }}>
+                        {action.label}
+                      </Text>
+                    </BVCard>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={{ color: bvColors.text.primary, fontSize: 22, fontWeight: '700', marginBottom: 12 }}>
+                Project Summary
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                {[
+                  { id: 'photos', label: 'Photos', value: mediaSummary.photos },
+                  { id: 'videos', label: 'Videos', value: mediaSummary.videos },
+                  { id: 'docs', label: 'Docs', value: mediaSummary.docs },
+                  { id: 'folders', label: 'Folders', value: folders.length },
+                ].map((stat) => (
+                  <BVCard key={stat.id} style={{ width: '48%', marginBottom: 12 }} contentStyle={{ padding: 14 }}>
+                    <Text style={{ color: bvColors.text.primary, fontSize: 28, fontWeight: '700' }}>{stat.value}</Text>
+                    <Text style={{ color: bvColors.text.muted, fontSize: 13, marginTop: 2 }}>{stat.label}</Text>
+                  </BVCard>
+                ))}
+              </View>
+            </View>
+          )
+        }
+        renderItem={({ item }) => {
           const mediaItem = item as MediaItem;
           return viewMode === 'grid' ? <MediaCardGrid item={mediaItem} /> : <MediaCard item={mediaItem} />;
         }}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
         ListEmptyComponent={() => (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
-            <Ionicons name="images" size={64} color="#1F2A37" style={{ marginBottom: 20 }} />
-            <Text style={{ color: '#94A3B8', fontSize: 18, textAlign: 'center', marginBottom: 8 }}>
-              No media yet
-            </Text>
-            <Text style={{ color: '#64748B', fontSize: 14, textAlign: 'center' }}>
-              Capture photos, videos, or upload documents to get started
-            </Text>
-          </View>
+          <BVEmptyState
+            title="No media yet"
+            description="Capture photos, videos, or upload documents to get started."
+            icon="images-outline"
+            actionLabel="Capture Media"
+            onAction={handleCaptureMedia}
+            style={{ marginTop: 60 }}
+          />
         )}
       />
 
       {/* Add Media Button */}
-      <GlassFAB
+      <BVFloatingAction
         icon="camera"
         size={60}
         onPress={handleCaptureMedia}
-        style={{ position: 'absolute', right: 20, bottom: insets.bottom + FAB_BOTTOM_OFFSET }}
+        right={20}
+        bottom={FAB_BOTTOM_OFFSET}
       />
 
   {/* Folder Creation Modal */}
@@ -1971,7 +2051,7 @@ function ProjectDetailContent() {
         <GlassModal visible={showFolderModal} onRequestClose={closeFolderModal}>
           <View style={{ padding: 24 }}>
             <Text style={{ 
-              color: '#F8FAFC', 
+              color: bvColors.text.primary, 
               fontSize: 20, 
               fontWeight: '600', 
               marginBottom: 16,
@@ -2019,7 +2099,7 @@ function ProjectDetailContent() {
           <Text style={{ 
             fontSize: 20, 
             fontWeight: '600', 
-            color: '#F8FAFC', 
+            color: bvColors.text.primary, 
             marginBottom: 8,
             textAlign: 'center' 
           }}>
@@ -2028,7 +2108,7 @@ function ProjectDetailContent() {
           
           <Text style={{ 
             fontSize: 14, 
-            color: '#94A3B8', 
+            color: bvColors.text.muted, 
             marginBottom: 20,
             textAlign: 'center' 
           }}>

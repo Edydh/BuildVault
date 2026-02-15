@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Platform } from 'react-native';
 import { MediaItem } from '@/lib/db';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
@@ -16,8 +16,10 @@ type Props = {
   projectId: string;
 };
 
+type IoniconName = keyof typeof Ionicons.glyphMap;
+
 function Badge({ type }: { type: MediaItem['type'] }) {
-  const icon = type === 'photo' ? 'image' : type === 'video' ? 'videocam' : 'document';
+  const icon: IoniconName = type === 'photo' ? 'image' : type === 'video' ? 'videocam' : 'document';
   return (
     <View style={{
       position: 'absolute',
@@ -28,7 +30,7 @@ function Badge({ type }: { type: MediaItem['type'] }) {
       paddingHorizontal: 6,
       paddingVertical: 4,
     }}>
-      <Ionicons name={icon as any} size={14} color="#F8FAFC" />
+      <Ionicons name={icon} size={14} color="#F8FAFC" />
     </View>
   );
 }

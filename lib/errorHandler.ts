@@ -25,7 +25,7 @@ export interface AppError {
   severity: ErrorSeverity;
   message: string;
   userMessage: string;
-  originalError?: any;
+  originalError?: unknown;
   timestamp: Date;
   context?: string;
 }
@@ -97,14 +97,19 @@ export class ErrorLogger {
 
 // Error handler class
 export class ErrorHandler {
-  static handle(error: any, context?: string): AppError {
+  private static errorToMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error ?? 'Unknown error');
+  }
+
+  static handle(error: unknown, context?: string): AppError {
     const appError = this.createAppError(error, context);
     ErrorLogger.log(appError);
     return appError;
   }
   
-  static createAppError(error: any, context?: string): AppError {
-    const errorMessage = error?.message || error?.toString() || 'Unknown error';
+  static createAppError(error: unknown, context?: string): AppError {
+    const errorMessage = this.errorToMessage(error);
     const errorType = this.categorizeError(error);
     const severity = this.determineSeverity(error, errorType);
     const userMessage = this.getUserMessage(errorMessage);
@@ -120,8 +125,8 @@ export class ErrorHandler {
     };
   }
   
-  private static categorizeError(error: any): ErrorType {
-    const message = error?.message || error?.toString() || '';
+  private static categorizeError(error: unknown): ErrorType {
+    const message = this.errorToMessage(error);
     
     if (message.includes('SQLite') || message.includes('database')) {
       return ErrorType.DATABASE;
@@ -145,9 +150,10 @@ export class ErrorHandler {
     return ErrorType.UNKNOWN;
   }
   
-  private static determineSeverity(error: any, type: ErrorType): ErrorSeverity {
+  private static determineSeverity(error: unknown, type: ErrorType): ErrorSeverity {
+    const message = this.errorToMessage(error);
     // Critical errors that break the app
-    if (type === ErrorType.DATABASE && error?.message?.includes('no such table')) {
+    if (type === ErrorType.DATABASE && message.includes('no such table')) {
       return ErrorSeverity.CRITICAL;
     }
     
@@ -195,7 +201,7 @@ export class ErrorHandler {
   }
   
   // Handle error with user notification
-  static handleWithNotification(error: any, context?: string, showAlert: boolean = true): AppError {
+  static handleWithNotification(error: unknown, context?: string, showAlert: boolean = true): AppError {
     const appError = this.handle(error, context);
     this.showError(appError, showAlert);
     return appError;

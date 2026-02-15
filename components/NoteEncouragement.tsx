@@ -18,9 +18,9 @@ interface NoteEncouragementProps {
 }
 
 export default function NoteEncouragement({
-  mediaId,
+  mediaId: _mediaId,
   hasNote,
-  mediaType,
+  mediaType: _mediaType,
   onAddNotePress,
 }: NoteEncouragementProps) {
   const [pulseAnim] = useState(new Animated.Value(1));

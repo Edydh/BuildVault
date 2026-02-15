@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -52,7 +52,7 @@ function ZoomableImage({ uri }: { uri: string }) {
     { useNativeDriver: true }
   );
 
-  const onPinchHandlerStateChange = (event: any) => {
+  const onPinchHandlerStateChange = (event: { nativeEvent: { oldState: number; scale: number } }) => {
     if (event.nativeEvent.oldState === State.ACTIVE) {
       const newScale = lastScale.current * event.nativeEvent.scale;
       
@@ -135,7 +135,9 @@ function ZoomableImage({ uri }: { uri: string }) {
     ]).start();
   };
 
-  const onPanHandlerStateChange = (event: any) => {
+  const onPanHandlerStateChange = (event: {
+    nativeEvent: { oldState: number; translationX: number; translationY: number };
+  }) => {
     if (event.nativeEvent.oldState === State.ACTIVE) {
       // Only allow panning when zoomed in
       if (lastScale.current > MIN_SCALE) {
@@ -559,9 +561,13 @@ function MediaDetailContent() {
 
     } catch (error) {
       console.error('Error sharing media:', error);
+      const errorCode =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? (error as { code?: unknown }).code
+          : undefined;
       console.error('Error details:', {
         message: (error as Error).message,
-        code: (error as any).code,
+        code: errorCode,
         uri: media.uri,
         type: media.type
       });
@@ -587,16 +593,6 @@ function MediaDetailContent() {
     setIsEditingNote(true);
     setShowNotePrompt(false);
     markPromptShown(mediaId);
-  };
-
-  const handleNoteSave = (newNote: string) => {
-    setNote(newNote);
-    handleSaveNote();
-  };
-
-  const handleNoteUpdate = (newNote: string) => {
-    setNote(newNote);
-    handleSaveNote();
   };
 
   const handlePromptDismiss = () => {

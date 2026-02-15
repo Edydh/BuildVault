@@ -1,11 +1,11 @@
 import React, { Component, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { ErrorHandler, ErrorType, ErrorSeverity } from '../lib/errorHandler';
+import { ErrorHandler } from '../lib/errorHandler';
 
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
-  onError?: (error: Error, errorInfo: any) => void;
+  onError?: (error: Error, errorInfo: React.ErrorInfo) => void;
 }
 
 interface State {
@@ -23,9 +23,9 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: any) {
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     // Log the error
-    const appError = ErrorHandler.handle(error, 'ErrorBoundary');
+    ErrorHandler.handle(error, 'ErrorBoundary');
     
     // Call custom error handler if provided
     if (this.props.onError) {

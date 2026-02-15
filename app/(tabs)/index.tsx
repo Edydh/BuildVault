@@ -3,15 +3,8 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Modal,
-  TextInput,
-  Alert,
   FlatList,
-  TouchableWithoutFeedback,
-  Keyboard,
   StatusBar,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   ViewStyle,
 } from 'react-native';
@@ -24,12 +17,12 @@ import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { GlassHeader, GlassCard, GlassTextInput, GlassButton, GlassFAB, GlassModal, GlassActionSheet } from '../../components/glass';
-import { FAB_BOTTOM_OFFSET } from '../../components/glass/layout';
+import { GlassCard, GlassTextInput, GlassButton, GlassModal, GlassActionSheet } from '../../components/glass';
 import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
 import ProjectCard from '../../components/ProjectCard';
+import { BVHeader, BVSearchBar, BVFloatingAction, BVEmptyState } from '../../components/ui';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -307,7 +300,7 @@ export default function ProjectsList() {
   );
 
   // Handle scroll events for dynamic header and tab bar
-  const handleScroll = (event: any) => {
+  const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
     'worklet';
     scrollY.value = event.nativeEvent.contentOffset.y;
   };
@@ -332,7 +325,7 @@ export default function ProjectsList() {
       setShowCreate(false);
       setForm({ name: '', client: '', location: '', search: '' });
       await loadProjects();
-    } catch (error) {
+    } catch {
       setSheetMessage('Failed to create project');
       setShowErrorSheet(true);
     }
@@ -349,7 +342,7 @@ export default function ProjectsList() {
       await loadProjects();
       setShowEdit(false);
       setEditingProject(null);
-    } catch (error) {
+    } catch {
       setSheetMessage('Failed to update project');
       setShowErrorSheet(true);
     }
@@ -526,10 +519,6 @@ export default function ProjectsList() {
     }
   };
 
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString();
-  };
-
   const statCards: StatCardConfig[] = [
     {
       key: 'storage',
@@ -577,53 +566,55 @@ export default function ProjectsList() {
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      
-      <GlassHeader
-        title="BuildVault"
-        scrollY={scrollY}
-        search={{
-          value: form.search || '',
-          onChange: (text) => setForm((prev) => ({ ...prev, search: text })),
-          placeholder: 'Search projects...',
-        }}
-        right={
-          <View style={{ position: 'relative' }}>
-            <TouchableOpacity
-              onPress={() => setShowFilterSheet(true)}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: projectFilterCount > 0 ? 'rgba(255, 122, 26, 0.22)' : 'rgba(148, 163, 184, 0.18)',
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: projectFilterCount > 0 ? 'rgba(255, 122, 26, 0.35)' : 'rgba(148, 163, 184, 0.28)',
-              }}
-            >
-              <Ionicons name="filter" size={18} color={projectFilterCount > 0 ? '#FF7A1A' : '#94A3B8'} />
-            </TouchableOpacity>
-            {projectFilterCount > 0 && (
-              <View style={{
-                position: 'absolute',
-                top: -4,
-                right: -4,
-                minWidth: 18,
-                height: 18,
-                borderRadius: 9,
-                backgroundColor: '#FF7A1A',
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: 'rgba(0,0,0,0.2)'
-              }}>
-                <Text style={{ color: '#0B0F14', fontSize: 11, fontWeight: '700' }}>{projectFilterCount}</Text>
-              </View>
-            )}
-          </View>
-        }
-        transparent={false}
-      />
+
+      <View style={{ paddingHorizontal: 16 }}>
+        <BVHeader
+          title="BuildVault"
+          subtitle="Projects dashboard"
+          right={
+            <View style={{ position: 'relative' }}>
+              <TouchableOpacity
+                onPress={() => setShowFilterSheet(true)}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: projectFilterCount > 0 ? 'rgba(58, 99, 243, 0.24)' : 'rgba(148, 163, 184, 0.18)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: projectFilterCount > 0 ? 'rgba(58, 99, 243, 0.4)' : 'rgba(148, 163, 184, 0.28)',
+                }}
+              >
+                <Ionicons name="filter" size={18} color={projectFilterCount > 0 ? '#3A63F3' : '#94A3B8'} />
+              </TouchableOpacity>
+              {projectFilterCount > 0 && (
+                <View style={{
+                  position: 'absolute',
+                  top: -4,
+                  right: -4,
+                  minWidth: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  backgroundColor: '#3A63F3',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: 'rgba(0,0,0,0.2)'
+                }}>
+                  <Text style={{ color: '#F1F5F9', fontSize: 11, fontWeight: '700' }}>{projectFilterCount}</Text>
+                </View>
+              )}
+            </View>
+          }
+        />
+        <BVSearchBar
+          value={form.search || ''}
+          onChangeText={(text) => setForm((prev) => ({ ...prev, search: text }))}
+          placeholder="Search projects..."
+          style={{ marginBottom: 12 }}
+        />
+      </View>
 
       <Animated.FlatList
         ref={flatListRef}
@@ -631,7 +622,7 @@ export default function ProjectsList() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ 
           padding: 16, 
-          paddingTop: insets.top + 120, // Header height + search bar + spacing
+          paddingTop: 8,
           paddingBottom: insets.bottom + 100, // Tab bar + safe area
         }}
         renderItem={({ item }) => (
@@ -678,26 +669,23 @@ export default function ProjectsList() {
           </View>
         )}
         ListEmptyComponent={() => (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 }}>
-            <Ionicons name="albums" size={64} color="#1F2A37" style={{ marginBottom: 20 }} />
-            <Text style={{ color: '#94A3B8', fontSize: 18, textAlign: 'center', marginBottom: 8 }}>
-              No projects yet
-            </Text>
-            <Text style={{ color: '#64748B', fontSize: 14, textAlign: 'center' }}>
-              Create your first construction project to get started
-            </Text>
-
-          </View>
+          <BVEmptyState
+            title="No projects yet"
+            description="Create your first construction project to get started."
+            icon="albums-outline"
+            actionLabel="Create Project"
+            onAction={() => setShowCreate(true)}
+            style={{ marginTop: 48 }}
+          />
         )}
       />
 
 
 
-      <GlassFAB
+      <BVFloatingAction
         icon="add"
-        size={60}
+        size={64}
         onPress={() => setShowCreate(true)}
-        style={{ position: 'absolute', right: 20, bottom: insets.bottom + FAB_BOTTOM_OFFSET }}
       />
 
       <GlassModal visible={showCreate} onRequestClose={() => setShowCreate(false)}>

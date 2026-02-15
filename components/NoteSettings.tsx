@@ -86,7 +86,7 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
     }
   };
 
-  const updateSetting = (key: keyof NoteSettings, value: any) => {
+  const updateSetting = <K extends keyof NoteSettings>(key: K, value: NoteSettings[K]) => {
     const newSettings = { ...settings, [key]: value };
     saveSettings(newSettings);
   };
@@ -316,11 +316,13 @@ export default function NoteSettings({ onSettingsChange }: NoteSettingsProps) {
             How often to show note prompts
           </Text>
           
-          {[
-            { key: 'always', label: 'Always', description: 'Show prompts every time' },
-            { key: 'first_time', label: 'First Time Only', description: 'Show only for new media' },
-            { key: 'never', label: 'Never', description: 'Disable all prompts' },
-          ].map((option) => (
+          {(
+            [
+              { key: 'always', label: 'Always', description: 'Show prompts every time' },
+              { key: 'first_time', label: 'First Time Only', description: 'Show only for new media' },
+              { key: 'never', label: 'Never', description: 'Disable all prompts' },
+            ] as const
+          ).map((option) => (
             <TouchableOpacity
               key={option.key}
               onPress={() => updateSetting('promptFrequency', option.key)}

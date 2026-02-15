@@ -1,8 +1,7 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as SecureStore from 'expo-secure-store';
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
 import { supabase } from './supabase';
-import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, User } from './db';
 import { ErrorHandler, withErrorHandling } from './errorHandler';
@@ -13,6 +12,18 @@ export interface AuthResult {
   user?: User;
   error?: string;
 }
+
+type SupabaseUserLike = {
+  id: string;
+  email?: string | null;
+  user_metadata?: {
+    full_name?: string | null;
+    name?: string | null;
+  } | null;
+  app_metadata?: {
+    provider?: string | null;
+  } | null;
+};
 
 export class AuthService {
   private static instance: AuthService;
@@ -130,9 +141,14 @@ export class AuthService {
       }
 
       return { success: true, user };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorCode =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? String((error as { code?: unknown }).code)
+          : '';
+      const errorMessage = error instanceof Error ? error.message : String(error ?? '');
       // Handle user cancellation gracefully (not an error)
-      if (error.code === 'ERR_CANCELED' || error.message?.includes('canceled')) {
+      if (errorCode === 'ERR_CANCELED' || errorMessage.includes('canceled')) {
         console.log('Apple Sign-In was canceled by user');
         return { success: false, error: 'USER_CANCELED' };
       }
@@ -240,13 +256,14 @@ export class AuthService {
       }
 
       return { success: false, error: 'Authentication failed' };
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e ?? '');
       console.error('Google sign-in error:', e);
-      return { success: false, error: e.message || 'Google Sign-In failed' };
+      return { success: false, error: errorMessage || 'Google Sign-In failed' };
     }
   }
 
-  async upsertUserFromSupabase(supabaseUser: any): Promise<User> {
+  async upsertUserFromSupabase(supabaseUser: SupabaseUserLike): Promise<User> {
     // Sync Supabase user into local DB so the rest of the app can work unchanged
     console.log('Upserting user from Supabase:', {
       id: supabaseUser.id,
@@ -261,7 +278,7 @@ export class AuthService {
                  supabaseUser.email?.split('@')[0] || 
                  'User';
     const providerId = supabaseUser.id;
-    const provider = supabaseUser.app_metadata?.provider || 'supabase';
+    const provider = supabaseUser.app_metadata?.provider === 'apple' ? 'apple' : 'google';
     
     console.log('Creating/updating local user:', { email, name, provider, providerId });
     

@@ -1,5 +1,4 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { Image } from 'expo-image';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 export interface ImageVariants {

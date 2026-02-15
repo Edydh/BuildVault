@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { ErrorHandler, withErrorHandlingSync, withErrorHandling } from './errorHandler';
+import { withErrorHandlingSync } from './errorHandler';
 
 export interface Project {
   id: string;
@@ -83,9 +83,10 @@ export function migrate() {
     // Add folder_id column to media table if it doesn't exist
     try {
       db.execSync(`ALTER TABLE media ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL`);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error ?? '');
       // Column already exists, ignore error - this is expected
-      if (!error?.message?.includes('duplicate column name')) {
+      if (!errorMessage.includes('duplicate column name')) {
         console.log('Unexpected error adding folder_id column:', error);
       }
     }
@@ -134,7 +135,7 @@ export function createProject(data: Omit<Project, 'id' | 'created_at'>): Project
 export function updateProject(id: string, data: Partial<Omit<Project, 'id' | 'created_at'>>): void {
   return withErrorHandlingSync(() => {
     const updates: string[] = [];
-    const values: any[] = [];
+    const values: Array<string | null> = [];
 
     if (data.name !== undefined) {
       updates.push('name = ?');
@@ -234,7 +235,7 @@ export function getMediaFiltered(
 ): MediaItem[] {
   return withErrorHandlingSync(() => {
     const where: string[] = ['project_id = ?'];
-    const params: any[] = [projectId];
+    const params: Array<string | number> = [projectId];
 
     if (opts.folderId === null) {
       where.push('folder_id IS NULL');

@@ -1,5 +1,15 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Alert, ScrollView, StatusBar, Animated } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Alert,
+  ScrollView,
+  StatusBar,
+  Animated,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,15 +18,17 @@ import { deleteProjectDir, clearAllProjectDirs } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
 import NoteSettings from '../../components/NoteSettings';
 import { useGlassTheme, GlassCard, GlassSwitch, GlassActionSheet, GLASS_THEME_STORAGE_KEY } from '../../components/glass';
+import { BVHeader, BVCard, BVButton } from '../../components/ui';
+import { bvColors, bvFx, bvRadius, bvSpacing, bvTypography } from '../../lib/theme/tokens';
 import * as Haptics from 'expo-haptics';
 
 export default function Settings() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
   const glassTheme = useGlassTheme();
+  type IoniconName = keyof typeof Ionicons.glyphMap;
   
   // Animation values for dynamic header
-  const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = useRef(new Animated.Value(1)).current;
   
   // Expandable Glass Effects state
@@ -24,7 +36,7 @@ export default function Settings() {
   const glassEffectsHeight = useRef(new Animated.Value(0)).current;
 
   // Handle scroll events for dynamic header
-  const handleScroll = (event: any) => {
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     try {
       const offsetY = event.nativeEvent.contentOffset.y;
       
@@ -41,7 +53,7 @@ export default function Settings() {
       } else {
         headerOpacity.setValue(1);
       }
-    } catch (error) {
+    } catch {
       // Fallback: keep header visible if there's an error
       headerOpacity.setValue(1);
     }
@@ -126,58 +138,60 @@ export default function Settings() {
     onPress,
     destructive = false
   }: {
-    icon: string;
+    icon: IoniconName;
     title: string;
     subtitle?: string;
     onPress: () => void;
     destructive?: boolean;
   }) => (
-    <TouchableOpacity
-      style={{
-        backgroundColor: '#101826',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#1F2A37',
+    <BVCard
+      onPress={onPress}
+      style={{ marginBottom: bvSpacing[12] }}
+      contentStyle={{
         flexDirection: 'row',
         alignItems: 'center',
+        padding: bvSpacing[16],
       }}
-      onPress={onPress}
-      activeOpacity={0.7}
     >
-      <View style={{
-        width: 40,
-        height: 40,
-        borderRadius: 8,
-        backgroundColor: destructive ? '#DC2626' : '#FF7A1A',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 16,
-      }}>
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: bvRadius.sm,
+          backgroundColor: destructive ? bvFx.dangerTint : bvFx.brandSoftStrong,
+          borderWidth: 1,
+          borderColor: destructive ? bvFx.dangerBorder : bvFx.brandBorder,
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginRight: bvSpacing[16],
+        }}
+      >
         <Ionicons
-          name={icon as any}
+          name={icon}
           size={20}
-          color="#0B0F14"
+          color={destructive ? bvColors.semantic.danger : bvColors.brand.primaryLight}
         />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{
-          color: destructive ? '#F87171' : '#F8FAFC',
-          fontSize: 16,
-          fontWeight: '600',
-          marginBottom: subtitle ? 2 : 0,
-        }}>
+        <Text
+          style={{
+            ...bvTypography.headingMedium,
+            fontSize: 16,
+            lineHeight: 20,
+            color: destructive ? bvColors.semantic.dangerTint : bvColors.text.primary,
+            marginBottom: subtitle ? 2 : 0,
+          }}
+        >
           {title}
         </Text>
         {subtitle && (
-          <Text style={{ color: '#64748B', fontSize: 14 }}>
+          <Text style={{ ...bvTypography.bodyRegular, color: bvColors.text.muted }}>
             {subtitle}
           </Text>
         )}
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#64748B" />
-    </TouchableOpacity>
+      <Ionicons name="chevron-forward" size={20} color={bvColors.neutral[500]} />
+    </BVCard>
   );
 
   const handleSignOut = () => {
@@ -198,37 +212,35 @@ export default function Settings() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0B0F14' }} pointerEvents="box-none">
-      <StatusBar barStyle="light-content" backgroundColor="#0B0F14" translucent />
+    <View style={{ flex: 1, backgroundColor: bvColors.surface.app }} pointerEvents="box-none">
+      <StatusBar barStyle="light-content" backgroundColor={bvColors.surface.app} translucent />
       <Animated.View 
         style={{ 
-          padding: 16, 
-          paddingTop: insets.top + 16, 
-          paddingBottom: 20,
           opacity: headerOpacity,
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
           zIndex: 1000,
-          backgroundColor: '#0B0F14',
+          backgroundColor: bvColors.surface.app,
           pointerEvents: 'none',
         }}
       >
         <View style={{ pointerEvents: 'auto' }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 28, fontWeight: 'bold' }}>
-            Settings
-          </Text>
-          <Text style={{ color: '#94A3B8', fontSize: 16, marginTop: 4 }}>
-            App preferences and management
-          </Text>
+          <BVHeader
+            title="Settings"
+            subtitle="App preferences and management"
+            style={{
+              backgroundColor: 'transparent',
+            }}
+          />
         </View>
       </Animated.View>
 
       <ScrollView 
-        style={{ flex: 1, backgroundColor: '#0B0F14' }}
+        style={{ flex: 1, backgroundColor: bvColors.surface.app }}
         contentContainerStyle={{ 
-          padding: 16, 
+          padding: 16,
           paddingTop: insets.top + 120, // Header height + safe area
           paddingBottom: insets.bottom + 20 
         }}
@@ -245,7 +257,7 @@ export default function Settings() {
       {/* Glass Theme Section - Expandable */}
       <View style={{ paddingBottom: 8 }}>
         <Text style={{
-          color: '#64748B',
+          color: bvColors.text.tertiary,
           fontSize: 14,
           fontWeight: '600',
           textTransform: 'uppercase',
@@ -269,10 +281,10 @@ export default function Settings() {
             activeOpacity={0.7}
           >
             <View style={{ flex: 1 }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
+              <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '600' }}>
                 Glass Effects
               </Text>
-              <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+              <Text style={{ color: bvColors.text.tertiary, fontSize: 13, marginTop: 2 }}>
                 {isGlassEffectsExpanded ? 'Tap to collapse' : 'Tap to expand settings'}
               </Text>
             </View>
@@ -286,7 +298,7 @@ export default function Settings() {
                 }]
               }}
             >
-              <Ionicons name="chevron-down" size={20} color="#64748B" />
+              <Ionicons name="chevron-down" size={20} color={bvColors.text.tertiary} />
             </Animated.View>
           </TouchableOpacity>
 
@@ -303,7 +315,7 @@ export default function Settings() {
             <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
               {/* Blur Intensity */}
               <View style={{ marginBottom: 20 }}>
-                <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+                <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
                   Blur Intensity
                 </Text>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
@@ -320,17 +332,17 @@ export default function Settings() {
                         paddingHorizontal: 12,
                         borderRadius: 8,
                         backgroundColor: glassTheme.config.intensity === level 
-                          ? 'rgba(255, 122, 26, 0.2)' 
-                          : 'rgba(255, 255, 255, 0.05)',
+                          ? bvFx.accentSoft 
+                          : bvFx.glassSoft,
                         borderWidth: 1,
                         borderColor: glassTheme.config.intensity === level 
-                          ? '#FF7A1A' 
-                          : 'rgba(255, 255, 255, 0.1)',
+                          ? bvColors.brand.accent 
+                          : bvFx.glassBorderSoft,
                         alignItems: 'center',
                       }}
                     >
                       <Text style={{ 
-                        color: glassTheme.config.intensity === level ? '#FF7A1A' : '#94A3B8',
+                        color: glassTheme.config.intensity === level ? bvColors.brand.accent : bvColors.text.muted,
                         fontSize: 14,
                         fontWeight: glassTheme.config.intensity === level ? '600' : '400',
                         textTransform: 'capitalize',
@@ -349,13 +361,13 @@ export default function Settings() {
                 alignItems: 'center',
                 paddingVertical: 12,
                 borderTopWidth: 1,
-                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+                borderTopColor: bvFx.glassBorderSoft,
               }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '500' }}>
                     Animations
                   </Text>
-                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                  <Text style={{ color: bvColors.text.tertiary, fontSize: 13, marginTop: 2 }}>
                     Smooth transitions and effects
                   </Text>
                 </View>
@@ -375,13 +387,13 @@ export default function Settings() {
                 alignItems: 'center',
                 paddingVertical: 12,
                 borderTopWidth: 1,
-                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+                borderTopColor: bvFx.glassBorderSoft,
               }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '500' }}>
                     Haptic Feedback
                   </Text>
-                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                  <Text style={{ color: bvColors.text.tertiary, fontSize: 13, marginTop: 2 }}>
                     Tactile responses on interactions
                   </Text>
                 </View>
@@ -403,13 +415,13 @@ export default function Settings() {
                 alignItems: 'center',
                 paddingVertical: 12,
                 borderTopWidth: 1,
-                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+                borderTopColor: bvFx.glassBorderSoft,
               }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '500' }}>
                     Reduce Transparency
                   </Text>
-                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                  <Text style={{ color: bvColors.text.tertiary, fontSize: 13, marginTop: 2 }}>
                     Better visibility on older devices
                   </Text>
                 </View>
@@ -429,13 +441,13 @@ export default function Settings() {
                 alignItems: 'center',
                 paddingVertical: 12,
                 borderTopWidth: 1,
-                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+                borderTopColor: bvFx.glassBorderSoft,
               }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '500' }}>
                     Reduced Effects (Performance)
                   </Text>
-                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                  <Text style={{ color: bvColors.text.tertiary, fontSize: 13, marginTop: 2 }}>
                     Low-overhead visuals for slower devices
                   </Text>
                 </View>
@@ -455,13 +467,13 @@ export default function Settings() {
                 alignItems: 'center',
                 paddingVertical: 12,
                 borderTopWidth: 1,
-                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+                borderTopColor: bvFx.glassBorderSoft,
               }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '500' }}>
                     Gallery Overlays
                   </Text>
-                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                  <Text style={{ color: bvColors.text.tertiary, fontSize: 13, marginTop: 2 }}>
                     Glass header and floating buttons in gallery
                   </Text>
                 </View>
@@ -486,13 +498,13 @@ export default function Settings() {
                 alignItems: 'center',
                 paddingVertical: 12,
                 borderTopWidth: 1,
-                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+                borderTopColor: bvFx.glassBorderSoft,
               }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '500' }}>
                     Prefer DB Filtering
                   </Text>
-                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                  <Text style={{ color: bvColors.text.tertiary, fontSize: 13, marginTop: 2 }}>
                     Use SQLite queries for filters/sort on large lists
                   </Text>
                 </View>
@@ -511,13 +523,13 @@ export default function Settings() {
                 alignItems: 'center',
                 paddingVertical: 12,
                 borderTopWidth: 1,
-                borderTopColor: 'rgba(255, 255, 255, 0.1)',
+                borderTopColor: bvFx.glassBorderSoft,
               }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '500' }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '500' }}>
                     Media Detail Overlays
                   </Text>
-                  <Text style={{ color: '#64748B', fontSize: 13, marginTop: 2 }}>
+                  <Text style={{ color: bvColors.text.tertiary, fontSize: 13, marginTop: 2 }}>
                     Glass header and floating buttons in media view
                   </Text>
                 </View>
@@ -560,13 +572,13 @@ export default function Settings() {
                   paddingVertical: 12,
                   paddingHorizontal: 16,
                   borderRadius: 8,
-                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  backgroundColor: bvFx.dangerTint,
                   borderWidth: 1,
-                  borderColor: 'rgba(239, 68, 68, 0.3)',
+                  borderColor: bvFx.dangerBorder,
                   alignItems: 'center',
                 }}
               >
-                <Text style={{ color: '#EF4444', fontSize: 14, fontWeight: '600' }}>
+                <Text style={{ color: bvColors.semantic.dangerStrong, fontSize: 14, fontWeight: '600' }}>
                   Reset to Defaults
                 </Text>
               </TouchableOpacity>
@@ -579,7 +591,7 @@ export default function Settings() {
       {user && (
         <View style={{ paddingBottom: 8 }}>
           <Text style={{
-            color: '#64748B',
+            color: bvColors.text.tertiary,
             fontSize: 14,
             fontWeight: '600',
             textTransform: 'uppercase',
@@ -589,18 +601,15 @@ export default function Settings() {
             Account
           </Text>
           
-          <View style={{
-            backgroundColor: '#101826',
-            borderRadius: 12,
-            padding: 16,
-            marginBottom: 16,
-          }}>
+          <BVCard style={{ marginBottom: 16 }} contentStyle={{ padding: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
               <View style={{
                 width: 48,
                 height: 48,
                 borderRadius: 24,
-                backgroundColor: '#FF7A1A',
+                backgroundColor: bvFx.brandSoftStrong,
+                borderWidth: 1,
+                borderColor: bvFx.brandBorder,
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginRight: 12,
@@ -608,46 +617,35 @@ export default function Settings() {
                 <Ionicons 
                   name={user.provider === 'apple' ? 'logo-apple' : 'logo-google'} 
                   size={24} 
-                  color="#FFFFFF" 
+                  color={bvColors.brand.primaryLight}
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '600' }}>
+                <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '600' }}>
                   {user.name}
                 </Text>
-                <Text style={{ color: '#94A3B8', fontSize: 14 }}>
+                <Text style={{ color: bvColors.text.secondary, fontSize: 14 }}>
                   {user.email}
                 </Text>
-                <Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
+                <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 2 }}>
                   Signed in with {user.provider === 'apple' ? 'Apple ID' : 'Google'}
                 </Text>
               </View>
             </View>
-            
-            <TouchableOpacity
-              style={{
-                backgroundColor: '#1E293B',
-                paddingVertical: 12,
-                paddingHorizontal: 16,
-                borderRadius: 8,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+
+            <BVButton
+              title="Sign Out"
+              variant="danger"
+              icon="log-out-outline"
               onPress={handleSignOut}
-            >
-              <Ionicons name="log-out" size={16} color="#EF4444" />
-              <Text style={{ color: '#EF4444', fontSize: 14, fontWeight: '600', marginLeft: 8 }}>
-                Sign Out
-              </Text>
-            </TouchableOpacity>
-          </View>
+            />
+          </BVCard>
         </View>
       )}
 
       <View>
         <Text style={{
-          color: '#64748B',
+          color: bvColors.text.tertiary,
           fontSize: 14,
           fontWeight: '600',
           textTransform: 'uppercase',
@@ -661,7 +659,7 @@ export default function Settings() {
         <NoteSettings />
 
         <Text style={{
-          color: '#64748B',
+          color: bvColors.text.tertiary,
           fontSize: 14,
           fontWeight: '600',
           textTransform: 'uppercase',
@@ -680,7 +678,7 @@ export default function Settings() {
         />
 
         <Text style={{
-          color: '#64748B',
+          color: bvColors.text.tertiary,
           fontSize: 14,
           fontWeight: '600',
           textTransform: 'uppercase',
@@ -702,7 +700,7 @@ export default function Settings() {
 
       <View style={{ paddingBottom: 40 }}>
         <Text style={{
-          color: '#475569',
+          color: bvColors.neutral[600],
           fontSize: 12,
           textAlign: 'center',
           lineHeight: 18,
@@ -738,7 +736,7 @@ export default function Settings() {
             onPress: async () => {
               try {
                 await signOut();
-              } catch (error) {
+              } catch {
                 setShowSignOutSheet(false);
                 setSheetMessage('Failed to sign out. Please try again.');
                 setShowErrorSheet(true);

@@ -8,7 +8,6 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming,
   interpolate,
   Extrapolate,
   SharedValue,
@@ -29,7 +28,10 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
     tabScales[route.key] = useSharedValue(state.index === state.routes.indexOf(route) ? 1 : 0.9);
   });
 
-  const handleTabPress = (route: any, isFocused: boolean) => {
+  type TabRoute = BottomTabBarProps['state']['routes'][number];
+  type IoniconName = keyof typeof Ionicons.glyphMap;
+
+  const handleTabPress = (route: TabRoute, isFocused: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const event = navigation.emit({
@@ -51,7 +53,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
     });
   };
 
-  const handleTabLongPress = (route: any) => {
+  const handleTabLongPress = (route: TabRoute) => {
     navigation.emit({
       type: 'tabLongPress',
       target: route.key,
@@ -114,7 +116,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
           }));
 
           // Get icon name based on route
-          const getIconName = () => {
+          const getIconName = (): IoniconName => {
             switch (route.name) {
               case 'index':
                 return 'folder';
@@ -145,7 +147,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
                 ]}
               >
                 <Ionicons
-                  name={getIconName() as any}
+                  name={getIconName()}
                   size={24}
                   color={isFocused ? '#FF7A1A' : '#64748B'}
                 />
