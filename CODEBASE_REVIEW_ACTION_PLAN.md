@@ -177,6 +177,43 @@ Component-level acceptance criteria:
 - `BVEmptyState`:
   - icon, title, description, context-aware primary CTA
 
+### B4.2 Project Card Progress Bar (tomorrow decision track)
+
+Objective:
+- Make the project card bar a true process indicator, not a manually set percentage.
+
+Decision options:
+1. Phase-based progress only:
+- Use explicit project phases and completion state.
+2. Activity-based progress only:
+- Use weighted activity signals (media, notes, inspections, purchases, milestones).
+3. Hybrid model (recommended):
+- Primary progress from phase completion + bounded activity contribution for momentum.
+
+Data requirements:
+- Add `project_phases`:
+  - `id`, `project_id`, `name`, `weight`, `status`, `due_date`, `completed_at`, `created_at`, `updated_at`
+- Optional config table:
+  - `activity_weights` (or static defaults in app layer)
+
+Computation contract:
+- `progress_percent = sum(completed phase weights) + capped(activity contribution)`
+- Clamp to `0..100`
+- Keep project `status` derived from process signals (recency, due dates, completion), not from manual user input.
+
+UI contract:
+- Project card bar always uses computed value.
+- Display supporting text under/near bar, e.g.:
+  - `67% • Structure phase complete`
+- Remove/avoid direct manual editing of progress percentage in project forms after migration.
+
+Implementation order (next session):
+1. Decide model (A/B/C) and finalize formula.
+2. Add schema + migration for `project_phases`.
+3. Implement `computeProjectProgress(projectId)` in data/service layer.
+4. Refactor project card + overview to consume computed progress only.
+5. Add seed/default phase templates by project type (optional v1.1).
+
 ### B5 Supabase collaboration backend
 
 Goal:
