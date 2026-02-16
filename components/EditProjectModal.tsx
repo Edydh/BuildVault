@@ -20,7 +20,6 @@ type EditProjectPayload = {
   client?: string;
   location?: string;
   organization_id?: string | null;
-  progress?: number;
   start_date?: number | null;
   end_date?: number | null;
   budget?: number | null;
@@ -41,7 +40,6 @@ type FormState = {
   client: string;
   location: string;
   organizationId: string | null;
-  progress: string;
   budget: string;
   startDate: string;
   endDate: string;
@@ -80,7 +78,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
     client: '',
     location: '',
     organizationId: null,
-    progress: '0',
     budget: '',
     startDate: '',
     endDate: '',
@@ -93,7 +90,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         client: project.client || '',
         location: project.location || '',
         organizationId: project.organization_id || null,
-        progress: String(project.progress ?? 0),
         budget: project.budget != null ? String(project.budget) : '',
         startDate: toDateInput(project.start_date),
         endDate: toDateInput(project.end_date),
@@ -104,7 +100,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         client: '',
         location: '',
         organizationId: null,
-        progress: '0',
         budget: '',
         startDate: '',
         endDate: '',
@@ -117,12 +112,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
 
     if (!form.name.trim()) {
       Alert.alert('Error', 'Project name is required');
-      return;
-    }
-
-    const progress = Number(form.progress.trim());
-    if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
-      Alert.alert('Error', 'Progress must be a number between 0 and 100');
       return;
     }
 
@@ -155,7 +144,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         client: form.client.trim() || undefined,
         location: form.location.trim() || undefined,
         organization_id: form.organizationId || null,
-        progress: Math.round(progress),
         start_date: parsedStartDate,
         end_date: parsedEndDate,
         budget: parsedBudget,
@@ -321,15 +309,6 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                   </View>
                 </ScrollView>
               </View>
-
-              <GlassTextInput
-                label="Progress (%)"
-                value={form.progress}
-                onChangeText={(text) => setForm((prev) => ({ ...prev, progress: text }))}
-                placeholder="0 to 100"
-                keyboardType="numeric"
-                returnKeyType="next"
-              />
 
               <GlassTextInput
                 label="Budget (Optional)"

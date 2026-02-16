@@ -97,7 +97,6 @@ type CreateProjectForm = {
   location: string;
   organizationId: string | null;
   search: string;
-  progress: string;
   budget: string;
   startDate: string;
   endDate: string;
@@ -111,7 +110,6 @@ const DEFAULT_CREATE_FORM: CreateProjectForm = {
   location: '',
   organizationId: null,
   search: '',
-  progress: '0',
   budget: '',
   startDate: '',
   endDate: '',
@@ -431,13 +429,6 @@ export default function ProjectsList() {
       return;
     }
 
-    const progress = Number(form.progress.trim());
-    if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
-      setSheetMessage('Progress must be a number between 0 and 100');
-      setShowErrorSheet(true);
-      return;
-    }
-
     const parsedStartDate = parseDateInput(form.startDate);
     if (parsedStartDate === 'invalid') {
       setSheetMessage('Start Date must be valid (YYYY-MM-DD)');
@@ -472,7 +463,6 @@ export default function ProjectsList() {
         client: form.client.trim() || undefined,
         location: form.location.trim() || undefined,
         organization_id: organizationId,
-        progress: Math.round(progress),
         start_date: parsedStartDate,
         end_date: parsedEndDate,
         budget: parsedBudget,
@@ -506,7 +496,6 @@ export default function ProjectsList() {
       client?: string;
       location?: string;
       organization_id?: string | null;
-      progress?: number;
       start_date?: number | null;
       end_date?: number | null;
       budget?: number | null;
@@ -1048,15 +1037,6 @@ export default function ProjectsList() {
                   </View>
                 </ScrollView>
               </View>
-
-              <GlassTextInput
-                label="Progress (%)"
-                value={form.progress}
-                onChangeText={(text) => setForm((prev) => ({ ...prev, progress: text }))}
-                placeholder="0 to 100"
-                keyboardType="numeric"
-                returnKeyType="next"
-              />
 
               <GlassTextInput
                 label="Budget (Optional)"

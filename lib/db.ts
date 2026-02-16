@@ -3,6 +3,7 @@ import { withErrorHandlingSync } from './errorHandler';
 
 export type ProjectStatus = 'active' | 'delayed' | 'completed' | 'neutral';
 export type ProjectVisibility = 'private' | 'public';
+export type ProjectPhaseStatus = 'pending' | 'in_progress' | 'completed';
 
 export interface Project {
   id: string;
@@ -175,6 +176,29 @@ export interface ActivityLogEntry {
   created_at: number;
 }
 
+export interface ProjectPhase {
+  id: string;
+  project_id: string;
+  user_id?: string | null;
+  name: string;
+  weight: number;
+  status: ProjectPhaseStatus;
+  due_date?: number | null;
+  completed_at?: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProjectProgressComputation {
+  project_id: string;
+  progress: number;
+  status: ProjectStatus;
+  phase_completion: number;
+  activity_contribution: number;
+  last_activity_at?: number | null;
+  has_phases: boolean;
+}
+
 type UserIdentityRow = {
   id: string;
   auth_user_id?: string | null;
@@ -189,12 +213,38 @@ type UserIdentityRow = {
 
 const db = SQLite.openDatabaseSync('buildvault.db');
 const STALE_ACTIVITY_MS = 7 * 24 * 60 * 60 * 1000;
+const ACTIVITY_PROGRESS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_ACTIVITY_CONTRIBUTION = 20;
 let activityActor: ActivityActor | null = null;
 let activeUserScopeId: string | null = null;
 const ORGANIZATION_MEMBER_ROLES: OrganizationMemberRole[] = ['owner', 'admin', 'member', 'viewer'];
 const ORGANIZATION_MEMBER_STATUSES: OrganizationMemberStatus[] = ['active', 'invited', 'removed'];
 const PROJECT_MEMBER_ROLES: ProjectMemberRole[] = ['owner', 'manager', 'worker', 'client'];
 const PROJECT_MEMBER_STATUSES: ProjectMemberStatus[] = ['invited', 'active', 'removed'];
+
+const ACTIVITY_PROGRESS_WEIGHTS: Record<string, number> = {
+  media_added: 3,
+  media_moved: 1,
+  note_added: 3,
+  note_updated: 2,
+  note_removed: 0,
+  folder_created: 1,
+  folder_renamed: 1,
+  folder_deleted: 0,
+  media_deleted: 0,
+  member_added: 1,
+  member_removed: 0,
+  member_role_updated: 1,
+  member_status_updated: 1,
+  member_invited: 1,
+  invite_accepted: 2,
+  project_created: 0,
+  project_updated: 0,
+  project_organization_updated: 1,
+  project_public_profile_updated: 1,
+  project_published: 1,
+  project_unpublished: 0,
+};
 
 export interface ActivityActor {
   userId: string;
@@ -286,16 +336,168 @@ function toNullableNumber(value: unknown): number | null {
   return numeric;
 }
 
-function deriveStatusFromActivity(
-  progress: number,
-  endDate: number | null,
-  lastActivityAt: number | null
-): ProjectStatus {
-  if (progress >= 100) return 'completed';
-  if (endDate !== null && Date.now() > endDate) return 'delayed';
-  if (!lastActivityAt) return 'neutral';
-  if (Date.now() - lastActivityAt > STALE_ACTIVITY_MS) return 'delayed';
+type PhaseAggregate = {
+  completedWeight: number;
+  totalWeight: number;
+  totalCount: number;
+  overdueCount: number;
+};
+
+type ProjectProgressOptions = {
+  projectId: string;
+  endDate: number | null;
+  legacyProgress: number;
+  lastActivityAt?: number | null;
+  scopedUserId?: string | null;
+};
+
+function toFiniteNumber(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function getPhaseAggregate(projectId: string, scopedUserId?: string | null): PhaseAggregate {
+  const userId = normalizeScopedUserId(scopedUserId);
+  const params: Array<string | number> = [Date.now(), projectId];
+  const scopedWhere = userId ? 'AND user_id = ?' : '';
+  if (userId) params.push(userId);
+
+  let row: Record<string, unknown> | null = null;
+  try {
+    row = db.getFirstSync(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status = 'completed' THEN weight ELSE 0 END), 0) AS completed_weight,
+         COALESCE(SUM(CASE WHEN weight > 0 THEN weight ELSE 0 END), 0) AS total_weight,
+         COUNT(*) AS total_count,
+         COALESCE(SUM(CASE
+           WHEN status IN ('pending', 'in_progress')
+             AND due_date IS NOT NULL
+             AND due_date < ?
+           THEN 1 ELSE 0 END), 0) AS overdue_count
+       FROM project_phases
+       WHERE project_id = ?
+         ${scopedWhere}`,
+      params
+    ) as Record<string, unknown> | null;
+  } catch {
+    row = null;
+  }
+
+  return {
+    completedWeight: Math.max(0, toFiniteNumber(row?.completed_weight)),
+    totalWeight: Math.max(0, toFiniteNumber(row?.total_weight)),
+    totalCount: Math.max(0, Math.floor(toFiniteNumber(row?.total_count))),
+    overdueCount: Math.max(0, Math.floor(toFiniteNumber(row?.overdue_count))),
+  };
+}
+
+function getActivityContribution(projectId: string, scopedUserId?: string | null): number {
+  const userId = normalizeScopedUserId(scopedUserId);
+  const windowStart = Date.now() - ACTIVITY_PROGRESS_WINDOW_MS;
+  const params: Array<string | number> = [projectId, windowStart];
+  const scopedWhere = userId ? 'AND user_id = ?' : '';
+  if (userId) params.push(userId);
+
+  let rows: Array<Record<string, unknown>> = [];
+  try {
+    rows = db.getAllSync(
+      `SELECT action_type, COUNT(*) AS action_count
+       FROM activity_log
+       WHERE project_id = ?
+         AND created_at >= ?
+         ${scopedWhere}
+       GROUP BY action_type`,
+      params
+    ) as Array<Record<string, unknown>>;
+  } catch {
+    rows = [];
+  }
+
+  let points = 0;
+  for (const row of rows) {
+    const actionType = typeof row.action_type === 'string' ? row.action_type : '';
+    const actionCount = Math.max(0, Math.floor(toFiniteNumber(row.action_count)));
+    if (!actionType || actionCount <= 0) continue;
+    const weight = ACTIVITY_PROGRESS_WEIGHTS[actionType] ?? 2;
+    if (weight <= 0) continue;
+    points += actionCount * weight;
+  }
+
+  return Math.min(MAX_ACTIVITY_CONTRIBUTION, Math.round(points / 3));
+}
+
+function getLastMeaningfulActivity(projectId: string, scopedUserId?: string | null): number | null {
+  const userId = normalizeScopedUserId(scopedUserId);
+  const params: Array<string | number> = [projectId];
+  let query = `SELECT MAX(created_at) AS last_activity_at
+               FROM activity_log
+               WHERE project_id = ?
+                 AND action_type NOT IN ('project_created', 'project_updated')`;
+
+  if (userId) {
+    query += ' AND user_id = ?';
+    params.push(userId);
+  }
+
+  try {
+    const row = db.getFirstSync(query, params) as { last_activity_at?: number | null } | null;
+    return toNullableNumber(row?.last_activity_at);
+  } catch {
+    return null;
+  }
+}
+
+function deriveStatusFromProcess(options: {
+  progress: number;
+  phaseCompletion: number;
+  endDate: number | null;
+  lastActivityAt: number | null;
+  hasOverduePhases: boolean;
+}): ProjectStatus {
+  if (options.phaseCompletion >= 100 || options.progress >= 100) return 'completed';
+  if (options.hasOverduePhases) return 'delayed';
+  if (options.endDate !== null && Date.now() > options.endDate) return 'delayed';
+  if (!options.lastActivityAt) return 'neutral';
+  if (Date.now() - options.lastActivityAt > STALE_ACTIVITY_MS) return 'delayed';
+  if (options.progress <= 0) return 'neutral';
   return 'active';
+}
+
+function computeProjectProgressInternal(options: ProjectProgressOptions): ProjectProgressComputation {
+  const lastActivityAt =
+    options.lastActivityAt === undefined
+      ? getLastMeaningfulActivity(options.projectId, options.scopedUserId)
+      : options.lastActivityAt;
+
+  const phases = getPhaseAggregate(options.projectId, options.scopedUserId);
+  const hasPhases = phases.totalCount > 0;
+  const activityContribution = getActivityContribution(options.projectId, options.scopedUserId);
+
+  const phaseCompletion = hasPhases && phases.totalWeight > 0
+    ? clampProgress((phases.completedWeight / phases.totalWeight) * 100)
+    : 0;
+
+  const computedProgress = hasPhases
+    ? clampProgress(phaseCompletion + activityContribution)
+    : clampProgress(Math.max(options.legacyProgress, activityContribution * 3));
+
+  const status = deriveStatusFromProcess({
+    progress: computedProgress,
+    phaseCompletion,
+    endDate: options.endDate,
+    lastActivityAt,
+    hasOverduePhases: phases.overdueCount > 0,
+  });
+
+  return {
+    project_id: options.projectId,
+    progress: computedProgress,
+    status,
+    phase_completion: phaseCompletion,
+    activity_contribution: activityContribution,
+    last_activity_at: lastActivityAt,
+    has_phases: hasPhases,
+  };
 }
 
 function touchProject(projectId: string, at: number = Date.now(), scopedUserId?: string | null) {
@@ -348,28 +550,35 @@ function logActivityInternal(
 
 function mapProjectRow(row: Record<string, unknown>): Project {
   const createdAt = toNullableNumber(row.created_at) ?? Date.now();
-  const progress = clampProgress(row.progress);
+  const id = String(row.id);
+  const legacyProgress = clampProgress(row.progress);
   const endDate = toNullableNumber(row.end_date);
-  const lastActivityAt = toNullableNumber(row.last_activity_at);
-  const status = deriveStatusFromActivity(progress, endDate, lastActivityAt);
+  const scopedUserId = typeof row.user_id === 'string' ? row.user_id : null;
+  const computed = computeProjectProgressInternal({
+    projectId: id,
+    legacyProgress,
+    endDate,
+    lastActivityAt: toNullableNumber(row.last_activity_at),
+    scopedUserId,
+  });
   const visibility: ProjectVisibility = row.visibility === 'public' ? 'public' : 'private';
 
   return {
-    id: String(row.id),
+    id,
     name: String(row.name ?? ''),
     client: typeof row.client === 'string' ? row.client : undefined,
     location: typeof row.location === 'string' ? row.location : undefined,
     organization_id: typeof row.organization_id === 'string' ? row.organization_id : null,
-    status,
+    status: computed.status,
     visibility,
     public_slug: typeof row.public_slug === 'string' ? row.public_slug : null,
     public_published_at: toNullableNumber(row.public_published_at),
     public_updated_at: toNullableNumber(row.public_updated_at),
-    progress,
+    progress: computed.progress,
     start_date: toNullableNumber(row.start_date),
     end_date: endDate,
     budget: toNullableNumber(row.budget),
-    last_activity_at: lastActivityAt,
+    last_activity_at: computed.last_activity_at,
     created_at: createdAt,
     updated_at: toNullableNumber(row.updated_at) ?? createdAt,
   };
@@ -661,8 +870,17 @@ function mapProjectPublicProfileRow(row: Record<string, unknown>): ProjectPublic
 }
 
 function mapPublicProjectSummaryRow(row: Record<string, unknown>): PublicProjectSummary {
+  const projectId = String(row.project_id);
+  const computed = computeProjectProgressInternal({
+    projectId,
+    endDate: toNullableNumber(row.end_date),
+    legacyProgress: clampProgress(row.progress),
+    lastActivityAt: undefined,
+    scopedUserId: null,
+  });
+
   return {
-    project_id: String(row.project_id),
+    project_id: projectId,
     organization_id: typeof row.organization_id === 'string' ? row.organization_id : null,
     public_slug: String(row.public_slug ?? ''),
     title: String(row.title ?? ''),
@@ -673,8 +891,8 @@ function mapPublicProjectSummaryRow(row: Record<string, unknown>): PublicProject
     hero_uri: typeof row.hero_uri === 'string' ? row.hero_uri : null,
     hero_thumb_uri: typeof row.hero_thumb_uri === 'string' ? row.hero_thumb_uri : null,
     organization_name: typeof row.organization_name === 'string' ? row.organization_name : null,
-    status: row.status === 'active' || row.status === 'delayed' || row.status === 'completed' ? row.status : 'neutral',
-    progress: clampProgress(row.progress),
+    status: computed.status,
+    progress: computed.progress,
     published_at: toNullableNumber(row.published_at),
     updated_at: toNullableNumber(row.updated_at),
     media_count: Math.max(0, Number(row.media_count) || 0),
@@ -1111,6 +1329,19 @@ export function migrate() {
         updated_at INTEGER NOT NULL,
         FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL
       );
+      CREATE TABLE IF NOT EXISTS project_phases (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL,
+        user_id TEXT,
+        name TEXT NOT NULL,
+        weight REAL NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        due_date INTEGER,
+        completed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS folders (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT,
@@ -1220,6 +1451,10 @@ export function migrate() {
       UPDATE project_members SET role = 'worker' WHERE role IS NULL OR trim(role) = '';
       UPDATE project_members SET status = 'invited' WHERE status IS NULL OR trim(status) = '';
       UPDATE project_members SET updated_at = created_at WHERE updated_at IS NULL;
+      UPDATE project_phases SET user_id = '' WHERE user_id IS NULL;
+      UPDATE project_phases SET status = 'pending' WHERE status IS NULL OR trim(status) = '';
+      UPDATE project_phases SET weight = 0 WHERE weight IS NULL;
+      UPDATE project_phases SET updated_at = created_at WHERE updated_at IS NULL;
     `);
 
     try {
@@ -1269,6 +1504,9 @@ export function migrate() {
         CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
         CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
         CREATE INDEX IF NOT EXISTS idx_project_members_invited_email ON project_members(invited_email);
+        CREATE INDEX IF NOT EXISTS idx_project_phases_project ON project_phases(project_id);
+        CREATE INDEX IF NOT EXISTS idx_project_phases_user_project ON project_phases(user_id, project_id);
+        CREATE INDEX IF NOT EXISTS idx_project_phases_project_status ON project_phases(project_id, status);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_project_members_project_user_unique
           ON project_members(project_id, user_id) WHERE user_id IS NOT NULL;
       `);
@@ -1315,7 +1553,6 @@ export function createProject(data: {
   client?: string;
   location?: string;
   organization_id?: string | null;
-  progress?: number;
   start_date?: number | null;
   end_date?: number | null;
   budget?: number | null;
@@ -1330,7 +1567,7 @@ export function createProject(data: {
     const created_at = Date.now();
     const updated_at = created_at;
     const status: ProjectStatus = 'neutral';
-    const progress = clampProgress(data.progress);
+    const progress = 0;
     const start_date = data.start_date ?? created_at;
     const end_date = data.end_date ?? null;
     const budget = data.budget ?? null;
@@ -1397,7 +1634,7 @@ export function createProject(data: {
 
 export function updateProject(
   id: string,
-  data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at' | 'status' | 'last_activity_at'>>
+  data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at' | 'status' | 'last_activity_at' | 'progress'>>
 ): void {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
@@ -1424,10 +1661,6 @@ export function updateProject(
       }
       updates.push('organization_id = ?');
       values.push(organizationId);
-    }
-    if (data.progress !== undefined) {
-      updates.push('progress = ?');
-      values.push(clampProgress(data.progress));
     }
     if (data.start_date !== undefined) {
       updates.push('start_date = ?');
@@ -1484,6 +1717,36 @@ export function getProjectById(id: string): Project | null {
     ) as Record<string, unknown> | null;
     return result ? mapProjectRow(result) : null;
   }, 'Get project by ID');
+}
+
+export function computeProjectProgress(projectId: string): ProjectProgressComputation | null {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const row = db.getFirstSync(
+      `SELECT p.*, (
+        SELECT MAX(a.created_at)
+        FROM activity_log a
+        WHERE a.project_id = p.id
+          AND a.user_id = p.user_id
+          AND a.action_type NOT IN ('project_created', 'project_updated')
+      ) AS last_activity_at
+      FROM projects p
+      WHERE p.id = ? AND p.user_id = ?`,
+      [projectId, userId]
+    ) as Record<string, unknown> | null;
+
+    if (!row) {
+      return null;
+    }
+
+    return computeProjectProgressInternal({
+      projectId,
+      endDate: toNullableNumber(row.end_date),
+      legacyProgress: clampProgress(row.progress),
+      lastActivityAt: toNullableNumber(row.last_activity_at),
+      scopedUserId: userId,
+    });
+  }, 'Compute project progress');
 }
 
 export function createOrganization(data: {
@@ -2127,6 +2390,7 @@ export function getPublicProjectFeed(limit = 20, offset = 0): PublicProjectSumma
          o.name AS organization_name,
          p.status,
          p.progress,
+         p.end_date,
          p.public_published_at AS published_at,
          p.public_updated_at AS updated_at,
          (
@@ -2191,6 +2455,7 @@ export function getPublicProjectBySlug(slug: string): PublicProjectDetail | null
          o.name AS organization_name,
          p.status,
          p.progress,
+         p.end_date,
          p.public_published_at AS published_at,
          p.public_updated_at AS updated_at,
          (
@@ -3010,6 +3275,7 @@ export function updateActivity(
   id: string,
   data: {
     actionType?: string;
+    referenceId?: string | null;
     metadata?: Record<string, unknown> | null;
   }
 ): ActivityLogEntry | null {
@@ -3028,6 +3294,11 @@ export function updateActivity(
     if (data.actionType !== undefined) {
       updates.push('action_type = ?');
       values.push(data.actionType.trim());
+    }
+
+    if (data.referenceId !== undefined) {
+      updates.push('reference_id = ?');
+      values.push(data.referenceId?.trim() || null);
     }
 
     if (data.metadata !== undefined) {

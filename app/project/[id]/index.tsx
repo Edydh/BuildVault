@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity, updateActivity, deleteActivity } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, getMediaById, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity, updateActivity, deleteActivity } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -63,6 +63,7 @@ function ProjectDetailContent() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [showAllMedia, setShowAllMedia] = useState(false);
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [folderModalMode, setFolderModalMode] = useState<'create' | 'edit'>('create');
@@ -138,6 +139,7 @@ function ProjectDetailContent() {
   const [manualActivityType, setManualActivityType] = useState<ManualActivityType>('material_purchase');
   const [manualActivityDescription, setManualActivityDescription] = useState('');
   const [manualActivityAmount, setManualActivityAmount] = useState('');
+  const [manualActivityReferenceId, setManualActivityReferenceId] = useState<string | null>(null);
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -303,6 +305,27 @@ function ProjectDetailContent() {
     });
     return sorted;
   }, [media, mediaFilters, currentFolder, id, preferDbFiltering, isLarge]);
+
+  const mediaPreviewLimit = viewMode === 'grid' ? 12 : 8;
+  const shouldCondenseMedia = !isSelectionMode && filteredMedia.length > mediaPreviewLimit;
+  const visibleMedia = shouldCondenseMedia && !showAllMedia
+    ? filteredMedia.slice(0, mediaPreviewLimit)
+    : filteredMedia;
+
+  useEffect(() => {
+    setShowAllMedia(false);
+  }, [
+    id,
+    currentFolder,
+    viewMode,
+    mediaFilters.types.photo,
+    mediaFilters.types.video,
+    mediaFilters.types.doc,
+    mediaFilters.hasNoteOnly,
+    mediaFilters.sortBy,
+    mediaFilters.dateFrom,
+    mediaFilters.dateTo,
+  ]);
 
   // Load view mode preference when component mounts
   useEffect(() => {
@@ -547,6 +570,7 @@ function ProjectDetailContent() {
     setManualActivityType('material_purchase');
     setManualActivityDescription('');
     setManualActivityAmount('');
+    setManualActivityReferenceId(null);
     setShowActivityModal(true);
   };
 
@@ -556,6 +580,7 @@ function ProjectDetailContent() {
     setEditingActivityId(null);
     setManualActivityDescription('');
     setManualActivityAmount('');
+    setManualActivityReferenceId(null);
   };
 
   const parseActivityAmount = (metadata: Record<string, unknown> | null): string => {
@@ -574,6 +599,7 @@ function ProjectDetailContent() {
     id: string;
     actionType: string;
     metadataRaw: string | null;
+    referenceId: string | null;
   }) => {
     if (!isManualActivityType(entry.actionType)) {
       return;
@@ -587,6 +613,7 @@ function ProjectDetailContent() {
     setManualActivityType(entry.actionType);
     setManualActivityDescription(description);
     setManualActivityAmount(parseActivityAmount(metadata));
+    setManualActivityReferenceId(entry.referenceId);
     setShowActivityModal(true);
   };
 
@@ -618,6 +645,7 @@ function ProjectDetailContent() {
     id: string;
     actionType: string;
     metadataRaw: string | null;
+    referenceId: string | null;
     canManage: boolean;
   }) => {
     if (!entry.canManage) return;
@@ -667,13 +695,14 @@ function ProjectDetailContent() {
         }
         updateActivity(editingActivityId, {
           actionType: manualActivityType,
+          referenceId: manualActivityReferenceId,
           metadata: {
             description,
             amount,
           },
         });
       } else {
-        createActivity(id, manualActivityType, null, {
+        createActivity(id, manualActivityType, manualActivityReferenceId, {
           description,
           amount,
         });
@@ -768,6 +797,32 @@ function ProjectDetailContent() {
     } catch {
       return null;
     }
+  };
+
+  const resolveActivityReferenceId = (entry: ActivityLogEntry): string | null => {
+    if (typeof entry.reference_id === 'string' && entry.reference_id.trim().length > 0) {
+      return entry.reference_id.trim();
+    }
+    const metadata = parseActivityMetadata(entry.metadata);
+    if (!metadata) return null;
+    if (typeof metadata.reference_id === 'string' && metadata.reference_id.trim().length > 0) {
+      return metadata.reference_id.trim();
+    }
+    if (typeof metadata.media_id === 'string' && metadata.media_id.trim().length > 0) {
+      return metadata.media_id.trim();
+    }
+    return null;
+  };
+
+  const openLinkedMediaFromActivity = (mediaId: string) => {
+    if (!id) return;
+    const localMedia = projectMedia.find((item) => item.id === mediaId) ?? getMediaById(mediaId);
+    if (!localMedia) {
+      Alert.alert('Linked file unavailable', 'This activity references media that is no longer available.');
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(`/project/${id}/media/${localMedia.id}`);
   };
 
   const mapActivityPresentation = (
@@ -2108,6 +2163,7 @@ function ProjectDetailContent() {
   ];
 
   const recentActivityFeed = React.useMemo(() => {
+    const projectMediaIds = new Set(projectMedia.map((item) => item.id));
     const projectPreviewUris = projectMedia
       .filter((item) => item.type === 'photo' || item.type === 'video')
       .slice(0, 3)
@@ -2118,6 +2174,8 @@ function ProjectDetailContent() {
       const presentation = mapActivityPresentation(entry);
       const canExpand = presentation.expandable && projectPreviewUris.length > 0 && index === 0;
       const canManage = isManualActivityType(entry.action_type);
+      const referenceId = resolveActivityReferenceId(entry);
+      const linkedMediaId = referenceId && projectMediaIds.has(referenceId) ? referenceId : null;
       const actorName = typeof entry.actor_name_snapshot === 'string' && entry.actor_name_snapshot.trim().length > 0
         ? entry.actor_name_snapshot.trim()
         : null;
@@ -2125,6 +2183,8 @@ function ProjectDetailContent() {
         id: entry.id,
         actionType: entry.action_type,
         metadataRaw: entry.metadata ?? null,
+        referenceId,
+        linkedMediaId,
         canManage,
         timestampLabel: formatRelativeTime(entry.created_at),
         actorName,
@@ -2134,6 +2194,10 @@ function ProjectDetailContent() {
       };
     });
   }, [recentActivity, projectMedia]);
+
+  const activityAttachmentOptions = React.useMemo(() => {
+    return projectMedia.slice(0, 24);
+  }, [projectMedia]);
 
   if (!project) {
     return (
@@ -2497,7 +2561,7 @@ function ProjectDetailContent() {
       {/* Media List/Grid */}
 
       <AnimatedFlatList
-        data={filteredMedia}
+        data={visibleMedia}
         keyExtractor={(item) => (item as MediaItem).id}
         contentContainerStyle={{ 
           paddingHorizontal: 16, 
@@ -2606,7 +2670,14 @@ function ProjectDetailContent() {
                         <BVCard
                           style={{ width: '100%' }}
                           contentStyle={{ padding: 14 }}
-                          onPress={entry.canManage ? () => handleActivityCardPress(entry) : undefined}
+                          onPress={
+                            entry.linkedMediaId
+                              ? () => openLinkedMediaFromActivity(entry.linkedMediaId as string)
+                              : entry.canManage
+                                ? () => handleActivityCardPress(entry)
+                                : undefined
+                          }
+                          onLongPress={entry.canManage ? () => handleActivityCardPress(entry) : undefined}
                         >
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                             <View style={{ flex: 1 }}>
@@ -2617,7 +2688,22 @@ function ProjectDetailContent() {
                                 {entry.actorName ? `${entry.timestampLabel} • by ${entry.actorName}` : entry.timestampLabel}
                               </Text>
                             </View>
-                            {entry.expanded ? (
+                            {entry.linkedMediaId ? (
+                              <View
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  borderWidth: 1,
+                                  borderColor: bvFx.neutralBorderSoft,
+                                  backgroundColor: bvColors.surface.chrome,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Ionicons name="chevron-forward" size={18} color={bvColors.text.secondary} />
+                              </View>
+                            ) : entry.expanded ? (
                               <View
                                 style={{
                                   width: 32,
@@ -2654,6 +2740,12 @@ function ProjectDetailContent() {
                             {entry.description}
                           </Text>
 
+                          {entry.linkedMediaId ? (
+                            <Text style={{ color: bvColors.brand.primaryLight, fontSize: 12, marginTop: 8, fontWeight: '600' }}>
+                              Tap to open linked media
+                            </Text>
+                          ) : null}
+
                           {entry.previewUris.length > 0 && (
                             <View
                               style={{
@@ -2687,6 +2779,28 @@ function ProjectDetailContent() {
                   ))}
                 </View>
               )}
+
+              <BVCard style={{ marginTop: 8 }} contentStyle={{ padding: 14 }}>
+                <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '700' }}>
+                  Media Library
+                </Text>
+                <Text style={{ color: bvColors.text.muted, fontSize: 13, marginTop: 4 }}>
+                  {shouldCondenseMedia && !showAllMedia
+                    ? `Showing latest ${mediaPreviewLimit} of ${filteredMedia.length} items.`
+                    : `Showing ${visibleMedia.length} item${visibleMedia.length === 1 ? '' : 's'}.`}
+                </Text>
+                {shouldCondenseMedia ? (
+                  <TouchableOpacity
+                    onPress={() => setShowAllMedia((prev) => !prev)}
+                    style={{ marginTop: 10, alignSelf: 'flex-start' }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={{ color: bvColors.brand.primaryLight, fontSize: 13, fontWeight: '700' }}>
+                      {showAllMedia ? 'Show Latest Only' : 'View All Media'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </BVCard>
             </View>
           )
         }
@@ -2857,6 +2971,69 @@ function ProjectDetailContent() {
               returnKeyType="done"
             />
           )}
+
+          <Text style={{ fontSize: 15, fontWeight: '600', color: bvColors.text.primary, marginTop: 4, marginBottom: 8 }}>
+            Link Media (Optional)
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 12 }}>
+            <TouchableOpacity
+              onPress={() => setManualActivityReferenceId(null)}
+              activeOpacity={0.86}
+              style={{
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: manualActivityReferenceId === null ? bvColors.brand.primaryLight : bvFx.neutralBorderSoft,
+                backgroundColor: manualActivityReferenceId === null ? bvFx.accentSoft : bvColors.surface.chrome,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                marginRight: 8,
+              }}
+            >
+              <Text style={{
+                color: manualActivityReferenceId === null ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                fontSize: 12,
+                fontWeight: '700',
+              }}>
+                No Media
+              </Text>
+            </TouchableOpacity>
+            {activityAttachmentOptions.map((item) => {
+              const selected = manualActivityReferenceId === item.id;
+              const iconName: IoniconName = item.type === 'photo' ? 'image-outline' : item.type === 'video' ? 'videocam-outline' : 'document-outline';
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  onPress={() => setManualActivityReferenceId(item.id)}
+                  activeOpacity={0.86}
+                  style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: selected ? bvColors.brand.primaryLight : bvFx.neutralBorderSoft,
+                    backgroundColor: selected ? bvFx.accentSoft : bvColors.surface.chrome,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    marginRight: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons
+                    name={iconName}
+                    size={14}
+                    color={selected ? bvColors.brand.primaryLight : bvColors.text.tertiary}
+                  />
+                  <Text style={{
+                    marginLeft: 6,
+                    color: selected ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                    fontSize: 12,
+                    fontWeight: '600',
+                  }}>
+                    {item.type.toUpperCase()} • {formatRelativeTime(item.created_at)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
 
           <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
             <GlassButton
