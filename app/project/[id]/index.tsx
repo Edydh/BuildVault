@@ -45,9 +45,20 @@ const MANUAL_ACTIVITY_OPTIONS: Array<{
   { value: 'site_visit', label: 'Site Visit', icon: 'car-outline', color: bvColors.brand.primaryLight },
 ];
 const MANUAL_ACTIVITY_TYPES = new Set<ManualActivityType>(MANUAL_ACTIVITY_OPTIONS.map((option) => option.value));
+const SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES = new Set<string>([
+  'media_added',
+  'media_moved',
+  'note_added',
+  'note_updated',
+  'note_removed',
+]);
 
 function isManualActivityType(value: string): value is ManualActivityType {
   return MANUAL_ACTIVITY_TYPES.has(value as ManualActivityType);
+}
+
+function isMediaLinkableActivityType(value: string): boolean {
+  return SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES.has(value) || isManualActivityType(value);
 }
 
 function isImageThumbnailUri(uri?: string | null): boolean {
@@ -840,12 +851,30 @@ function ProjectDetailContent() {
   const openLinkedMediaFromActivity = (mediaId: string) => {
     if (!id) return;
     const localMedia = projectMedia.find((item) => item.id === mediaId) ?? getMediaById(mediaId);
+    if (localMedia && localMedia.project_id !== id) {
+      Alert.alert('Linked file unavailable', 'This activity references media outside this project.');
+      return;
+    }
     if (!localMedia) {
       Alert.alert('Linked file unavailable', 'This activity references media that is no longer available.');
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(`/project/${id}/media/${localMedia.id}`);
+  };
+
+  const getActivityLinkedPreviewUri = (linkedMedia: MediaItem | null): string | null => {
+    if (!linkedMedia) return null;
+    if (linkedMedia.type === 'photo') return linkedMedia.uri;
+    if (linkedMedia.type === 'video') {
+      const videoThumb = linkedMedia.thumb_uri;
+      return isImageThumbnailUri(videoThumb) ? (videoThumb ?? null) : null;
+    }
+    return null;
+  };
+
+  const handleMissingLinkedMedia = () => {
+    Alert.alert('Linked media removed', 'This activity is linked to a file that is no longer available.');
   };
 
   const mapActivityPresentation = (
@@ -2189,7 +2218,7 @@ function ProjectDetailContent() {
   ];
 
   const recentActivityFeed = React.useMemo(() => {
-    const projectMediaIds = new Set(projectMedia.map((item) => item.id));
+    const projectMediaById = new Map(projectMedia.map((item) => [item.id, item]));
     const projectPreviewUris = projectMedia
       .filter((item) => item.type === 'photo' || item.type === 'video')
       .slice(0, 3)
@@ -2201,7 +2230,19 @@ function ProjectDetailContent() {
       const canExpand = presentation.expandable && projectPreviewUris.length > 0 && index === 0;
       const canManage = isManualActivityType(entry.action_type);
       const referenceId = resolveActivityReferenceId(entry);
-      const linkedMediaId = referenceId && projectMediaIds.has(referenceId) ? referenceId : null;
+      const canLinkToMedia = !!referenceId && isMediaLinkableActivityType(entry.action_type);
+      const candidateMedia = canLinkToMedia && referenceId
+        ? projectMediaById.get(referenceId) ?? getMediaById(referenceId)
+        : null;
+      const linkedMedia = candidateMedia && candidateMedia.project_id === id ? candidateMedia : null;
+      const linkedMediaId = linkedMedia?.id ?? null;
+      const linkedState: 'none' | 'available' | 'missing' = canLinkToMedia
+        ? linkedMedia
+          ? 'available'
+          : 'missing'
+        : 'none';
+      const linkedPreviewUri = getActivityLinkedPreviewUri(linkedMedia);
+      const linkedMediaType = linkedMedia?.type ?? null;
       const actorName = typeof entry.actor_name_snapshot === 'string' && entry.actor_name_snapshot.trim().length > 0
         ? entry.actor_name_snapshot.trim()
         : null;
@@ -2211,6 +2252,9 @@ function ProjectDetailContent() {
         metadataRaw: entry.metadata ?? null,
         referenceId,
         linkedMediaId,
+        linkedState,
+        linkedPreviewUri,
+        linkedMediaType,
         canManage,
         timestampLabel: formatRelativeTime(entry.created_at),
         actorName,
@@ -2219,7 +2263,7 @@ function ProjectDetailContent() {
         ...presentation,
       };
     });
-  }, [recentActivity, projectMedia]);
+  }, [recentActivity, projectMedia, id]);
 
   const activityAttachmentOptions = React.useMemo(() => {
     return projectMedia.slice(0, 24);
@@ -2697,8 +2741,10 @@ function ProjectDetailContent() {
                           style={{ width: '100%' }}
                           contentStyle={{ padding: 14 }}
                           onPress={
-                            entry.linkedMediaId
+                            entry.linkedState === 'available'
                               ? () => openLinkedMediaFromActivity(entry.linkedMediaId as string)
+                              : entry.linkedState === 'missing'
+                                ? () => handleMissingLinkedMedia()
                               : entry.canManage
                                 ? () => handleActivityCardPress(entry)
                                 : undefined
@@ -2714,7 +2760,7 @@ function ProjectDetailContent() {
                                 {entry.actorName ? `${entry.timestampLabel} • by ${entry.actorName}` : entry.timestampLabel}
                               </Text>
                             </View>
-                            {entry.linkedMediaId ? (
+                            {entry.linkedState === 'available' ? (
                               <View
                                 style={{
                                   width: 32,
@@ -2728,6 +2774,21 @@ function ProjectDetailContent() {
                                 }}
                               >
                                 <Ionicons name="chevron-forward" size={18} color={bvColors.text.secondary} />
+                              </View>
+                            ) : entry.linkedState === 'missing' ? (
+                              <View
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  borderWidth: 1,
+                                  borderColor: bvFx.neutralBorderSoft,
+                                  backgroundColor: bvColors.surface.chrome,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Ionicons name="warning-outline" size={17} color={bvColors.semantic.warning} />
                               </View>
                             ) : entry.expanded ? (
                               <View
@@ -2766,10 +2827,75 @@ function ProjectDetailContent() {
                             {entry.description}
                           </Text>
 
-                          {entry.linkedMediaId ? (
-                            <Text style={{ color: bvColors.brand.primaryLight, fontSize: 12, marginTop: 8, fontWeight: '600' }}>
-                              Tap to open linked media
-                            </Text>
+                          {entry.linkedState === 'available' ? (
+                            <View
+                              style={{
+                                marginTop: 10,
+                                borderTopWidth: 1,
+                                borderTopColor: bvFx.neutralBorder,
+                                paddingTop: 10,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 42,
+                                  height: 42,
+                                  borderRadius: 10,
+                                  overflow: 'hidden',
+                                  backgroundColor: bvColors.surface.muted,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  marginRight: 10,
+                                }}
+                              >
+                                {entry.linkedPreviewUri ? (
+                                  <ExpoImage
+                                    source={{ uri: entry.linkedPreviewUri }}
+                                    style={{ width: '100%', height: '100%' }}
+                                    contentFit="cover"
+                                    transition={150}
+                                  />
+                                ) : (
+                                  <Ionicons
+                                    name={
+                                      entry.linkedMediaType === 'video'
+                                        ? 'videocam-outline'
+                                        : entry.linkedMediaType === 'doc'
+                                          ? 'document-outline'
+                                          : 'image-outline'
+                                    }
+                                    size={18}
+                                    color={bvColors.text.tertiary}
+                                  />
+                                )}
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: bvColors.text.primary, fontSize: 12, fontWeight: '700' }}>
+                                  Linked {entry.linkedMediaType ? entry.linkedMediaType.toUpperCase() : 'MEDIA'}
+                                </Text>
+                                <Text style={{ color: bvColors.brand.primaryLight, fontSize: 12, marginTop: 2, fontWeight: '600' }}>
+                                  Tap to open
+                                </Text>
+                              </View>
+                            </View>
+                          ) : entry.linkedState === 'missing' ? (
+                            <View
+                              style={{
+                                marginTop: 10,
+                                borderTopWidth: 1,
+                                borderTopColor: bvFx.neutralBorder,
+                                paddingTop: 10,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Ionicons name="warning-outline" size={16} color={bvColors.semantic.warning} />
+                              <Text style={{ color: bvColors.text.muted, fontSize: 12, marginLeft: 8 }}>
+                                Linked media was removed
+                              </Text>
+                            </View>
                           ) : null}
 
                           {entry.previewUris.length > 0 && (

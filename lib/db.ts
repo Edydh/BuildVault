@@ -336,6 +336,30 @@ function toNullableNumber(value: unknown): number | null {
   return numeric;
 }
 
+function normalizeActivityReferenceValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveActivityReferenceId(
+  referenceId?: string | null,
+  metadata?: Record<string, unknown> | null
+): string | null {
+  const explicit = normalizeActivityReferenceValue(referenceId);
+  if (referenceId !== undefined) {
+    return explicit;
+  }
+
+  if (!metadata) return null;
+  return (
+    normalizeActivityReferenceValue(metadata.reference_id) ??
+    normalizeActivityReferenceValue(metadata.media_id) ??
+    normalizeActivityReferenceValue(metadata.referenceId) ??
+    null
+  );
+}
+
 type PhaseAggregate = {
   completedWeight: number;
   totalWeight: number;
@@ -3262,7 +3286,8 @@ export function createActivity(
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
     assertProjectAccess(projectId, userId);
-    const created = logActivityInternal(projectId, actionType, referenceId, metadata, Date.now(), actor);
+    const resolvedReferenceId = resolveActivityReferenceId(referenceId, metadata);
+    const created = logActivityInternal(projectId, actionType, resolvedReferenceId, metadata, Date.now(), actor);
     if (!created) {
       throw new Error('Unable to create activity');
     }
@@ -3290,6 +3315,7 @@ export function updateActivity(
 
     const updates: string[] = [];
     const values: Array<string | null> = [];
+    const existingReferenceId = normalizeActivityReferenceValue(existing.reference_id);
 
     if (data.actionType !== undefined) {
       updates.push('action_type = ?');
@@ -3298,7 +3324,13 @@ export function updateActivity(
 
     if (data.referenceId !== undefined) {
       updates.push('reference_id = ?');
-      values.push(data.referenceId?.trim() || null);
+      values.push(resolveActivityReferenceId(data.referenceId, data.metadata));
+    } else if (data.metadata !== undefined) {
+      const inferredReferenceId = resolveActivityReferenceId(undefined, data.metadata);
+      if (inferredReferenceId && inferredReferenceId !== existingReferenceId) {
+        updates.push('reference_id = ?');
+        values.push(inferredReferenceId);
+      }
     }
 
     if (data.metadata !== undefined) {
