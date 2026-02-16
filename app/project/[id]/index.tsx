@@ -50,6 +50,16 @@ function isManualActivityType(value: string): value is ManualActivityType {
   return MANUAL_ACTIVITY_TYPES.has(value as ManualActivityType);
 }
 
+function isImageThumbnailUri(uri?: string | null): boolean {
+  if (!uri) return false;
+  const normalized = uri.split('?')[0].toLowerCase();
+  return normalized.endsWith('.jpg') ||
+    normalized.endsWith('.jpeg') ||
+    normalized.endsWith('.png') ||
+    normalized.endsWith('.webp') ||
+    normalized.endsWith('.heic');
+}
+
 function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -193,7 +203,7 @@ function ProjectDetailContent() {
       const videosNeedingThumbnails = mediaItems.filter(item => 
         item.type === 'video' && 
         item.thumb_uri && 
-        !item.thumb_uri.endsWith('.jpg')
+        !isImageThumbnailUri(item.thumb_uri)
       );
       
       if (videosNeedingThumbnails.length > 0) {
@@ -219,11 +229,24 @@ function ProjectDetailContent() {
             const thumbFilename = `thumb_${video.id}.jpg`;
             const mediaDir = `${FileSystem.documentDirectory}buildvault/${id}/media/`;
             const thumbFileUri = mediaDir + thumbFilename;
+
+            await FileSystem.makeDirectoryAsync(mediaDir, { intermediates: true });
+
+            try {
+              const existingThumb = await FileSystem.getInfoAsync(thumbFileUri);
+              if (existingThumb.exists) {
+                await FileSystem.deleteAsync(thumbFileUri, { idempotent: true });
+              }
+            } catch (cleanupError) {
+              console.warn(`Could not cleanup old thumbnail for ${video.id}:`, cleanupError);
+            }
             
             await FileSystem.moveAsync({
               from: thumbnailResult.uri,
               to: thumbFileUri,
             });
+
+            updateMediaThumbnail(video.id, thumbFileUri);
             
             console.log(`Regenerated thumbnail for video ${video.id}: ${thumbFileUri}`);
           } catch (error) {
@@ -1595,7 +1618,7 @@ function ProjectDetailContent() {
 
             if (currentThumb) {
               const info = await FileSystem.getInfoAsync(currentThumb);
-              if (!info.exists) {
+              if (!info.exists || !isImageThumbnailUri(currentThumb)) {
                 currentThumb = null;
               }
             }
@@ -1772,7 +1795,7 @@ function ProjectDetailContent() {
                 />
               )
             ) : item.type === 'video' ? (
-              <View style={{ flex: 1, position: 'relative' }}>
+              <View style={{ flex: 1, width: '100%', position: 'relative' }}>
                 {videoThumbnail ? (
                   <>
                     <Image
@@ -1782,6 +1805,9 @@ function ProjectDetailContent() {
                         height: '100%',
                       }}
                       resizeMode="cover"
+                      onError={() => {
+                        setVideoThumbnail(null);
+                      }}
                     />
                     {/* Glass overlay for video preview effect */}
                     <View style={{
@@ -1813,7 +1839,7 @@ function ProjectDetailContent() {
                     </View>
                   </>
                 ) : (
-                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: bvColors.surface.muted }}>
+                  <View style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: bvColors.surface.muted }}>
                     <Ionicons name="videocam" size={32} color={bvColors.brand.accent} />
                     <Text style={{ color: bvColors.text.muted, fontSize: 10, marginTop: 4 }}>Loading...</Text>
                   </View>
@@ -1939,7 +1965,7 @@ function ProjectDetailContent() {
 
   const MediaCard = ({ item }: { item: MediaItem }) => {
     const isSelected = selectedItems.has(item.id);
-    const videoThumbnail = item.thumb_uri || null;
+    const videoThumbnail = isImageThumbnailUri(item.thumb_uri) ? item.thumb_uri : null;
     
     const handlePress = () => {
       if (isSelectionMode) {
