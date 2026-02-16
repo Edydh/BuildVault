@@ -407,6 +407,11 @@ function ProjectDetailContent() {
     );
   };
 
+  const handleOpenPublicSettings = () => {
+    if (!id) return;
+    router.push(`/project/${id}/public`);
+  };
+
   const shareProjectSummary = async () => {
     if (!project) return;
     
@@ -1009,6 +1014,33 @@ function ProjectDetailContent() {
             : 'A team member was removed from this project.',
           icon: 'person-remove-outline',
           iconBg: bvColors.semantic.danger,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'project_published':
+        return {
+          title: 'Project Published',
+          description: 'Public profile is now visible in the feed.',
+          icon: 'globe-outline',
+          iconBg: bvColors.semantic.success,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'project_unpublished':
+        return {
+          title: 'Project Unpublished',
+          description: 'Project was switched back to private visibility.',
+          icon: 'lock-closed-outline',
+          iconBg: bvColors.semantic.warning,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'project_public_profile_updated':
+        return {
+          title: 'Public Profile Updated',
+          description: 'Marketing summary details were updated.',
+          icon: 'create-outline',
+          iconBg: bvColors.brand.primaryLight,
           iconColor: bvColors.neutral[0],
           expandable: false,
         };
@@ -2071,7 +2103,7 @@ function ProjectDetailContent() {
   }> = [
     { id: 'capture', icon: 'camera-outline', label: 'Capture', onPress: handleCaptureMedia, enabled: true },
     { id: 'upload', icon: 'cloud-upload-outline', label: 'Upload', onPress: handleDocumentUpload, enabled: true },
-    { id: 'share', icon: 'share-social-outline', label: 'Share', onPress: handleShareProject, enabled: true },
+    { id: 'public', icon: 'globe-outline', label: 'Public', onPress: handleOpenPublicSettings, enabled: true },
     { id: 'activity', icon: 'add-circle-outline', label: 'Activity', onPress: handleOpenActivityModal, enabled: true },
   ];
 

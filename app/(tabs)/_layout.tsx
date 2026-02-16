@@ -39,21 +39,26 @@ export default function TabLayout() {
       <Tabs
         tabBar={(props) => <BVTabBar {...props} />}
         screenOptions={{
-          headerStyle: {
-            backgroundColor: '#101826',
-          },
-          headerTintColor: '#F8FAFC',
-          headerTitleStyle: {
-            fontWeight: '600',
-          },
+          headerShown: false,
         }}
       >
         <Tabs.Screen
           name="index"
           options={{
             title: 'Projects',
+            headerShown: false,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="folder" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="feed"
+          options={{
+            title: 'Feed',
+            headerShown: false,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="newspaper-outline" size={size} color={color} />
             ),
           }}
         />
@@ -61,6 +66,7 @@ export default function TabLayout() {
           name="settings"
           options={{
             title: 'Settings',
+            headerShown: false,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="settings" size={size} color={color} />
             ),

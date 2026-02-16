@@ -24,9 +24,18 @@ export default function AuthScreen() {
     setIsLoading(true);
 
     try {
-      await signInWithApple();
-      // If successful, the AuthContext will update and the protected route will redirect
-      // No need to manually navigate here
+      const result = await signInWithApple();
+
+      if (result?.error) {
+        if (result.error.includes('CANCELED') || result.error.includes('canceled') || result.error.includes('USER_CANCELED')) {
+          console.log('User canceled Apple Sign-In');
+          // No alert needed - user intentionally canceled
+        } else {
+          console.error('Apple Sign-In error:', result.error);
+          Alert.alert('Sign In Failed', result.error || 'Apple Sign-In failed. Please try again.');
+        }
+      }
+      // If successful, the AuthContext will update and redirect
     } catch (error: unknown) {
       // Check if it's a user cancellation
       const errorCode = typeof error === 'object' && error !== null && 'code' in error

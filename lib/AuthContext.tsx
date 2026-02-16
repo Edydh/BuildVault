@@ -24,6 +24,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const syncDbAuthState = (nextUser: User | null) => {
+    const dbAccess = dbModule as {
+      setActivityActor?: (actor: { userId: string; name?: string | null } | null) => void;
+      setActiveUserScope?: (userId: string | null) => void;
+    };
+
+    const setActiveUserScope = dbAccess.setActiveUserScope;
+    if (typeof setActiveUserScope === 'function') {
+      setActiveUserScope(nextUser?.id ?? null);
+    }
+
+    const setActivityActor = dbAccess.setActivityActor;
+    if (typeof setActivityActor === 'function') {
+      setActivityActor(nextUser ? { userId: nextUser.id, name: nextUser.name } : null);
+    }
+  };
+
+  const applyUser = (nextUser: User | null) => {
+    syncDbAuthState(nextUser);
+    setUser(nextUser);
+  };
+
   useEffect(() => {
     checkAuthState();
     // Subscribe to Supabase auth state changes
@@ -33,14 +55,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           if (session?.user) {
             const synced = await authService.upsertUserFromSupabase(session.user);
-            setUser(synced);
+            applyUser(synced);
           } else {
             // Don't immediately fetch local user, let the sign-in flow handle it
             console.log('Session without user, skipping local user fetch');
           }
         }
         if (event === 'SIGNED_OUT') {
-          setUser(null);
+          applyUser(null);
         }
       } catch (e) {
         console.log('Auth state change handler error:', e);
@@ -55,14 +77,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Debug: Track user state changes
   useEffect(() => {
     console.log('AuthContext user state changed:', user ? `User: ${user.name}` : 'No user');
-
-    // Keep DB activity attribution linked to the active authenticated user.
-    const setActivityActor = (dbModule as {
-      setActivityActor?: (actor: { userId: string; name?: string | null } | null) => void;
-    }).setActivityActor;
-    if (typeof setActivityActor === 'function') {
-      setActivityActor(user ? { userId: user.id, name: user.name } : null);
-    }
   }, [user]);
 
   const checkAuthState = async () => {
@@ -73,7 +87,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (data.session?.user) {
         const synced = await authService.upsertUserFromSupabase(data.session.user);
         console.log('Current user (supabase):', synced ? 'Found' : 'Not found');
-        setUser(synced);
+        applyUser(synced);
         return;
       }
 
@@ -82,7 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       
       // Only update user state if it's actually different
       if (currentUser?.id !== user?.id) {
-        setUser(currentUser);
+        applyUser(currentUser);
       }
     } catch (error) {
       console.error('Error checking auth state:', error);
@@ -99,7 +113,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       
       if (result.success && result.user) {
         console.log('Setting user in AuthContext:', result.user.name || 'Apple User');
-        setUser(result.user);
+        applyUser(result.user);
         
         // Force a small delay to ensure state is updated
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -128,7 +142,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       
       if (result.success && result.user) {
         console.log('Setting user in AuthContext:', result.user.name || 'Google User');
-        setUser(result.user);
+        applyUser(result.user);
         
         // Force a small delay to ensure state is updated
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -153,7 +167,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signOut = async () => {
     try {
       await authService.signOut();
-      setUser(null);
+      applyUser(null);
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
@@ -162,7 +176,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const updateDisplayName = async (name: string) => {
     const updatedUser = await authService.updateDisplayName(name);
-    setUser(updatedUser);
+    applyUser(updatedUser);
   };
 
   const value: AuthContextType = {

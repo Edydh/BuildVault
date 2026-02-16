@@ -11,6 +11,7 @@ import {
   NativeSyntheticEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getProjects, deleteProject } from '../../lib/db';
@@ -33,6 +34,7 @@ import * as Haptics from 'expo-haptics';
 
 export default function Settings() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user, signOut, updateDisplayName } = useAuth();
   const glassTheme = useGlassTheme();
   type IoniconName = keyof typeof Ionicons.glyphMap;
@@ -694,6 +696,13 @@ export default function Settings() {
               variant="secondary"
               icon="create-outline"
               onPress={openProfileModal}
+              style={{ marginBottom: 10 }}
+            />
+            <BVButton
+              title="Organization & Team"
+              variant="secondary"
+              icon="business-outline"
+              onPress={() => router.push('/organization')}
               style={{ marginBottom: 10 }}
             />
             <BVButton

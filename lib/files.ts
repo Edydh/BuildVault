@@ -1,36 +1,76 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { VideoThumbnailResult, generateSmartVideoThumbnail } from './media';
+import { getActiveUserScope } from './db';
 
 const ROOT_DIR = FileSystem.documentDirectory + 'buildvault/';
+const GUEST_SCOPE_DIR = 'guest';
+
+function getScopedUserDirectoryName(): string {
+  const scopedUserId = getActiveUserScope();
+  return scopedUserId ? encodeURIComponent(scopedUserId) : GUEST_SCOPE_DIR;
+}
+
+function getScopedRootDir(): string {
+  return ROOT_DIR + getScopedUserDirectoryName() + '/';
+}
+
+function getLegacyProjectDir(projectId: string): string {
+  return ROOT_DIR + projectId + '/';
+}
 
 export async function ensureRootDir() {
   const dirInfo = await FileSystem.getInfoAsync(ROOT_DIR);
   if (!dirInfo.exists) {
     await FileSystem.makeDirectoryAsync(ROOT_DIR, { intermediates: true });
   }
+
+  const scopedRoot = getScopedRootDir();
+  const scopedDirInfo = await FileSystem.getInfoAsync(scopedRoot);
+  if (!scopedDirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(scopedRoot, { intermediates: true });
+  }
 }
 
 export async function ensureProjectDir(projectId: string) {
-  const projectDir = ROOT_DIR + projectId + '/';
+  await ensureRootDir();
+  const projectDir = getScopedRootDir() + projectId + '/';
   const dirInfo = await FileSystem.getInfoAsync(projectDir);
   if (!dirInfo.exists) {
+    const legacyDir = getLegacyProjectDir(projectId);
+    const legacyInfo = await FileSystem.getInfoAsync(legacyDir);
+    if (legacyInfo.exists) {
+      try {
+        await FileSystem.moveAsync({ from: legacyDir, to: projectDir });
+        return projectDir;
+      } catch (error) {
+        console.log('Legacy project directory move failed, creating fresh scoped directory:', error);
+      }
+    }
+
     await FileSystem.makeDirectoryAsync(projectDir, { intermediates: true });
   }
   return projectDir;
 }
 
 export async function deleteProjectDir(projectId: string) {
-  const projectDir = ROOT_DIR + projectId + '/';
+  const projectDir = getScopedRootDir() + projectId + '/';
   const dirInfo = await FileSystem.getInfoAsync(projectDir);
   if (dirInfo.exists) {
     await FileSystem.deleteAsync(projectDir, { idempotent: true });
   }
+
+  const legacyDir = getLegacyProjectDir(projectId);
+  const legacyInfo = await FileSystem.getInfoAsync(legacyDir);
+  if (legacyInfo.exists) {
+    await FileSystem.deleteAsync(legacyDir, { idempotent: true });
+  }
 }
 
 export async function clearAllProjectDirs() {
-  const dirInfo = await FileSystem.getInfoAsync(ROOT_DIR);
+  const scopedRoot = getScopedRootDir();
+  const dirInfo = await FileSystem.getInfoAsync(scopedRoot);
   if (dirInfo.exists) {
-    await FileSystem.deleteAsync(ROOT_DIR, { idempotent: true });
+    await FileSystem.deleteAsync(scopedRoot, { idempotent: true });
   }
 }
 

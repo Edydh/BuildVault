@@ -3,7 +3,16 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import * as WebBrowser from 'expo-web-browser';
-import { createUser, getUserByProviderId, updateUserLastLogin, getUserById, updateUserProfile, User } from './db';
+import {
+  createUser,
+  getUserByAuthUserId,
+  getUserByProviderId,
+  updateUserLastLogin,
+  getUserById,
+  updateUserProfile,
+  updateUserAuthIdentity,
+  User,
+} from './db';
 import { ErrorHandler, withErrorHandling } from './errorHandler';
 import * as Crypto from 'expo-crypto';
 
@@ -119,8 +128,6 @@ export class AuthService {
 
       // Try to sync with Supabase (optional - app works without this)
       try {
-        console.log('Attempting to sync Apple user with Supabase');
-        console.log('Using raw nonce for Supabase:', rawNonce);
         const { data, error } = await supabase.auth.signInWithIdToken({
           provider: 'apple',
           token: credential.identityToken,
@@ -131,9 +138,10 @@ export class AuthService {
           console.log('Supabase sync failed (non-fatal):', error.message);
           // App continues to work with local user
         } else if (data.session?.user) {
-          console.log('Successfully synced with Supabase');
-          // Update local user with Supabase data if needed
-          await this.upsertUserFromSupabase(data.session.user);
+          // Link local Apple user record to Supabase auth identity.
+          user = await this.upsertUserFromSupabase(data.session.user, user.id);
+          this.currentUser = user;
+          await this.storeUserSession(user);
         }
       } catch (syncError) {
         console.log('Supabase sync error (non-fatal):', syncError);
@@ -163,8 +171,6 @@ export class AuthService {
       // For native apps, we need to use a different approach
       // Use the native Google Sign-In flow instead of OAuth web flow
       const redirectTo = 'buildvault://auth/callback';
-      
-      console.log('Google OAuth redirect URI:', redirectTo);
 
       // Start OAuth flow with Supabase
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -184,32 +190,21 @@ export class AuthService {
         return { success: false, error: 'No OAuth URL returned' };
       }
 
-      console.log('Opening OAuth URL:', data.url);
-      console.log('Expected redirect to:', redirectTo);
-
       // Open the OAuth URL in an auth session
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
         redirectTo
       );
 
-      console.log('OAuth result type:', result.type);
-      if ('url' in result && result.url) {
-        console.log('OAuth result URL:', result.url);
-      }
-
       if (result.type === 'success' && 'url' in result && result.url) {
         // Parse the redirect URL to extract tokens
         const url = new URL(result.url);
-        console.log('Parsing redirect URL:', url.toString());
         
         // Check for hash fragment (access_token, refresh_token)
         if (url.hash) {
           const hashParams = new URLSearchParams(url.hash.substring(1));
           const access_token = hashParams.get('access_token');
           const refresh_token = hashParams.get('refresh_token');
-
-          console.log('Found tokens:', { access_token: !!access_token, refresh_token: !!refresh_token });
 
           if (access_token && refresh_token) {
             // Set the session in Supabase
@@ -236,7 +231,6 @@ export class AuthService {
         // Check for query parameters (code-based flow)
         const code = url.searchParams.get('code');
         if (code) {
-          console.log('Found authorization code, exchanging for session');
           const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
           
           if (sessionError) {
@@ -263,33 +257,55 @@ export class AuthService {
     }
   }
 
-  async upsertUserFromSupabase(supabaseUser: SupabaseUserLike): Promise<User> {
-    // Sync Supabase user into local DB so the rest of the app can work unchanged
-    console.log('Upserting user from Supabase:', {
-      id: supabaseUser.id,
-      email: supabaseUser.email,
-      metadata: supabaseUser.user_metadata,
-      provider: supabaseUser.app_metadata?.provider
-    });
-    
-    const email = supabaseUser.email || `${supabaseUser.id}@user.local`;
-    const name = supabaseUser.user_metadata?.full_name || 
-                 supabaseUser.user_metadata?.name || 
-                 supabaseUser.email?.split('@')[0] || 
-                 'User';
-    const providerId = supabaseUser.id;
+  async upsertUserFromSupabase(supabaseUser: SupabaseUserLike, linkToLocalUserId?: string): Promise<User> {
+    const authUserId = supabaseUser.id;
+    const email = supabaseUser.email || `${authUserId}@user.local`;
+    const name = supabaseUser.user_metadata?.full_name ||
+      supabaseUser.user_metadata?.name ||
+      supabaseUser.email?.split('@')[0] ||
+      'User';
     const provider = supabaseUser.app_metadata?.provider === 'apple' ? 'apple' : 'google';
-    
-    console.log('Creating/updating local user:', { email, name, provider, providerId });
-    
-    let user = getUserByProviderId(providerId, provider);
+    const providerId = authUserId;
+    const linkedLocalId = linkToLocalUserId?.trim() || null;
+
+    let user = getUserByAuthUserId(authUserId);
     if (!user) {
-      user = createUser({ email, name, provider, providerId, avatar: null });
-      console.log('Created new local user:', user.name);
-    } else {
-      updateUserLastLogin(user.id);
-      console.log('Updated existing local user:', user.name);
+      user = getUserByProviderId(providerId, provider);
     }
+
+    if (!user && linkedLocalId) {
+      const localUser = getUserById(linkedLocalId);
+      if (localUser) {
+        user = updateUserAuthIdentity(localUser.id, {
+          authUserId,
+          provider,
+          providerId,
+          email,
+          name,
+        }) ?? localUser;
+      }
+    }
+
+    if (!user) {
+      user = createUser({
+        authUserId,
+        email,
+        name,
+        provider,
+        providerId,
+        avatar: null,
+      });
+    } else {
+      user = updateUserAuthIdentity(user.id, {
+        authUserId,
+        provider,
+        providerId,
+        email,
+        name,
+      }) ?? user;
+      user = getUserById(user.id) ?? user;
+    }
+
     this.currentUser = user;
     await this.storeUserSession(user);
     return user;

@@ -2,13 +2,19 @@ import * as SQLite from 'expo-sqlite';
 import { withErrorHandlingSync } from './errorHandler';
 
 export type ProjectStatus = 'active' | 'delayed' | 'completed' | 'neutral';
+export type ProjectVisibility = 'private' | 'public';
 
 export interface Project {
   id: string;
   name: string;
   client?: string;
   location?: string;
+  organization_id?: string | null;
   status: ProjectStatus;
+  visibility: ProjectVisibility;
+  public_slug?: string | null;
+  public_published_at?: number | null;
+  public_updated_at?: number | null;
   progress: number;
   start_date?: number | null;
   end_date?: number | null;
@@ -38,6 +44,7 @@ export interface MediaItem {
 
 export interface User {
   id: string;
+  authUserId?: string | null;
   email: string;
   name: string;
   provider: 'apple' | 'google';
@@ -45,6 +52,97 @@ export interface User {
   avatar?: string | null;
   created_at: number;
   last_login_at: number;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug?: string | null;
+  owner_user_id: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export type OrganizationMemberRole = 'owner' | 'admin' | 'member' | 'viewer';
+export type OrganizationMemberStatus = 'active' | 'invited' | 'removed';
+
+export interface OrganizationMember {
+  id: string;
+  organization_id: string;
+  user_id?: string | null;
+  invited_email?: string | null;
+  role: OrganizationMemberRole;
+  status: OrganizationMemberStatus;
+  invited_by?: string | null;
+  created_at: number;
+  updated_at: number;
+  accepted_at?: number | null;
+}
+
+export interface OrganizationInvite {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  invited_email: string;
+  role: OrganizationMemberRole;
+  status: OrganizationMemberStatus;
+  invited_by?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProjectPublicProfile {
+  project_id: string;
+  public_title?: string | null;
+  summary?: string | null;
+  city?: string | null;
+  region?: string | null;
+  category?: string | null;
+  hero_media_id?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  website_url?: string | null;
+  highlights_json?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PublicProjectSummary {
+  project_id: string;
+  public_slug: string;
+  title: string;
+  summary?: string | null;
+  city?: string | null;
+  region?: string | null;
+  category?: string | null;
+  hero_uri?: string | null;
+  hero_thumb_uri?: string | null;
+  organization_name?: string | null;
+  status: ProjectStatus;
+  progress: number;
+  published_at?: number | null;
+  updated_at?: number | null;
+  media_count: number;
+}
+
+export interface PublicProjectDetail extends PublicProjectSummary {
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  website_url?: string | null;
+  highlights?: string[];
+}
+
+export interface ProjectPublicReadiness {
+  ready: boolean;
+  checks: {
+    slug: boolean;
+    title: boolean;
+    summary: boolean;
+    location: boolean;
+    heroMedia: boolean;
+  };
+  missing: string[];
+  effective_slug?: string | null;
 }
 
 export type ProjectMemberRole = 'owner' | 'manager' | 'worker' | 'client';
@@ -76,9 +174,24 @@ export interface ActivityLogEntry {
   created_at: number;
 }
 
+type UserIdentityRow = {
+  id: string;
+  auth_user_id?: string | null;
+  email: string;
+  name: string;
+  provider: 'apple' | 'google';
+  provider_id: string;
+  avatar?: string | null;
+  created_at: number;
+  last_login_at: number;
+};
+
 const db = SQLite.openDatabaseSync('buildvault.db');
 const STALE_ACTIVITY_MS = 7 * 24 * 60 * 60 * 1000;
 let activityActor: ActivityActor | null = null;
+let activeUserScopeId: string | null = null;
+const ORGANIZATION_MEMBER_ROLES: OrganizationMemberRole[] = ['owner', 'admin', 'member', 'viewer'];
+const ORGANIZATION_MEMBER_STATUSES: OrganizationMemberStatus[] = ['active', 'invited', 'removed'];
 const PROJECT_MEMBER_ROLES: ProjectMemberRole[] = ['owner', 'manager', 'worker', 'client'];
 const PROJECT_MEMBER_STATUSES: ProjectMemberStatus[] = ['invited', 'active', 'removed'];
 
@@ -87,12 +200,67 @@ export interface ActivityActor {
   name?: string | null;
 }
 
+function normalizeScopedUserId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function getScopedUserIdOrThrow(): string {
+  const userId = normalizeScopedUserId(activeUserScopeId);
+  if (!userId) {
+    throw new Error('No active user scope');
+  }
+  return userId;
+}
+
+function assertProjectAccess(projectId: string, userId: string): void {
+  const row = db.getFirstSync('SELECT id FROM projects WHERE id = ? AND user_id = ? LIMIT 1', [projectId, userId]) as
+    | { id?: string }
+    | null;
+  if (!row?.id) {
+    throw new Error('Project not found for current user');
+  }
+}
+
+function adoptLegacyRowsForActiveUser(userId: string) {
+  try {
+    db.runSync(`UPDATE projects SET user_id = ? WHERE user_id IS NULL OR trim(user_id) = ''`, [userId]);
+    db.runSync(`UPDATE folders SET user_id = ? WHERE user_id IS NULL OR trim(user_id) = ''`, [userId]);
+    db.runSync(`UPDATE media SET user_id = ? WHERE user_id IS NULL OR trim(user_id) = ''`, [userId]);
+    db.runSync(`UPDATE activity_log SET user_id = ? WHERE user_id IS NULL OR trim(user_id) = ''`, [userId]);
+  } catch (error) {
+    console.log('Legacy user scoping migration warning:', error);
+  }
+}
+
+export function setActiveUserScope(userId: string | null): void {
+  const normalizedUserId = normalizeScopedUserId(userId);
+  activeUserScopeId = normalizedUserId;
+
+  if (normalizedUserId) {
+    adoptLegacyRowsForActiveUser(normalizedUserId);
+  }
+}
+
+export function getActiveUserScope(): string | null {
+  return activeUserScopeId;
+}
+
 function isProjectMemberRole(value: unknown): value is ProjectMemberRole {
   return typeof value === 'string' && PROJECT_MEMBER_ROLES.includes(value as ProjectMemberRole);
 }
 
 function isProjectMemberStatus(value: unknown): value is ProjectMemberStatus {
   return typeof value === 'string' && PROJECT_MEMBER_STATUSES.includes(value as ProjectMemberStatus);
+}
+
+function isOrganizationMemberRole(value: unknown): value is OrganizationMemberRole {
+  return typeof value === 'string' && ORGANIZATION_MEMBER_ROLES.includes(value as OrganizationMemberRole);
+}
+
+function isOrganizationMemberStatus(value: unknown): value is OrganizationMemberStatus {
+  return typeof value === 'string' && ORGANIZATION_MEMBER_STATUSES.includes(value as OrganizationMemberStatus);
 }
 
 function createId(): string {
@@ -129,8 +297,13 @@ function deriveStatusFromActivity(
   return 'active';
 }
 
-function touchProject(projectId: string, at: number = Date.now()) {
+function touchProject(projectId: string, at: number = Date.now(), scopedUserId?: string | null) {
+  const userId = normalizeScopedUserId(scopedUserId ?? activeUserScopeId);
   try {
+    if (userId) {
+      db.runSync('UPDATE projects SET updated_at = ? WHERE id = ? AND user_id = ?', [at, projectId, userId]);
+      return;
+    }
     db.runSync('UPDATE projects SET updated_at = ? WHERE id = ?', [at, projectId]);
   } catch {
     // Keep write operations resilient when migrations are still applying.
@@ -146,14 +319,15 @@ function logActivityInternal(
   actor?: ActivityActor | null
 ): ActivityLogEntry | null {
   try {
+    const scopedUserId = normalizeScopedUserId(activeUserScopeId);
     const resolvedActor = actor ?? activityActor;
     const actorUserId = resolvedActor?.userId?.trim() ? resolvedActor.userId.trim() : null;
     const actorNameSnapshot = resolvedActor?.name?.trim() ? resolvedActor.name.trim() : null;
     const id = createId();
     const metadataJson = metadata ? JSON.stringify(metadata) : null;
     db.runSync(
-      'INSERT INTO activity_log (id, project_id, action_type, reference_id, actor_user_id, actor_name_snapshot, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, projectId, actionType, referenceId || null, actorUserId, actorNameSnapshot, metadataJson, createdAt]
+      'INSERT INTO activity_log (id, user_id, project_id, action_type, reference_id, actor_user_id, actor_name_snapshot, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, scopedUserId, projectId, actionType, referenceId || null, actorUserId, actorNameSnapshot, metadataJson, createdAt]
     );
     return {
       id,
@@ -177,13 +351,19 @@ function mapProjectRow(row: Record<string, unknown>): Project {
   const endDate = toNullableNumber(row.end_date);
   const lastActivityAt = toNullableNumber(row.last_activity_at);
   const status = deriveStatusFromActivity(progress, endDate, lastActivityAt);
+  const visibility: ProjectVisibility = row.visibility === 'public' ? 'public' : 'private';
 
   return {
     id: String(row.id),
     name: String(row.name ?? ''),
     client: typeof row.client === 'string' ? row.client : undefined,
     location: typeof row.location === 'string' ? row.location : undefined,
+    organization_id: typeof row.organization_id === 'string' ? row.organization_id : null,
     status,
+    visibility,
+    public_slug: typeof row.public_slug === 'string' ? row.public_slug : null,
+    public_published_at: toNullableNumber(row.public_published_at),
+    public_updated_at: toNullableNumber(row.public_updated_at),
     progress,
     start_date: toNullableNumber(row.start_date),
     end_date: endDate,
@@ -228,10 +408,501 @@ function mapActivityRow(row: Record<string, unknown>): ActivityLogEntry {
   };
 }
 
+function mapUserRow(row: Record<string, unknown>): User {
+  return {
+    id: String(row.id),
+    authUserId: typeof row.auth_user_id === 'string' ? row.auth_user_id : null,
+    email: String(row.email ?? ''),
+    name: String(row.name ?? ''),
+    provider: row.provider === 'apple' ? 'apple' : 'google',
+    providerId: typeof row.provider_id === 'string' ? row.provider_id : String(row.providerId ?? ''),
+    avatar: typeof row.avatar === 'string' ? row.avatar : null,
+    created_at: toNullableNumber(row.created_at) ?? Date.now(),
+    last_login_at: toNullableNumber(row.last_login_at) ?? Date.now(),
+  };
+}
+
+function mapUserIdentityRow(row: Record<string, unknown>): UserIdentityRow {
+  const createdAt = toNullableNumber(row.created_at) ?? Date.now();
+  return {
+    id: String(row.id),
+    auth_user_id: typeof row.auth_user_id === 'string' ? row.auth_user_id : null,
+    email: typeof row.email === 'string' ? row.email : '',
+    name: typeof row.name === 'string' ? row.name : '',
+    provider: row.provider === 'apple' ? 'apple' : 'google',
+    provider_id: typeof row.provider_id === 'string' ? row.provider_id : '',
+    avatar: typeof row.avatar === 'string' ? row.avatar : null,
+    created_at: createdAt,
+    last_login_at: toNullableNumber(row.last_login_at) ?? createdAt,
+  };
+}
+
+function normalizeIdentityValue(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function mergeUserRowData(target: UserIdentityRow, source: UserIdentityRow): UserIdentityRow {
+  return {
+    ...target,
+    auth_user_id: normalizeIdentityValue(target.auth_user_id) || normalizeIdentityValue(source.auth_user_id),
+    email: target.email || source.email,
+    name: target.name || source.name,
+    provider: target.provider || source.provider,
+    provider_id: target.provider_id || source.provider_id,
+    avatar: target.avatar || source.avatar || null,
+    created_at: Math.min(target.created_at, source.created_at),
+    last_login_at: Math.max(target.last_login_at, source.last_login_at),
+  };
+}
+
+function repointUserReferences(sourceUserId: string, targetUserId: string) {
+  if (sourceUserId === targetUserId) return;
+
+  // Avoid collisions on unique (organization_id, user_id) memberships.
+  db.runSync(
+    `DELETE FROM organization_members
+     WHERE user_id = ?
+       AND organization_id IN (
+         SELECT organization_id
+         FROM organization_members
+         WHERE user_id = ?
+       )`,
+    [sourceUserId, targetUserId]
+  );
+  db.runSync(
+    `DELETE FROM project_members
+     WHERE user_id = ?
+       AND project_id IN (
+         SELECT project_id
+         FROM project_members
+         WHERE user_id = ?
+       )`,
+    [sourceUserId, targetUserId]
+  );
+
+  db.runSync('UPDATE projects SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE folders SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE media SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE activity_log SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE activity_log SET actor_user_id = ? WHERE actor_user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE organizations SET owner_user_id = ? WHERE owner_user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE organization_members SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE project_members SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE organization_members SET invited_by = ? WHERE invited_by = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE project_members SET invited_by = ? WHERE invited_by = ?', [targetUserId, sourceUserId]);
+}
+
+function mergeUserRecords(sourceUserId: string, targetUserId: string) {
+  if (sourceUserId === targetUserId) return;
+
+  const sourceRow = db.getFirstSync('SELECT * FROM users WHERE id = ? LIMIT 1', [sourceUserId]) as
+    | Record<string, unknown>
+    | null;
+  const targetRow = db.getFirstSync('SELECT * FROM users WHERE id = ? LIMIT 1', [targetUserId]) as
+    | Record<string, unknown>
+    | null;
+
+  if (!sourceRow || !targetRow) return;
+
+  const merged = mergeUserRowData(mapUserIdentityRow(targetRow), mapUserIdentityRow(sourceRow));
+  repointUserReferences(sourceUserId, targetUserId);
+
+  db.runSync(
+    `UPDATE users
+     SET auth_user_id = ?,
+         email = ?,
+         name = ?,
+         provider = ?,
+         provider_id = ?,
+         avatar = ?,
+         created_at = ?,
+         last_login_at = ?
+     WHERE id = ?`,
+    [
+      merged.auth_user_id ?? null,
+      merged.email,
+      merged.name,
+      merged.provider,
+      merged.provider_id,
+      merged.avatar ?? null,
+      merged.created_at,
+      merged.last_login_at,
+      targetUserId,
+    ]
+  );
+
+  db.runSync('DELETE FROM users WHERE id = ?', [sourceUserId]);
+}
+
+function deduplicateUsersByIdentity() {
+  const duplicateAuthGroups = db.getAllSync(
+    `SELECT auth_user_id
+     FROM users
+     WHERE auth_user_id IS NOT NULL
+       AND length(trim(auth_user_id)) > 0
+     GROUP BY auth_user_id
+     HAVING COUNT(*) > 1`
+  ) as Array<Record<string, unknown>>;
+
+  for (const group of duplicateAuthGroups) {
+    const authUserId = normalizeIdentityValue(typeof group.auth_user_id === 'string' ? group.auth_user_id : null);
+    if (!authUserId) continue;
+    const rows = db.getAllSync(
+      `SELECT *
+       FROM users
+       WHERE auth_user_id = ?
+       ORDER BY last_login_at DESC, created_at DESC, id ASC`,
+      [authUserId]
+    ) as Array<Record<string, unknown>>;
+
+    if (rows.length < 2) continue;
+    const canonicalId = String(rows[0].id);
+    for (let index = 1; index < rows.length; index += 1) {
+      mergeUserRecords(String(rows[index].id), canonicalId);
+    }
+  }
+
+  const duplicateProviderGroups = db.getAllSync(
+    `SELECT provider, provider_id
+     FROM users
+     WHERE provider IS NOT NULL
+       AND length(trim(provider)) > 0
+       AND provider_id IS NOT NULL
+       AND length(trim(provider_id)) > 0
+     GROUP BY provider, provider_id
+     HAVING COUNT(*) > 1`
+  ) as Array<Record<string, unknown>>;
+
+  for (const group of duplicateProviderGroups) {
+    const provider = typeof group.provider === 'string' ? group.provider : '';
+    const providerId = typeof group.provider_id === 'string' ? group.provider_id : '';
+    if (!provider || !providerId) continue;
+
+    const rows = db.getAllSync(
+      `SELECT *
+       FROM users
+       WHERE provider = ?
+         AND provider_id = ?
+       ORDER BY last_login_at DESC, created_at DESC, id ASC`,
+      [provider, providerId]
+    ) as Array<Record<string, unknown>>;
+
+    if (rows.length < 2) continue;
+    const canonicalId = String(rows[0].id);
+    for (let index = 1; index < rows.length; index += 1) {
+      mergeUserRecords(String(rows[index].id), canonicalId);
+    }
+  }
+}
+
+function mapOrganizationRow(row: Record<string, unknown>): Organization {
+  const createdAt = toNullableNumber(row.created_at) ?? Date.now();
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ''),
+    slug: typeof row.slug === 'string' ? row.slug : null,
+    owner_user_id: String(row.owner_user_id ?? ''),
+    created_at: createdAt,
+    updated_at: toNullableNumber(row.updated_at) ?? createdAt,
+  };
+}
+
+function mapOrganizationMemberRow(row: Record<string, unknown>): OrganizationMember {
+  const createdAt = toNullableNumber(row.created_at) ?? Date.now();
+  return {
+    id: String(row.id),
+    organization_id: String(row.organization_id),
+    user_id: typeof row.user_id === 'string' ? row.user_id : null,
+    invited_email: typeof row.invited_email === 'string' ? row.invited_email : null,
+    role: isOrganizationMemberRole(row.role) ? row.role : 'member',
+    status: isOrganizationMemberStatus(row.status) ? row.status : 'invited',
+    invited_by: typeof row.invited_by === 'string' ? row.invited_by : null,
+    created_at: createdAt,
+    updated_at: toNullableNumber(row.updated_at) ?? createdAt,
+    accepted_at: toNullableNumber(row.accepted_at),
+  };
+}
+
+function mapOrganizationInviteRow(row: Record<string, unknown>): OrganizationInvite {
+  const createdAt = toNullableNumber(row.created_at) ?? Date.now();
+  return {
+    id: String(row.id),
+    organization_id: String(row.organization_id),
+    organization_name: String(row.organization_name ?? ''),
+    invited_email: String(row.invited_email ?? ''),
+    role: isOrganizationMemberRole(row.role) ? row.role : 'member',
+    status: isOrganizationMemberStatus(row.status) ? row.status : 'invited',
+    invited_by: typeof row.invited_by === 'string' ? row.invited_by : null,
+    created_at: createdAt,
+    updated_at: toNullableNumber(row.updated_at) ?? createdAt,
+  };
+}
+
+function mapProjectPublicProfileRow(row: Record<string, unknown>): ProjectPublicProfile {
+  const createdAt = toNullableNumber(row.created_at) ?? Date.now();
+  return {
+    project_id: String(row.project_id),
+    public_title: typeof row.public_title === 'string' ? row.public_title : null,
+    summary: typeof row.summary === 'string' ? row.summary : null,
+    city: typeof row.city === 'string' ? row.city : null,
+    region: typeof row.region === 'string' ? row.region : null,
+    category: typeof row.category === 'string' ? row.category : null,
+    hero_media_id: typeof row.hero_media_id === 'string' ? row.hero_media_id : null,
+    contact_email: typeof row.contact_email === 'string' ? row.contact_email : null,
+    contact_phone: typeof row.contact_phone === 'string' ? row.contact_phone : null,
+    website_url: typeof row.website_url === 'string' ? row.website_url : null,
+    highlights_json: typeof row.highlights_json === 'string' ? row.highlights_json : null,
+    created_at: createdAt,
+    updated_at: toNullableNumber(row.updated_at) ?? createdAt,
+  };
+}
+
+function mapPublicProjectSummaryRow(row: Record<string, unknown>): PublicProjectSummary {
+  return {
+    project_id: String(row.project_id),
+    public_slug: String(row.public_slug ?? ''),
+    title: String(row.title ?? ''),
+    summary: typeof row.summary === 'string' ? row.summary : null,
+    city: typeof row.city === 'string' ? row.city : null,
+    region: typeof row.region === 'string' ? row.region : null,
+    category: typeof row.category === 'string' ? row.category : null,
+    hero_uri: typeof row.hero_uri === 'string' ? row.hero_uri : null,
+    hero_thumb_uri: typeof row.hero_thumb_uri === 'string' ? row.hero_thumb_uri : null,
+    organization_name: typeof row.organization_name === 'string' ? row.organization_name : null,
+    status: row.status === 'active' || row.status === 'delayed' || row.status === 'completed' ? row.status : 'neutral',
+    progress: clampProgress(row.progress),
+    published_at: toNullableNumber(row.published_at),
+    updated_at: toNullableNumber(row.updated_at),
+    media_count: Math.max(0, Number(row.media_count) || 0),
+  };
+}
+
 function normalizeEmail(value?: string | null): string | null {
   if (!value) return null;
   const trimmed = value.trim().toLowerCase();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeOrganizationName(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(inc|llc|ltd|corp|corporation|company|co)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeOrganizationSlug(value?: string | null): string | null {
+  if (!value) return null;
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : null;
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error && typeof error.message === 'string') {
+    return error.message;
+  }
+  if (typeof error === 'object' && error && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return '';
+}
+
+function assertOrganizationUniqueness(params: {
+  name: string;
+  slug?: string | null;
+  excludeId?: string | null;
+}) {
+  const normalizedName = normalizeOrganizationName(params.name) ?? params.name.trim().toLowerCase();
+  const normalizedSlug = normalizeOrganizationSlug(params.slug ?? null);
+
+  const rows = db.getAllSync(
+    `SELECT id, name, slug
+     FROM organizations
+     WHERE (? IS NULL OR id <> ?)`,
+    [params.excludeId ?? null, params.excludeId ?? null]
+  ) as Array<Record<string, unknown>>;
+
+  const duplicate = rows.find((row) => {
+    const rowName = typeof row.name === 'string' ? row.name : '';
+    const rowSlug = typeof row.slug === 'string' ? row.slug : null;
+    const rowNormalizedName = normalizeOrganizationName(rowName) ?? rowName.trim().toLowerCase();
+    const slugConflict = !!normalizedSlug && !!rowSlug && rowSlug === normalizedSlug;
+    const nameConflict = rowNormalizedName.length > 0 && rowNormalizedName === normalizedName;
+    return slugConflict || nameConflict;
+  });
+
+  if (duplicate) {
+    const duplicateName = typeof duplicate.name === 'string' ? duplicate.name : 'another organization';
+    throw new Error(`Organization already exists: ${duplicateName}`);
+  }
+}
+
+function getOrganizationMembership(
+  organizationId: string,
+  userId: string,
+  options?: { includeRemoved?: boolean }
+): OrganizationMember | null {
+  const whereStatus = options?.includeRemoved ? '' : `AND status <> 'removed'`;
+  const row = db.getFirstSync(
+    `SELECT *
+     FROM organization_members
+     WHERE organization_id = ?
+       AND user_id = ?
+       ${whereStatus}
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [organizationId, userId]
+  ) as Record<string, unknown> | null;
+  return row ? mapOrganizationMemberRow(row) : null;
+}
+
+function assertOrganizationAccess(organizationId: string, userId: string): OrganizationMember {
+  const membership = getOrganizationMembership(organizationId, userId);
+  if (!membership || membership.status !== 'active') {
+    throw new Error('Organization not found for current user');
+  }
+  return membership;
+}
+
+function assertOrganizationManagementAccess(organizationId: string, userId: string): OrganizationMember {
+  const membership = assertOrganizationAccess(organizationId, userId);
+  if (membership.role !== 'owner' && membership.role !== 'admin') {
+    throw new Error('Insufficient organization permissions');
+  }
+  return membership;
+}
+
+function getCurrentScopedUserEmail(userId: string): string | null {
+  const row = db.getFirstSync(
+    'SELECT email FROM users WHERE id = ? LIMIT 1',
+    [userId]
+  ) as { email?: string } | null;
+  if (!row || typeof row.email !== 'string') return null;
+  return normalizeEmail(row.email);
+}
+
+function assertProjectPublishAccess(projectId: string, userId: string): Record<string, unknown> {
+  const project = db.getFirstSync('SELECT * FROM projects WHERE id = ? LIMIT 1', [projectId]) as Record<string, unknown> | null;
+  if (!project) {
+    throw new Error('Project not found');
+  }
+
+  const projectOwnerUserId = typeof project.user_id === 'string' ? project.user_id : '';
+  if (projectOwnerUserId === userId) {
+    return project;
+  }
+
+  const organizationId = typeof project.organization_id === 'string' ? project.organization_id : null;
+  if (organizationId) {
+    const membership = getOrganizationMembership(organizationId, userId);
+    if (membership && membership.status === 'active' && (membership.role === 'owner' || membership.role === 'admin')) {
+      return project;
+    }
+  }
+
+  throw new Error('Project not found for current user');
+}
+
+function ensureUniquePublicSlug(seed: string, projectId?: string): string {
+  const normalizedSeed = normalizeOrganizationSlug(seed) || `project-${Date.now()}`;
+  let candidate = normalizedSeed;
+  let suffix = 2;
+
+  while (true) {
+    const row = db.getFirstSync(
+      'SELECT id FROM projects WHERE public_slug = ? LIMIT 1',
+      [candidate]
+    ) as { id?: string } | null;
+
+    if (!row?.id || (projectId && row.id === projectId)) {
+      return candidate;
+    }
+
+    candidate = `${normalizedSeed}-${suffix}`;
+    suffix += 1;
+  }
+}
+
+function computeProjectPublicReadiness(projectId: string, slugOverride?: string | null): ProjectPublicReadiness {
+  const project = db.getFirstSync(
+    'SELECT id, name, public_slug FROM projects WHERE id = ? LIMIT 1',
+    [projectId]
+  ) as Record<string, unknown> | null;
+
+  if (!project) {
+    return {
+      ready: false,
+      checks: {
+        slug: false,
+        title: false,
+        summary: false,
+        location: false,
+        heroMedia: false,
+      },
+      missing: ['project'],
+      effective_slug: null,
+    };
+  }
+
+  const profile = db.getFirstSync(
+    'SELECT public_title, summary, city, region, hero_media_id FROM project_public_profiles WHERE project_id = ? LIMIT 1',
+    [projectId]
+  ) as Record<string, unknown> | null;
+
+  const fallbackTitle = typeof project.name === 'string' ? project.name.trim() : 'Project';
+  const effectiveSlug = normalizeOrganizationSlug(
+    slugOverride ??
+      (typeof project.public_slug === 'string' ? project.public_slug : null) ??
+      fallbackTitle
+  );
+
+  const titleCandidate =
+    (typeof profile?.public_title === 'string' ? profile.public_title.trim() : '') || fallbackTitle;
+  const summaryCandidate = typeof profile?.summary === 'string' ? profile.summary.trim() : '';
+  const cityCandidate = typeof profile?.city === 'string' ? profile.city.trim() : '';
+  const regionCandidate = typeof profile?.region === 'string' ? profile.region.trim() : '';
+  const heroMediaId = typeof profile?.hero_media_id === 'string' ? profile.hero_media_id.trim() : '';
+
+  let hasHeroMedia = false;
+  if (heroMediaId) {
+    const heroMedia = db.getFirstSync(
+      'SELECT id FROM media WHERE id = ? AND project_id = ? LIMIT 1',
+      [heroMediaId, projectId]
+    ) as { id?: string } | null;
+    hasHeroMedia = !!heroMedia?.id;
+  }
+
+  const checks = {
+    slug: !!effectiveSlug,
+    title: titleCandidate.length > 0,
+    summary: summaryCandidate.length > 0,
+    location: cityCandidate.length > 0 || regionCandidate.length > 0,
+    heroMedia: hasHeroMedia,
+  };
+
+  const missing: string[] = [];
+  if (!checks.slug) missing.push('public slug');
+  if (!checks.title) missing.push('public title');
+  if (!checks.summary) missing.push('summary');
+  if (!checks.location) missing.push('city or region');
+  if (!checks.heroMedia) missing.push('hero media');
+
+  return {
+    ready: Object.values(checks).every(Boolean),
+    checks,
+    missing,
+    effective_slug: effectiveSlug,
+  };
 }
 
 function getExistingProjectMemberRecord(
@@ -370,6 +1041,7 @@ export function migrate() {
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY NOT NULL,
+        auth_user_id TEXT,
         email TEXT NOT NULL,
         name TEXT NOT NULL,
         provider TEXT NOT NULL,
@@ -377,6 +1049,29 @@ export function migrate() {
         avatar TEXT,
         created_at INTEGER NOT NULL,
         last_login_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS organizations (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        slug TEXT,
+        owner_user_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (owner_user_id) REFERENCES users (id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS organization_members (
+        id TEXT PRIMARY KEY NOT NULL,
+        organization_id TEXT NOT NULL,
+        user_id TEXT,
+        invited_email TEXT,
+        role TEXT NOT NULL DEFAULT 'member',
+        status TEXT NOT NULL DEFAULT 'invited',
+        invited_by TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        accepted_at INTEGER,
+        FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
       );
       CREATE TABLE IF NOT EXISTS project_members (
         id TEXT PRIMARY KEY NOT NULL,
@@ -396,19 +1091,27 @@ export function migrate() {
       );
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        organization_id TEXT,
         name TEXT NOT NULL,
         client TEXT,
         location TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private',
+        public_slug TEXT,
+        public_published_at INTEGER,
+        public_updated_at INTEGER,
         status TEXT NOT NULL DEFAULT 'neutral',
         progress INTEGER NOT NULL DEFAULT 0,
         start_date INTEGER,
         end_date INTEGER,
         budget REAL,
         created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE SET NULL
       );
       CREATE TABLE IF NOT EXISTS folders (
         id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
         project_id TEXT NOT NULL,
         name TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -416,6 +1119,7 @@ export function migrate() {
       );
       CREATE TABLE IF NOT EXISTS media (
         id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
         project_id TEXT NOT NULL,
         type TEXT NOT NULL,
         uri TEXT NOT NULL,
@@ -426,6 +1130,7 @@ export function migrate() {
       );
       CREATE TABLE IF NOT EXISTS activity_log (
         id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
         project_id TEXT NOT NULL,
         action_type TEXT NOT NULL,
         reference_id TEXT,
@@ -434,6 +1139,23 @@ export function migrate() {
         metadata TEXT,
         created_at INTEGER NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS project_public_profiles (
+        project_id TEXT PRIMARY KEY NOT NULL,
+        public_title TEXT,
+        summary TEXT,
+        city TEXT,
+        region TEXT,
+        category TEXT,
+        hero_media_id TEXT,
+        contact_email TEXT,
+        contact_phone TEXT,
+        website_url TEXT,
+        highlights_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
+        FOREIGN KEY (hero_media_id) REFERENCES media (id) ON DELETE SET NULL
       );
     `);
 
@@ -445,6 +1167,16 @@ export function migrate() {
       `ALTER TABLE projects ADD COLUMN end_date INTEGER`,
       `ALTER TABLE projects ADD COLUMN budget REAL`,
       `ALTER TABLE projects ADD COLUMN updated_at INTEGER`,
+      `ALTER TABLE projects ADD COLUMN organization_id TEXT`,
+      `ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'private'`,
+      `ALTER TABLE projects ADD COLUMN public_slug TEXT`,
+      `ALTER TABLE projects ADD COLUMN public_published_at INTEGER`,
+      `ALTER TABLE projects ADD COLUMN public_updated_at INTEGER`,
+      `ALTER TABLE users ADD COLUMN auth_user_id TEXT`,
+      `ALTER TABLE projects ADD COLUMN user_id TEXT`,
+      `ALTER TABLE folders ADD COLUMN user_id TEXT`,
+      `ALTER TABLE media ADD COLUMN user_id TEXT`,
+      `ALTER TABLE activity_log ADD COLUMN user_id TEXT`,
       `ALTER TABLE project_members ADD COLUMN user_id TEXT`,
       `ALTER TABLE project_members ADD COLUMN invited_email TEXT`,
       `ALTER TABLE project_members ADD COLUMN role TEXT DEFAULT 'worker'`,
@@ -473,21 +1205,65 @@ export function migrate() {
       UPDATE projects SET progress = 0 WHERE progress IS NULL;
       UPDATE projects SET start_date = created_at WHERE start_date IS NULL;
       UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL;
+      UPDATE projects SET visibility = 'private' WHERE visibility IS NULL OR trim(visibility) = '';
+      UPDATE projects SET public_updated_at = updated_at WHERE public_updated_at IS NULL;
+      UPDATE projects SET user_id = '' WHERE user_id IS NULL;
+      UPDATE folders SET user_id = '' WHERE user_id IS NULL;
+      UPDATE media SET user_id = '' WHERE user_id IS NULL;
+      UPDATE activity_log SET user_id = '' WHERE user_id IS NULL;
+      UPDATE organizations SET updated_at = created_at WHERE updated_at IS NULL;
+      UPDATE organization_members SET role = 'member' WHERE role IS NULL OR trim(role) = '';
+      UPDATE organization_members SET status = 'invited' WHERE status IS NULL OR trim(status) = '';
+      UPDATE organization_members SET updated_at = created_at WHERE updated_at IS NULL;
       UPDATE project_members SET role = 'worker' WHERE role IS NULL OR trim(role) = '';
       UPDATE project_members SET status = 'invited' WHERE status IS NULL OR trim(status) = '';
       UPDATE project_members SET updated_at = created_at WHERE updated_at IS NULL;
     `);
+
+    try {
+      deduplicateUsersByIdentity();
+    } catch (error) {
+      console.log('User identity deduplication warning:', error);
+    }
 
     // Create performance indexes (idempotent)
     try {
       db.execSync(`
         CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(created_at);
         CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
+        CREATE INDEX IF NOT EXISTS idx_projects_user_updated ON projects(user_id, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_projects_organization ON projects(organization_id);
+        CREATE INDEX IF NOT EXISTS idx_projects_visibility_updated ON projects(visibility, public_updated_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_public_slug_unique
+          ON projects(public_slug)
+          WHERE public_slug IS NOT NULL AND length(trim(public_slug)) > 0;
         CREATE INDEX IF NOT EXISTS idx_media_project_created_at ON media(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_media_user_project_created_at ON media(user_id, project_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_media_project_type_created_at ON media(project_id, type, created_at);
         CREATE INDEX IF NOT EXISTS idx_media_project_folder_created_at ON media(project_id, folder_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_media_project_note_present ON media(project_id) WHERE note IS NOT NULL AND length(trim(note)) > 0;
+        CREATE INDEX IF NOT EXISTS idx_folders_user_project ON folders(user_id, project_id);
+        CREATE INDEX IF NOT EXISTS idx_activity_user_project_created_at ON activity_log(user_id, project_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_activity_project_created_at ON activity_log(project_id, created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id_unique
+          ON users(auth_user_id)
+          WHERE auth_user_id IS NOT NULL AND length(trim(auth_user_id)) > 0;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_provider_provider_id_unique
+          ON users(provider, provider_id)
+          WHERE provider IS NOT NULL AND length(trim(provider)) > 0
+            AND provider_id IS NOT NULL AND length(trim(provider_id)) > 0;
+        CREATE INDEX IF NOT EXISTS idx_organizations_owner ON organizations(owner_user_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_organizations_slug_unique
+          ON organizations(slug)
+          WHERE slug IS NOT NULL AND length(trim(slug)) > 0;
+        CREATE INDEX IF NOT EXISTS idx_organization_members_org ON organization_members(organization_id);
+        CREATE INDEX IF NOT EXISTS idx_organization_members_user ON organization_members(user_id);
+        CREATE INDEX IF NOT EXISTS idx_organization_members_email ON organization_members(invited_email);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_organization_members_org_user_unique
+          ON organization_members(organization_id, user_id)
+          WHERE user_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_project_public_profiles_project ON project_public_profiles(project_id);
         CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
         CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
         CREATE INDEX IF NOT EXISTS idx_project_members_invited_email ON project_members(invited_email);
@@ -502,26 +1278,31 @@ export function migrate() {
 
 export function getProjects(search?: string): Project[] {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
     const query = search
       ? `SELECT p.*, (
           SELECT MAX(a.created_at)
           FROM activity_log a
           WHERE a.project_id = p.id
+            AND a.user_id = p.user_id
             AND a.action_type NOT IN ('project_created', 'project_updated')
         ) AS last_activity_at
         FROM projects p
-        WHERE p.name LIKE ? OR COALESCE(p.client, '') LIKE ? OR COALESCE(p.location, '') LIKE ?
+        WHERE p.user_id = ?
+          AND (p.name LIKE ? OR COALESCE(p.client, '') LIKE ? OR COALESCE(p.location, '') LIKE ?)
         ORDER BY p.updated_at DESC, p.created_at DESC`
       : `SELECT p.*, (
           SELECT MAX(a.created_at)
           FROM activity_log a
           WHERE a.project_id = p.id
+            AND a.user_id = p.user_id
             AND a.action_type NOT IN ('project_created', 'project_updated')
         ) AS last_activity_at
         FROM projects p
+        WHERE p.user_id = ?
         ORDER BY p.updated_at DESC, p.created_at DESC`;
 
-    const params = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
+    const params = search ? [userId, `%${search}%`, `%${search}%`, `%${search}%`] : [userId];
     const result = db.getAllSync(query, params) as Array<Record<string, unknown>>;
     return result.map(mapProjectRow);
   }, 'Get projects');
@@ -531,12 +1312,18 @@ export function createProject(data: {
   name: string;
   client?: string;
   location?: string;
+  organization_id?: string | null;
   progress?: number;
   start_date?: number | null;
   end_date?: number | null;
   budget?: number | null;
 }): Project {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const organizationId = typeof data.organization_id === 'string' ? data.organization_id : null;
+    if (organizationId) {
+      assertOrganizationAccess(organizationId, userId);
+    }
     const id = createId();
     const created_at = Date.now();
     const updated_at = created_at;
@@ -547,9 +1334,11 @@ export function createProject(data: {
     const budget = data.budget ?? null;
 
     db.runSync(
-      'INSERT INTO projects (id, name, client, location, status, progress, start_date, end_date, budget, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO projects (id, user_id, organization_id, name, client, location, status, progress, start_date, end_date, budget, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         id,
+        userId,
+        organizationId,
         data.name,
         data.client || null,
         data.location || null,
@@ -587,7 +1376,12 @@ export function createProject(data: {
       name: data.name,
       client: data.client,
       location: data.location,
+      organization_id: organizationId,
       status,
+      visibility: 'private',
+      public_slug: null,
+      public_published_at: null,
+      public_updated_at: updated_at,
       progress,
       start_date,
       end_date,
@@ -604,6 +1398,8 @@ export function updateProject(
   data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at' | 'status' | 'last_activity_at'>>
 ): void {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(id, userId);
     const updates: string[] = [];
     const values: Array<string | number | null> = [];
 
@@ -618,6 +1414,14 @@ export function updateProject(
     if (data.location !== undefined) {
       updates.push('location = ?');
       values.push(data.location || null);
+    }
+    if (data.organization_id !== undefined) {
+      const organizationId = typeof data.organization_id === 'string' ? data.organization_id : null;
+      if (organizationId) {
+        assertOrganizationAccess(organizationId, userId);
+      }
+      updates.push('organization_id = ?');
+      values.push(organizationId);
     }
     if (data.progress !== undefined) {
       updates.push('progress = ?');
@@ -643,7 +1447,8 @@ export function updateProject(
     values.push(updatedAt);
 
     values.push(id);
-    const query = `UPDATE projects SET ${updates.join(', ')} WHERE id = ?`;
+    values.push(userId);
+    const query = `UPDATE projects SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`;
     db.runSync(query, values);
 
     logActivityInternal(id, 'project_updated', id, {
@@ -654,25 +1459,782 @@ export function updateProject(
 
 export function deleteProject(id: string) {
   return withErrorHandlingSync(() => {
-    db.runSync('DELETE FROM projects WHERE id = ?', [id]);
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(id, userId);
+    db.runSync('DELETE FROM projects WHERE id = ? AND user_id = ?', [id, userId]);
   }, 'Delete project');
 }
 
 export function getProjectById(id: string): Project | null {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
     const result = db.getFirstSync(
       `SELECT p.*, (
         SELECT MAX(a.created_at)
         FROM activity_log a
         WHERE a.project_id = p.id
+          AND a.user_id = p.user_id
           AND a.action_type NOT IN ('project_created', 'project_updated')
       ) AS last_activity_at
       FROM projects p
-      WHERE p.id = ?`,
-      [id]
+      WHERE p.id = ? AND p.user_id = ?`,
+      [id, userId]
     ) as Record<string, unknown> | null;
     return result ? mapProjectRow(result) : null;
   }, 'Get project by ID');
+}
+
+export function createOrganization(data: {
+  name: string;
+  slug?: string | null;
+}): Organization {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const now = Date.now();
+    const id = createId();
+    const name = data.name.trim();
+    if (!name) {
+      throw new Error('Organization name is required');
+    }
+
+    const slug = normalizeOrganizationSlug(data.slug ?? name) || `org-${id.slice(0, 10)}`;
+    assertOrganizationUniqueness({ name, slug });
+
+    try {
+      db.runSync(
+        `INSERT INTO organizations (id, name, slug, owner_user_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, name, slug, userId, now, now]
+      );
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      if (message.includes('UNIQUE constraint failed')) {
+        throw new Error('Organization name or slug is already in use');
+      }
+      throw error;
+    }
+
+    const ownerMemberId = createId();
+    db.runSync(
+      `INSERT INTO organization_members
+        (id, organization_id, user_id, invited_email, role, status, invited_by, created_at, updated_at, accepted_at)
+       VALUES (?, ?, ?, NULL, 'owner', 'active', ?, ?, ?, ?)`,
+      [ownerMemberId, id, userId, userId, now, now, now]
+    );
+
+    return {
+      id,
+      name,
+      slug,
+      owner_user_id: userId,
+      created_at: now,
+      updated_at: now,
+    };
+  }, 'Create organization');
+}
+
+export function getOrganizationsForCurrentUser(): Organization[] {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const rows = db.getAllSync(
+      `SELECT o.*
+       FROM organizations o
+       INNER JOIN organization_members m ON m.organization_id = o.id
+       WHERE m.user_id = ?
+         AND m.status = 'active'
+       ORDER BY o.updated_at DESC, o.created_at DESC`,
+      [userId]
+    ) as Array<Record<string, unknown>>;
+    return rows.map(mapOrganizationRow);
+  }, 'Get organizations for current user');
+}
+
+export function getOrganizationById(id: string): Organization | null {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const row = db.getFirstSync(
+      `SELECT o.*
+       FROM organizations o
+       INNER JOIN organization_members m ON m.organization_id = o.id
+       WHERE o.id = ?
+         AND m.user_id = ?
+         AND m.status = 'active'
+       LIMIT 1`,
+      [id, userId]
+    ) as Record<string, unknown> | null;
+    return row ? mapOrganizationRow(row) : null;
+  }, 'Get organization by ID');
+}
+
+export function updateOrganizationName(id: string, name: string): Organization | null {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertOrganizationManagementAccess(id, userId);
+
+    const nextName = name.trim();
+    if (!nextName) {
+      throw new Error('Organization name is required');
+    }
+    assertOrganizationUniqueness({ name: nextName, excludeId: id });
+
+    const updatedAt = Date.now();
+    db.runSync('UPDATE organizations SET name = ?, updated_at = ? WHERE id = ?', [nextName, updatedAt, id]);
+    return getOrganizationById(id);
+  }, 'Update organization name');
+}
+
+export function getOrganizationMembers(
+  organizationId: string,
+  options?: { includeRemoved?: boolean }
+): OrganizationMember[] {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertOrganizationAccess(organizationId, userId);
+    const whereRemoved = options?.includeRemoved ? '' : `AND status <> 'removed'`;
+    const rows = db.getAllSync(
+      `SELECT *
+       FROM organization_members
+       WHERE organization_id = ?
+       ${whereRemoved}
+       ORDER BY
+         CASE role
+           WHEN 'owner' THEN 0
+           WHEN 'admin' THEN 1
+           WHEN 'member' THEN 2
+           ELSE 3
+         END ASC,
+         created_at ASC`,
+      [organizationId]
+    ) as Array<Record<string, unknown>>;
+    return rows.map(mapOrganizationMemberRow);
+  }, 'Get organization members');
+}
+
+export function upsertOrganizationMember(data: {
+  organizationId: string;
+  userId: string;
+  role?: OrganizationMemberRole;
+  status?: OrganizationMemberStatus;
+  invitedBy?: string | null;
+}): OrganizationMember {
+  return withErrorHandlingSync(() => {
+    const currentUserId = getScopedUserIdOrThrow();
+    assertOrganizationManagementAccess(data.organizationId, currentUserId);
+
+    const role = data.role ?? 'member';
+    const status = data.status ?? 'active';
+    const now = Date.now();
+    const existing = db.getFirstSync(
+      `SELECT *
+       FROM organization_members
+       WHERE organization_id = ? AND user_id = ?
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [data.organizationId, data.userId]
+    ) as Record<string, unknown> | null;
+
+    if (existing) {
+      const previous = mapOrganizationMemberRow(existing);
+      db.runSync(
+        `UPDATE organization_members
+         SET role = ?,
+             status = ?,
+             invited_by = ?,
+             updated_at = ?,
+             accepted_at = ?
+         WHERE id = ?`,
+        [role, status, data.invitedBy ?? previous.invited_by ?? null, now, status === 'active' ? now : null, previous.id]
+      );
+      const updated = db.getFirstSync('SELECT * FROM organization_members WHERE id = ?', [previous.id]) as
+        | Record<string, unknown>
+        | null;
+      if (!updated) {
+        throw new Error('Unable to update organization member');
+      }
+      return mapOrganizationMemberRow(updated);
+    }
+
+    const id = createId();
+    db.runSync(
+      `INSERT INTO organization_members
+        (id, organization_id, user_id, invited_email, role, status, invited_by, created_at, updated_at, accepted_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+      [id, data.organizationId, data.userId, role, status, data.invitedBy ?? null, now, now, status === 'active' ? now : null]
+    );
+    const created = db.getFirstSync('SELECT * FROM organization_members WHERE id = ?', [id]) as Record<string, unknown> | null;
+    if (!created) {
+      throw new Error('Unable to create organization member');
+    }
+    return mapOrganizationMemberRow(created);
+  }, 'Upsert organization member');
+}
+
+export function inviteOrganizationMember(data: {
+  organizationId: string;
+  email: string;
+  role?: Exclude<OrganizationMemberRole, 'owner'>;
+  invitedBy?: string | null;
+}): OrganizationMember {
+  return withErrorHandlingSync(() => {
+    const currentUserId = getScopedUserIdOrThrow();
+    assertOrganizationManagementAccess(data.organizationId, currentUserId);
+
+    const normalizedEmail = normalizeEmail(data.email);
+    if (!normalizedEmail) {
+      throw new Error('Invite email is required');
+    }
+
+    const role = data.role ?? 'member';
+    const now = Date.now();
+    const existing = db.getFirstSync(
+      `SELECT *
+       FROM organization_members
+       WHERE organization_id = ?
+         AND LOWER(COALESCE(invited_email, '')) = ?
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [data.organizationId, normalizedEmail]
+    ) as Record<string, unknown> | null;
+
+    if (existing) {
+      const previous = mapOrganizationMemberRow(existing);
+      db.runSync(
+        `UPDATE organization_members
+         SET role = ?,
+             status = 'invited',
+             invited_email = ?,
+             invited_by = ?,
+             updated_at = ?,
+             accepted_at = NULL
+         WHERE id = ?`,
+        [role, normalizedEmail, data.invitedBy ?? previous.invited_by ?? null, now, previous.id]
+      );
+      const updated = db.getFirstSync('SELECT * FROM organization_members WHERE id = ?', [previous.id]) as
+        | Record<string, unknown>
+        | null;
+      if (!updated) {
+        throw new Error('Unable to update organization invite');
+      }
+      return mapOrganizationMemberRow(updated);
+    }
+
+    const id = createId();
+    db.runSync(
+      `INSERT INTO organization_members
+        (id, organization_id, user_id, invited_email, role, status, invited_by, created_at, updated_at, accepted_at)
+       VALUES (?, ?, NULL, ?, ?, 'invited', ?, ?, ?, NULL)`,
+      [id, data.organizationId, normalizedEmail, role, data.invitedBy ?? null, now, now]
+    );
+    const created = db.getFirstSync('SELECT * FROM organization_members WHERE id = ?', [id]) as Record<string, unknown> | null;
+    if (!created) {
+      throw new Error('Unable to invite organization member');
+    }
+    return mapOrganizationMemberRow(created);
+  }, 'Invite organization member');
+}
+
+export function getPendingOrganizationInvitesForCurrentUser(): OrganizationInvite[] {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const userEmail = getCurrentScopedUserEmail(userId);
+    if (!userEmail) {
+      return [];
+    }
+
+    const rows = db.getAllSync(
+      `SELECT
+         m.*,
+         o.name AS organization_name
+       FROM organization_members m
+       INNER JOIN organizations o ON o.id = m.organization_id
+       WHERE m.status = 'invited'
+         AND LOWER(COALESCE(m.invited_email, '')) = ?
+       ORDER BY m.updated_at DESC, m.created_at DESC`,
+      [userEmail]
+    ) as Array<Record<string, unknown>>;
+
+    return rows.map(mapOrganizationInviteRow);
+  }, 'Get pending organization invites');
+}
+
+export function acceptOrganizationInvite(inviteId: string): OrganizationMember {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const userEmail = getCurrentScopedUserEmail(userId);
+    if (!userEmail) {
+      throw new Error('No email found for current user');
+    }
+
+    const inviteRow = db.getFirstSync(
+      `SELECT *
+       FROM organization_members
+       WHERE id = ?
+         AND status = 'invited'
+         AND LOWER(COALESCE(invited_email, '')) = ?
+       LIMIT 1`,
+      [inviteId, userEmail]
+    ) as Record<string, unknown> | null;
+
+    if (!inviteRow) {
+      throw new Error('Invitation not found or no longer valid');
+    }
+
+    const invite = mapOrganizationMemberRow(inviteRow);
+    const existingForUser = db.getFirstSync(
+      `SELECT *
+       FROM organization_members
+       WHERE organization_id = ?
+         AND user_id = ?
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [invite.organization_id, userId]
+    ) as Record<string, unknown> | null;
+
+    const now = Date.now();
+    if (existingForUser) {
+      const existing = mapOrganizationMemberRow(existingForUser);
+      db.runSync(
+        `UPDATE organization_members
+         SET role = ?,
+             status = 'active',
+             invited_email = ?,
+             updated_at = ?,
+             accepted_at = ?
+         WHERE id = ?`,
+        [invite.role, userEmail, now, now, existing.id]
+      );
+      db.runSync('DELETE FROM organization_members WHERE id = ?', [inviteId]);
+
+      const updated = db.getFirstSync('SELECT * FROM organization_members WHERE id = ? LIMIT 1', [existing.id]) as
+        | Record<string, unknown>
+        | null;
+      if (!updated) {
+        throw new Error('Unable to finalize organization membership');
+      }
+      return mapOrganizationMemberRow(updated);
+    }
+
+    db.runSync(
+      `UPDATE organization_members
+       SET user_id = ?,
+           invited_email = ?,
+           status = 'active',
+           updated_at = ?,
+           accepted_at = ?
+       WHERE id = ?`,
+      [userId, userEmail, now, now, inviteId]
+    );
+
+    const accepted = db.getFirstSync('SELECT * FROM organization_members WHERE id = ? LIMIT 1', [inviteId]) as
+      | Record<string, unknown>
+      | null;
+    if (!accepted) {
+      throw new Error('Unable to accept invitation');
+    }
+    return mapOrganizationMemberRow(accepted);
+  }, 'Accept organization invite');
+}
+
+export function setProjectOrganization(projectId: string, organizationId: string | null): void {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
+    const normalizedOrgId = organizationId?.trim() || null;
+    if (normalizedOrgId) {
+      assertOrganizationAccess(normalizedOrgId, userId);
+    }
+
+    const updatedAt = Date.now();
+    db.runSync(
+      'UPDATE projects SET organization_id = ?, updated_at = ? WHERE id = ? AND user_id = ?',
+      [normalizedOrgId, updatedAt, projectId, userId]
+    );
+
+    logActivityInternal(projectId, 'project_organization_updated', projectId, {
+      organization_id: normalizedOrgId,
+    }, updatedAt);
+  }, 'Set project organization');
+}
+
+export function getProjectsByOrganization(organizationId: string): Project[] {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertOrganizationAccess(organizationId, userId);
+
+    const rows = db.getAllSync(
+      `SELECT p.*, (
+        SELECT MAX(a.created_at)
+        FROM activity_log a
+        WHERE a.project_id = p.id
+          AND a.user_id = p.user_id
+          AND a.action_type NOT IN ('project_created', 'project_updated')
+      ) AS last_activity_at
+      FROM projects p
+      WHERE p.user_id = ?
+        AND p.organization_id = ?
+      ORDER BY p.updated_at DESC, p.created_at DESC`,
+      [userId, organizationId]
+    ) as Array<Record<string, unknown>>;
+
+    return rows.map(mapProjectRow);
+  }, 'Get projects by organization');
+}
+
+export function getProjectPublicProfile(projectId: string): ProjectPublicProfile | null {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectPublishAccess(projectId, userId);
+
+    const row = db.getFirstSync(
+      'SELECT * FROM project_public_profiles WHERE project_id = ? LIMIT 1',
+      [projectId]
+    ) as Record<string, unknown> | null;
+    return row ? mapProjectPublicProfileRow(row) : null;
+  }, 'Get project public profile');
+}
+
+export function getProjectPublicReadiness(
+  projectId: string,
+  options?: { slug?: string | null }
+): ProjectPublicReadiness {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectPublishAccess(projectId, userId);
+    return computeProjectPublicReadiness(projectId, options?.slug ?? null);
+  }, 'Get project public readiness');
+}
+
+export function upsertProjectPublicProfile(
+  projectId: string,
+  data: Partial<
+    Omit<ProjectPublicProfile, 'project_id' | 'created_at' | 'updated_at' | 'hero_media_id'> & {
+      hero_media_id?: string | null;
+      highlights?: string[] | null;
+    }
+  >
+): ProjectPublicProfile {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const project = assertProjectPublishAccess(projectId, userId);
+    const projectOwnerUserId = typeof project.user_id === 'string' ? project.user_id : '';
+
+    if (data.hero_media_id) {
+      const heroMedia = db.getFirstSync(
+        'SELECT id FROM media WHERE id = ? AND project_id = ? AND user_id = ? LIMIT 1',
+        [data.hero_media_id, projectId, projectOwnerUserId]
+      ) as { id?: string } | null;
+      if (!heroMedia?.id) {
+        throw new Error('Hero media must belong to this project');
+      }
+    }
+
+    const now = Date.now();
+    const existing = db.getFirstSync(
+      'SELECT * FROM project_public_profiles WHERE project_id = ? LIMIT 1',
+      [projectId]
+    ) as Record<string, unknown> | null;
+
+    const highlightsJson =
+      data.highlights === undefined
+        ? undefined
+        : data.highlights === null
+          ? null
+          : JSON.stringify(data.highlights.slice(0, 8));
+
+    if (existing) {
+      const updates: string[] = [];
+      const values: Array<string | number | null> = [];
+
+      if (data.public_title !== undefined) {
+        updates.push('public_title = ?');
+        values.push(data.public_title?.trim() || null);
+      }
+      if (data.summary !== undefined) {
+        updates.push('summary = ?');
+        values.push(data.summary?.trim() || null);
+      }
+      if (data.city !== undefined) {
+        updates.push('city = ?');
+        values.push(data.city?.trim() || null);
+      }
+      if (data.region !== undefined) {
+        updates.push('region = ?');
+        values.push(data.region?.trim() || null);
+      }
+      if (data.category !== undefined) {
+        updates.push('category = ?');
+        values.push(data.category?.trim() || null);
+      }
+      if (data.hero_media_id !== undefined) {
+        updates.push('hero_media_id = ?');
+        values.push(data.hero_media_id || null);
+      }
+      if (data.contact_email !== undefined) {
+        updates.push('contact_email = ?');
+        values.push(normalizeEmail(data.contact_email) || null);
+      }
+      if (data.contact_phone !== undefined) {
+        updates.push('contact_phone = ?');
+        values.push(data.contact_phone?.trim() || null);
+      }
+      if (data.website_url !== undefined) {
+        updates.push('website_url = ?');
+        values.push(data.website_url?.trim() || null);
+      }
+      if (highlightsJson !== undefined) {
+        updates.push('highlights_json = ?');
+        values.push(highlightsJson);
+      }
+
+      updates.push('updated_at = ?');
+      values.push(now);
+      values.push(projectId);
+
+      db.runSync(`UPDATE project_public_profiles SET ${updates.join(', ')} WHERE project_id = ?`, values);
+    } else {
+      db.runSync(
+        `INSERT INTO project_public_profiles
+          (project_id, public_title, summary, city, region, category, hero_media_id, contact_email, contact_phone, website_url, highlights_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          projectId,
+          data.public_title?.trim() || null,
+          data.summary?.trim() || null,
+          data.city?.trim() || null,
+          data.region?.trim() || null,
+          data.category?.trim() || null,
+          data.hero_media_id || null,
+          normalizeEmail(data.contact_email) || null,
+          data.contact_phone?.trim() || null,
+          data.website_url?.trim() || null,
+          highlightsJson ?? null,
+          now,
+          now,
+        ]
+      );
+    }
+
+    db.runSync('UPDATE projects SET public_updated_at = ?, updated_at = ? WHERE id = ?', [now, now, projectId]);
+    touchProject(projectId, now);
+    logActivityInternal(projectId, 'project_public_profile_updated', projectId, null, now);
+
+    const row = db.getFirstSync('SELECT * FROM project_public_profiles WHERE project_id = ? LIMIT 1', [projectId]) as
+      | Record<string, unknown>
+      | null;
+    if (!row) {
+      throw new Error('Unable to load project public profile');
+    }
+    return mapProjectPublicProfileRow(row);
+  }, 'Upsert project public profile');
+}
+
+export function setProjectVisibility(
+  projectId: string,
+  visibility: ProjectVisibility,
+  options?: { slug?: string | null }
+): Project {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const project = assertProjectPublishAccess(projectId, userId);
+    const now = Date.now();
+    const currentVisibility: ProjectVisibility = project.visibility === 'public' ? 'public' : 'private';
+    const currentName = typeof project.name === 'string' ? project.name : 'project';
+    const currentSlug = typeof project.public_slug === 'string' ? project.public_slug : null;
+
+    if (visibility === 'public') {
+      const candidateSeed = options?.slug?.trim() || currentSlug || currentName;
+      const nextSlug = ensureUniquePublicSlug(candidateSeed, projectId);
+      const readiness = computeProjectPublicReadiness(projectId, nextSlug);
+      if (!readiness.ready) {
+        throw new Error(`Project not ready to publish. Missing: ${readiness.missing.join(', ')}`);
+      }
+      db.runSync(
+        `UPDATE projects
+         SET visibility = 'public',
+             public_slug = ?,
+             public_published_at = COALESCE(public_published_at, ?),
+             public_updated_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        [nextSlug, now, now, now, projectId]
+      );
+      if (currentVisibility !== 'public') {
+        logActivityInternal(projectId, 'project_published', projectId, { public_slug: nextSlug }, now);
+      }
+    } else {
+      db.runSync(
+        `UPDATE projects
+         SET visibility = 'private',
+             public_updated_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        [now, now, projectId]
+      );
+      if (currentVisibility !== 'private') {
+        logActivityInternal(projectId, 'project_unpublished', projectId, null, now);
+      }
+    }
+
+    touchProject(projectId, now);
+    const row = db.getFirstSync('SELECT * FROM projects WHERE id = ? LIMIT 1', [projectId]) as Record<string, unknown> | null;
+    if (!row) {
+      throw new Error('Unable to load updated project');
+    }
+    return mapProjectRow(row);
+  }, 'Set project visibility');
+}
+
+export function getPublicProjectFeed(limit = 20, offset = 0): PublicProjectSummary[] {
+  return withErrorHandlingSync(() => {
+    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit || 20)));
+    const safeOffset = Math.max(0, Math.floor(offset || 0));
+
+    const rows = db.getAllSync(
+      `SELECT
+         p.id AS project_id,
+         p.public_slug,
+         COALESCE(pp.public_title, p.name) AS title,
+         pp.summary,
+         pp.city,
+         pp.region,
+         pp.category,
+         COALESCE(
+           hm.uri,
+           (
+             SELECT m.uri
+             FROM media m
+             WHERE m.project_id = p.id
+               AND m.type IN ('photo', 'video')
+             ORDER BY m.created_at DESC
+             LIMIT 1
+           )
+         ) AS hero_uri,
+         COALESCE(
+           hm.thumb_uri,
+           hm.uri,
+           (
+             SELECT COALESCE(m.thumb_uri, m.uri)
+             FROM media m
+             WHERE m.project_id = p.id
+               AND m.type IN ('photo', 'video')
+             ORDER BY m.created_at DESC
+             LIMIT 1
+           )
+         ) AS hero_thumb_uri,
+         o.name AS organization_name,
+         p.status,
+         p.progress,
+         p.public_published_at AS published_at,
+         p.public_updated_at AS updated_at,
+         (
+           SELECT COUNT(*)
+           FROM media m
+           WHERE m.project_id = p.id
+         ) AS media_count
+       FROM projects p
+       LEFT JOIN project_public_profiles pp ON pp.project_id = p.id
+       LEFT JOIN organizations o ON o.id = p.organization_id
+       LEFT JOIN media hm ON hm.id = pp.hero_media_id
+       WHERE p.visibility = 'public'
+         AND p.public_slug IS NOT NULL
+         AND length(trim(p.public_slug)) > 0
+       ORDER BY COALESCE(p.public_updated_at, p.updated_at) DESC
+       LIMIT ? OFFSET ?`,
+      [safeLimit, safeOffset]
+    ) as Array<Record<string, unknown>>;
+
+    return rows.map(mapPublicProjectSummaryRow);
+  }, 'Get public project feed');
+}
+
+export function getPublicProjectBySlug(slug: string): PublicProjectDetail | null {
+  return withErrorHandlingSync(() => {
+    const normalizedSlug = normalizeOrganizationSlug(slug);
+    if (!normalizedSlug) return null;
+
+    const row = db.getFirstSync(
+      `SELECT
+         p.id AS project_id,
+         p.public_slug,
+         COALESCE(pp.public_title, p.name) AS title,
+         pp.summary,
+         pp.city,
+         pp.region,
+         pp.category,
+         COALESCE(
+           hm.uri,
+           (
+             SELECT m.uri
+             FROM media m
+             WHERE m.project_id = p.id
+               AND m.type IN ('photo', 'video')
+             ORDER BY m.created_at DESC
+             LIMIT 1
+           )
+         ) AS hero_uri,
+         COALESCE(
+           hm.thumb_uri,
+           hm.uri,
+           (
+             SELECT COALESCE(m.thumb_uri, m.uri)
+             FROM media m
+             WHERE m.project_id = p.id
+               AND m.type IN ('photo', 'video')
+             ORDER BY m.created_at DESC
+             LIMIT 1
+           )
+         ) AS hero_thumb_uri,
+         o.name AS organization_name,
+         p.status,
+         p.progress,
+         p.public_published_at AS published_at,
+         p.public_updated_at AS updated_at,
+         (
+           SELECT COUNT(*)
+           FROM media m
+           WHERE m.project_id = p.id
+         ) AS media_count,
+         pp.contact_email,
+         pp.contact_phone,
+         pp.website_url,
+         pp.highlights_json
+       FROM projects p
+       LEFT JOIN project_public_profiles pp ON pp.project_id = p.id
+       LEFT JOIN organizations o ON o.id = p.organization_id
+       LEFT JOIN media hm ON hm.id = pp.hero_media_id
+       WHERE p.visibility = 'public'
+         AND p.public_slug = ?
+       LIMIT 1`,
+      [normalizedSlug]
+    ) as Record<string, unknown> | null;
+
+    if (!row) return null;
+    const base = mapPublicProjectSummaryRow(row);
+
+    let highlights: string[] = [];
+    if (typeof row.highlights_json === 'string' && row.highlights_json.trim()) {
+      try {
+        const parsed = JSON.parse(row.highlights_json);
+        if (Array.isArray(parsed)) {
+          highlights = parsed
+            .filter((item): item is string => typeof item === 'string')
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0)
+            .slice(0, 8);
+        }
+      } catch {
+        highlights = [];
+      }
+    }
+
+    return {
+      ...base,
+      contact_email: typeof row.contact_email === 'string' ? row.contact_email : null,
+      contact_phone: typeof row.contact_phone === 'string' ? row.contact_phone : null,
+      website_url: typeof row.website_url === 'string' ? row.website_url : null,
+      highlights,
+    };
+  }, 'Get public project by slug');
 }
 
 export function getProjectMembers(
@@ -680,6 +2242,8 @@ export function getProjectMembers(
   options?: { includeRemoved?: boolean }
 ): ProjectMember[] {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
     const where = options?.includeRemoved ? '' : `AND status <> 'removed'`;
     const rows = db.getAllSync(
       `SELECT *
@@ -702,6 +2266,8 @@ export function getProjectMembers(
 
 export function getProjectMemberByUser(projectId: string, userId: string): ProjectMember | null {
   return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, scopedUserId);
     const row = db.getFirstSync(
       `SELECT * FROM project_members
        WHERE project_id = ? AND user_id = ?
@@ -721,6 +2287,8 @@ export function upsertProjectMember(data: {
   invitedBy?: string | null;
 }): ProjectMember {
   return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(data.projectId, scopedUserId);
     const user = getUserById(data.userId);
     const role = data.role ?? 'worker';
     const status = data.status ?? 'active';
@@ -782,6 +2350,8 @@ export function inviteProjectMember(data: {
   invitedBy?: string | null;
 }): ProjectMember {
   return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(data.projectId, scopedUserId);
     const role: ProjectMemberRole = data.role ?? 'worker';
 
     const now = Date.now();
@@ -811,6 +2381,8 @@ export function inviteProjectMember(data: {
 
 export function acceptProjectInvite(projectId: string, userId: string): ProjectMember | null {
   return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, scopedUserId);
     const user = getUserById(userId);
     if (!user) {
       throw new Error('User not found');
@@ -847,6 +2419,8 @@ export function acceptProjectInvite(projectId: string, userId: string): ProjectM
 
 export function setProjectMemberRole(projectId: string, userId: string, role: ProjectMemberRole): ProjectMember | null {
   return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, scopedUserId);
     const existing = getProjectMemberByUser(projectId, userId);
     if (!existing) return null;
     if (existing.role === role) return existing;
@@ -877,6 +2451,8 @@ export function setProjectMemberRole(projectId: string, userId: string, role: Pr
 
 export function removeProjectMember(projectId: string, userId: string): void {
   return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, scopedUserId);
     const existing = getProjectMemberByUser(projectId, userId);
     if (!existing) return;
     if (existing.status === 'removed') return;
@@ -919,11 +2495,13 @@ export function removeProjectMember(projectId: string, userId: string): void {
 
 export function getMediaByProject(projectId: string, type?: MediaItem['type']): MediaItem[] {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
     const query = type
-      ? `SELECT * FROM media WHERE project_id = ? AND type = ? ORDER BY created_at DESC`
-      : `SELECT * FROM media WHERE project_id = ? ORDER BY created_at DESC`;
+      ? `SELECT * FROM media WHERE project_id = ? AND user_id = ? AND type = ? ORDER BY created_at DESC`
+      : `SELECT * FROM media WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC`;
 
-    const params = type ? [projectId, type] : [projectId];
+    const params = type ? [projectId, userId, type] : [projectId, userId];
     const result = db.getAllSync(query, params) as MediaItem[];
     return result;
   }, 'Get media by project');
@@ -931,15 +2509,26 @@ export function getMediaByProject(projectId: string, type?: MediaItem['type']): 
 
 export function createMedia(data: Omit<MediaItem, 'id' | 'created_at'>): MediaItem {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(data.project_id, userId);
+    if (data.folder_id) {
+      const folder = db.getFirstSync(
+        'SELECT id FROM folders WHERE id = ? AND project_id = ? AND user_id = ?',
+        [data.folder_id, data.project_id, userId]
+      ) as { id?: string } | null;
+      if (!folder?.id) {
+        throw new Error('Folder not found for current user');
+      }
+    }
     const id = createId();
     const created_at = Date.now();
 
     db.runSync(
-      'INSERT INTO media (id, project_id, folder_id, type, uri, thumb_uri, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, data.project_id, data.folder_id || null, data.type, data.uri, data.thumb_uri || null, data.note || null, created_at]
+      'INSERT INTO media (id, user_id, project_id, folder_id, type, uri, thumb_uri, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, userId, data.project_id, data.folder_id || null, data.type, data.uri, data.thumb_uri || null, data.note || null, created_at]
     );
 
-    touchProject(data.project_id, created_at);
+    touchProject(data.project_id, created_at, userId);
     logActivityInternal(data.project_id, 'media_added', id, {
       type: data.type,
       folder_id: data.folder_id || null,
@@ -952,16 +2541,17 @@ export function createMedia(data: Omit<MediaItem, 'id' | 'created_at'>): MediaIt
 
 export function deleteMedia(id: string) {
   return withErrorHandlingSync(() => {
-    const media = db.getFirstSync('SELECT project_id, type, folder_id FROM media WHERE id = ?', [id]) as {
+    const userId = getScopedUserIdOrThrow();
+    const media = db.getFirstSync('SELECT project_id, type, folder_id FROM media WHERE id = ? AND user_id = ?', [id, userId]) as {
       project_id?: string;
       type?: MediaItem['type'];
       folder_id?: string | null;
     } | null;
 
-    db.runSync('DELETE FROM media WHERE id = ?', [id]);
+    db.runSync('DELETE FROM media WHERE id = ? AND user_id = ?', [id, userId]);
 
     if (media?.project_id) {
-      touchProject(media.project_id);
+      touchProject(media.project_id, Date.now(), userId);
       logActivityInternal(media.project_id, 'media_deleted', id, {
         type: media.type || null,
         folder_id: media.folder_id || null,
@@ -972,12 +2562,13 @@ export function deleteMedia(id: string) {
 
 export function updateMediaNote(id: string, note: string | null) {
   return withErrorHandlingSync(() => {
-    const existing = db.getFirstSync('SELECT project_id, note FROM media WHERE id = ?', [id]) as {
+    const userId = getScopedUserIdOrThrow();
+    const existing = db.getFirstSync('SELECT project_id, note FROM media WHERE id = ? AND user_id = ?', [id, userId]) as {
       project_id?: string;
       note?: string | null;
     } | null;
 
-    db.runSync('UPDATE media SET note = ? WHERE id = ?', [note, id]);
+    db.runSync('UPDATE media SET note = ? WHERE id = ? AND user_id = ?', [note, id, userId]);
 
     if (existing?.project_id) {
       const previousHasNote = !!existing.note?.trim();
@@ -988,7 +2579,7 @@ export function updateMediaNote(id: string, note: string | null) {
           ? 'note_removed'
           : 'note_updated';
 
-      touchProject(existing.project_id);
+      touchProject(existing.project_id, Date.now(), userId);
       logActivityInternal(existing.project_id, actionType, id, { has_note: nextHasNote });
     }
   }, 'Update media note');
@@ -996,17 +2587,21 @@ export function updateMediaNote(id: string, note: string | null) {
 
 export function updateMediaThumbnail(id: string, thumbUri: string | null) {
   return withErrorHandlingSync(() => {
-    const existing = db.getFirstSync('SELECT project_id FROM media WHERE id = ?', [id]) as { project_id?: string } | null;
-    db.runSync('UPDATE media SET thumb_uri = ? WHERE id = ?', [thumbUri, id]);
+    const userId = getScopedUserIdOrThrow();
+    const existing = db.getFirstSync('SELECT project_id FROM media WHERE id = ? AND user_id = ?', [id, userId]) as {
+      project_id?: string;
+    } | null;
+    db.runSync('UPDATE media SET thumb_uri = ? WHERE id = ? AND user_id = ?', [thumbUri, id, userId]);
     if (existing?.project_id) {
-      touchProject(existing.project_id);
+      touchProject(existing.project_id, Date.now(), userId);
     }
   }, 'Update media thumbnail');
 }
 
 export function getMediaById(id: string): MediaItem | null {
   return withErrorHandlingSync(() => {
-    const result = db.getFirstSync('SELECT * FROM media WHERE id = ?', [id]) as MediaItem | null;
+    const userId = getScopedUserIdOrThrow();
+    const result = db.getFirstSync('SELECT * FROM media WHERE id = ? AND user_id = ?', [id, userId]) as MediaItem | null;
     return result;
   }, 'Get media by ID');
 }
@@ -1023,8 +2618,10 @@ export function getMediaFiltered(
   }
 ): MediaItem[] {
   return withErrorHandlingSync(() => {
-    const where: string[] = ['project_id = ?'];
-    const params: Array<string | number> = [projectId];
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
+    const where: string[] = ['project_id = ?', 'user_id = ?'];
+    const params: Array<string | number> = [projectId, userId];
 
     if (opts.folderId === null) {
       where.push('folder_id IS NULL');
@@ -1083,10 +2680,47 @@ export function createUser(data: Omit<User, 'id' | 'created_at' | 'last_login_at
     const created_at = Date.now();
     const last_login_at = Date.now();
 
-    db.runSync(
-      'INSERT INTO users (id, email, name, provider, provider_id, avatar, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, data.email, data.name, data.provider, data.providerId, data.avatar || null, created_at, last_login_at]
-    );
+    try {
+      db.runSync(
+        'INSERT INTO users (id, auth_user_id, email, name, provider, provider_id, avatar, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          id,
+          data.authUserId || null,
+          data.email,
+          data.name,
+          data.provider,
+          data.providerId,
+          data.avatar || null,
+          created_at,
+          last_login_at,
+        ]
+      );
+    } catch (error) {
+      const message = extractErrorMessage(error);
+
+      if (message.includes('UNIQUE constraint failed')) {
+        if (data.authUserId) {
+          const existingByAuthId = db.getFirstSync('SELECT * FROM users WHERE auth_user_id = ? LIMIT 1', [data.authUserId]) as
+            | Record<string, unknown>
+            | null;
+          if (existingByAuthId) {
+            db.runSync('UPDATE users SET last_login_at = ? WHERE id = ?', [last_login_at, String(existingByAuthId.id)]);
+            return mapUserRow(existingByAuthId);
+          }
+        }
+
+        const existingByProvider = db.getFirstSync(
+          'SELECT * FROM users WHERE provider = ? AND provider_id = ? LIMIT 1',
+          [data.provider, data.providerId]
+        ) as Record<string, unknown> | null;
+        if (existingByProvider) {
+          db.runSync('UPDATE users SET last_login_at = ? WHERE id = ?', [last_login_at, String(existingByProvider.id)]);
+          return mapUserRow(existingByProvider);
+        }
+      }
+
+      throw error;
+    }
 
     return { id, ...data, created_at, last_login_at };
   }, 'Create user');
@@ -1094,9 +2728,22 @@ export function createUser(data: Omit<User, 'id' | 'created_at' | 'last_login_at
 
 export function getUserByProviderId(providerId: string, provider: 'apple' | 'google'): User | null {
   return withErrorHandlingSync(() => {
-    const result = db.getFirstSync('SELECT * FROM users WHERE provider_id = ? AND provider = ?', [providerId, provider]) as User | null;
-    return result;
+    const result = db.getFirstSync('SELECT * FROM users WHERE provider_id = ? AND provider = ?', [providerId, provider]) as
+      | Record<string, unknown>
+      | null;
+    return result ? mapUserRow(result) : null;
   }, 'Get user by provider ID');
+}
+
+export function getUserByAuthUserId(authUserId: string): User | null {
+  return withErrorHandlingSync(() => {
+    const normalized = authUserId.trim();
+    if (!normalized) return null;
+    const result = db.getFirstSync('SELECT * FROM users WHERE auth_user_id = ?', [normalized]) as
+      | Record<string, unknown>
+      | null;
+    return result ? mapUserRow(result) : null;
+  }, 'Get user by auth user ID');
 }
 
 export function updateUserLastLogin(id: string) {
@@ -1137,9 +2784,69 @@ export function updateUserProfile(id: string, data: Partial<Pick<User, 'name' | 
 
 export function getUserById(id: string): User | null {
   return withErrorHandlingSync(() => {
-    const result = db.getFirstSync('SELECT * FROM users WHERE id = ?', [id]) as User | null;
-    return result;
+    const result = db.getFirstSync('SELECT * FROM users WHERE id = ?', [id]) as Record<string, unknown> | null;
+    return result ? mapUserRow(result) : null;
   }, 'Get user by ID');
+}
+
+export function updateUserAuthIdentity(
+  id: string,
+  data: {
+    authUserId: string;
+    provider?: 'apple' | 'google';
+    providerId?: string;
+    email?: string;
+    name?: string;
+  }
+): User | null {
+  return withErrorHandlingSync(() => {
+    const authUserId = data.authUserId.trim();
+    if (!authUserId) {
+      throw new Error('authUserId is required');
+    }
+
+    const updates: string[] = ['auth_user_id = ?', 'last_login_at = ?'];
+    const values: Array<string | number> = [authUserId, Date.now()];
+
+    if (data.provider) {
+      updates.push('provider = ?');
+      values.push(data.provider);
+    }
+    if (data.providerId?.trim()) {
+      updates.push('provider_id = ?');
+      values.push(data.providerId.trim());
+    }
+    if (data.email?.trim()) {
+      updates.push('email = ?');
+      values.push(data.email.trim());
+    }
+    if (data.name?.trim()) {
+      updates.push('name = ?');
+      values.push(data.name.trim());
+    }
+
+    values.push(id);
+    try {
+      db.runSync(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
+      return getUserById(id);
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      if (message.includes('UNIQUE constraint failed')) {
+        const existingByAuthId = db.getFirstSync('SELECT * FROM users WHERE auth_user_id = ? LIMIT 1', [authUserId]) as
+          | Record<string, unknown>
+          | null;
+        if (existingByAuthId) {
+          const existingUserId = String(existingByAuthId.id);
+          if (existingUserId !== id) {
+            mergeUserRecords(id, existingUserId);
+            return getUserById(existingUserId);
+          }
+          return mapUserRow(existingByAuthId);
+        }
+      }
+      throw error;
+    }
+  }, 'Update user auth identity');
 }
 
 export function deleteUser(id: string) {
@@ -1151,15 +2858,17 @@ export function deleteUser(id: string) {
 // Folder management functions
 export function createFolder(data: Omit<Folder, 'id' | 'created_at'>): Folder {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(data.project_id, userId);
     const id = createId();
     const created_at = Date.now();
 
     db.runSync(
-      'INSERT INTO folders (id, project_id, name, created_at) VALUES (?, ?, ?, ?)',
-      [id, data.project_id, data.name, created_at]
+      'INSERT INTO folders (id, user_id, project_id, name, created_at) VALUES (?, ?, ?, ?, ?)',
+      [id, userId, data.project_id, data.name, created_at]
     );
 
-    touchProject(data.project_id, created_at);
+    touchProject(data.project_id, created_at, userId);
     logActivityInternal(data.project_id, 'folder_created', id, { name: data.name }, created_at);
 
     return { id, ...data, created_at };
@@ -1168,29 +2877,36 @@ export function createFolder(data: Omit<Folder, 'id' | 'created_at'>): Folder {
 
 export function getFoldersByProject(projectId: string): Folder[] {
   return withErrorHandlingSync(() => {
-    const result = db.getAllSync('SELECT * FROM folders WHERE project_id = ? ORDER BY created_at ASC', [projectId]) as Folder[];
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
+    const result = db.getAllSync(
+      'SELECT * FROM folders WHERE project_id = ? AND user_id = ? ORDER BY created_at ASC',
+      [projectId, userId]
+    ) as Folder[];
     return result;
   }, 'Get folders by project');
 }
 
 export function getFolderById(id: string): Folder | null {
   return withErrorHandlingSync(() => {
-    const result = db.getFirstSync('SELECT * FROM folders WHERE id = ?', [id]) as Folder | null;
+    const userId = getScopedUserIdOrThrow();
+    const result = db.getFirstSync('SELECT * FROM folders WHERE id = ? AND user_id = ?', [id, userId]) as Folder | null;
     return result;
   }, 'Get folder by ID');
 }
 
 export function updateFolderName(id: string, name: string) {
   return withErrorHandlingSync(() => {
-    const folder = db.getFirstSync('SELECT project_id, name FROM folders WHERE id = ?', [id]) as {
+    const userId = getScopedUserIdOrThrow();
+    const folder = db.getFirstSync('SELECT project_id, name FROM folders WHERE id = ? AND user_id = ?', [id, userId]) as {
       project_id?: string;
       name?: string;
     } | null;
 
-    db.runSync('UPDATE folders SET name = ? WHERE id = ?', [name, id]);
+    db.runSync('UPDATE folders SET name = ? WHERE id = ? AND user_id = ?', [name, id, userId]);
 
     if (folder?.project_id) {
-      touchProject(folder.project_id);
+      touchProject(folder.project_id, Date.now(), userId);
       logActivityInternal(folder.project_id, 'folder_renamed', id, {
         from: folder.name || null,
         to: name,
@@ -1201,18 +2917,19 @@ export function updateFolderName(id: string, name: string) {
 
 export function deleteFolder(id: string) {
   return withErrorHandlingSync(() => {
-    const folder = db.getFirstSync('SELECT project_id, name FROM folders WHERE id = ?', [id]) as {
+    const userId = getScopedUserIdOrThrow();
+    const folder = db.getFirstSync('SELECT project_id, name FROM folders WHERE id = ? AND user_id = ?', [id, userId]) as {
       project_id?: string;
       name?: string;
     } | null;
 
     // Move all media in this folder to the root level (folder_id = null)
-    db.runSync('UPDATE media SET folder_id = NULL WHERE folder_id = ?', [id]);
+    db.runSync('UPDATE media SET folder_id = NULL WHERE folder_id = ? AND user_id = ?', [id, userId]);
     // Delete the folder
-    db.runSync('DELETE FROM folders WHERE id = ?', [id]);
+    db.runSync('DELETE FROM folders WHERE id = ? AND user_id = ?', [id, userId]);
 
     if (folder?.project_id) {
-      touchProject(folder.project_id);
+      touchProject(folder.project_id, Date.now(), userId);
       logActivityInternal(folder.project_id, 'folder_deleted', id, {
         name: folder.name || null,
       });
@@ -1222,11 +2939,13 @@ export function deleteFolder(id: string) {
 
 export function getMediaByFolder(projectId: string, folderId?: string | null): MediaItem[] {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
     const query = folderId
-      ? 'SELECT * FROM media WHERE project_id = ? AND folder_id = ? ORDER BY created_at DESC'
-      : 'SELECT * FROM media WHERE project_id = ? AND folder_id IS NULL ORDER BY created_at DESC';
+      ? 'SELECT * FROM media WHERE project_id = ? AND user_id = ? AND folder_id = ? ORDER BY created_at DESC'
+      : 'SELECT * FROM media WHERE project_id = ? AND user_id = ? AND folder_id IS NULL ORDER BY created_at DESC';
 
-    const params = folderId ? [projectId, folderId] : [projectId];
+    const params = folderId ? [projectId, userId, folderId] : [projectId, userId];
     const result = db.getAllSync(query, params) as MediaItem[];
     return result;
   }, 'Get media by folder');
@@ -1234,20 +2953,33 @@ export function getMediaByFolder(projectId: string, folderId?: string | null): M
 
 export function moveMediaToFolder(mediaId: string, folderId: string | null) {
   return withErrorHandlingSync(() => {
-    const media = db.getFirstSync('SELECT project_id, folder_id FROM media WHERE id = ?', [mediaId]) as {
+    const userId = getScopedUserIdOrThrow();
+    const media = db.getFirstSync('SELECT project_id, folder_id FROM media WHERE id = ? AND user_id = ?', [mediaId, userId]) as {
       project_id?: string;
       folder_id?: string | null;
     } | null;
 
-    db.runSync('UPDATE media SET folder_id = ? WHERE id = ?', [folderId, mediaId]);
-
-    if (media?.project_id) {
-      touchProject(media.project_id);
-      logActivityInternal(media.project_id, 'media_moved', mediaId, {
-        from_folder_id: media.folder_id || null,
-        to_folder_id: folderId,
-      });
+    if (!media?.project_id) {
+      return;
     }
+
+    if (folderId) {
+      const folder = db.getFirstSync(
+        'SELECT id FROM folders WHERE id = ? AND user_id = ? AND project_id = ?',
+        [folderId, userId, media.project_id]
+      ) as { id?: string } | null;
+      if (!folder?.id) {
+        throw new Error('Folder not found for current user');
+      }
+    }
+
+    db.runSync('UPDATE media SET folder_id = ? WHERE id = ? AND user_id = ?', [folderId, mediaId, userId]);
+
+    touchProject(media.project_id, Date.now(), userId);
+    logActivityInternal(media.project_id, 'media_moved', mediaId, {
+      from_folder_id: media.folder_id || null,
+      to_folder_id: folderId,
+    });
   }, 'Move media to folder');
 }
 
@@ -1259,11 +2991,13 @@ export function createActivity(
   actor?: ActivityActor | null
 ): ActivityLogEntry {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
     const created = logActivityInternal(projectId, actionType, referenceId, metadata, Date.now(), actor);
     if (!created) {
       throw new Error('Unable to create activity');
     }
-    touchProject(projectId, created.created_at);
+    touchProject(projectId, created.created_at, userId);
     return created;
   }, 'Create activity');
 }
@@ -1276,7 +3010,10 @@ export function updateActivity(
   }
 ): ActivityLogEntry | null {
   return withErrorHandlingSync(() => {
-    const existing = db.getFirstSync('SELECT * FROM activity_log WHERE id = ?', [id]) as Record<string, unknown> | null;
+    const userId = getScopedUserIdOrThrow();
+    const existing = db.getFirstSync('SELECT * FROM activity_log WHERE id = ? AND user_id = ?', [id, userId]) as
+      | Record<string, unknown>
+      | null;
     if (!existing) {
       return null;
     }
@@ -1299,13 +3036,16 @@ export function updateActivity(
     }
 
     values.push(id);
-    db.runSync(`UPDATE activity_log SET ${updates.join(', ')} WHERE id = ?`, values);
-    const updated = db.getFirstSync('SELECT * FROM activity_log WHERE id = ?', [id]) as Record<string, unknown> | null;
+    values.push(userId);
+    db.runSync(`UPDATE activity_log SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, values);
+    const updated = db.getFirstSync('SELECT * FROM activity_log WHERE id = ? AND user_id = ?', [id, userId]) as
+      | Record<string, unknown>
+      | null;
     if (!updated) return null;
 
     const projectId = typeof existing.project_id === 'string' ? existing.project_id : '';
     if (projectId) {
-      touchProject(projectId, Date.now());
+      touchProject(projectId, Date.now(), userId);
     }
     return mapActivityRow(updated);
   }, 'Update activity');
@@ -1313,12 +3053,13 @@ export function updateActivity(
 
 export function deleteActivity(id: string): void {
   return withErrorHandlingSync(() => {
-    const existing = db.getFirstSync('SELECT project_id FROM activity_log WHERE id = ?', [id]) as {
+    const userId = getScopedUserIdOrThrow();
+    const existing = db.getFirstSync('SELECT project_id FROM activity_log WHERE id = ? AND user_id = ?', [id, userId]) as {
       project_id?: string;
     } | null;
-    db.runSync('DELETE FROM activity_log WHERE id = ?', [id]);
+    db.runSync('DELETE FROM activity_log WHERE id = ? AND user_id = ?', [id, userId]);
     if (existing?.project_id) {
-      touchProject(existing.project_id, Date.now());
+      touchProject(existing.project_id, Date.now(), userId);
     }
   }, 'Delete activity');
 }
@@ -1341,11 +3082,13 @@ export function getActivityActor(): ActivityActor | null {
 
 export function getActivityByProject(projectId: string, limit = 20): ActivityLogEntry[] {
   return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
     const safeLimit = Math.max(1, Math.min(100, Math.floor(limit || 20)));
     const rows = db.getAllSync(
-      `SELECT * FROM activity_log WHERE project_id = ? ORDER BY created_at DESC LIMIT ${safeLimit}`,
-      [projectId]
-    ) as ActivityLogEntry[];
-    return rows;
+      `SELECT * FROM activity_log WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ${safeLimit}`,
+      [projectId, userId]
+    ) as Array<Record<string, unknown>>;
+    return rows.map(mapActivityRow);
   }, 'Get activity by project');
 }

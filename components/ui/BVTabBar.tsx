@@ -7,6 +7,7 @@ import { bvColors, bvRadius, bvSpacing, bvTypography } from '@/lib/theme/tokens'
 
 function fallbackIconForRoute(name: string): keyof typeof Ionicons.glyphMap {
   if (name === 'index') return 'folder-outline';
+  if (name === 'feed') return 'newspaper-outline';
   if (name === 'capture') return 'camera-outline';
   if (name === 'settings') return 'settings-outline';
   return 'ellipse-outline';
@@ -95,4 +96,3 @@ const styles = StyleSheet.create({
 });
 
 export default BVTabBar;
-
