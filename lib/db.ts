@@ -109,6 +109,7 @@ export interface ProjectPublicProfile {
 
 export interface PublicProjectSummary {
   project_id: string;
+  organization_id?: string | null;
   public_slug: string;
   title: string;
   summary?: string | null;
@@ -662,6 +663,7 @@ function mapProjectPublicProfileRow(row: Record<string, unknown>): ProjectPublic
 function mapPublicProjectSummaryRow(row: Record<string, unknown>): PublicProjectSummary {
   return {
     project_id: String(row.project_id),
+    organization_id: typeof row.organization_id === 'string' ? row.organization_id : null,
     public_slug: String(row.public_slug ?? ''),
     title: String(row.title ?? ''),
     summary: typeof row.summary === 'string' ? row.summary : null,
@@ -2092,6 +2094,7 @@ export function getPublicProjectFeed(limit = 20, offset = 0): PublicProjectSumma
     const rows = db.getAllSync(
       `SELECT
          p.id AS project_id,
+         p.organization_id,
          p.public_slug,
          COALESCE(pp.public_title, p.name) AS title,
          pp.summary,
@@ -2155,6 +2158,7 @@ export function getPublicProjectBySlug(slug: string): PublicProjectDetail | null
     const row = db.getFirstSync(
       `SELECT
          p.id AS project_id,
+         p.organization_id,
          p.public_slug,
          COALESCE(pp.public_title, p.name) AS title,
          pp.summary,

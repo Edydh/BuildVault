@@ -12,13 +12,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Project } from '../lib/db';
+import { Organization, Project } from '../lib/db';
 import { GlassButton, GlassTextInput, GlassModal } from './glass';
 
 type EditProjectPayload = {
   name: string;
   client?: string;
   location?: string;
+  organization_id?: string | null;
   progress?: number;
   start_date?: number | null;
   end_date?: number | null;
@@ -28,6 +29,7 @@ type EditProjectPayload = {
 interface EditProjectModalProps {
   visible: boolean;
   project: Project | null;
+  organizations?: Organization[];
   onClose: () => void;
   onSave: (id: string, data: EditProjectPayload) => void | Promise<void>;
 }
@@ -38,6 +40,7 @@ type FormState = {
   name: string;
   client: string;
   location: string;
+  organizationId: string | null;
   progress: string;
   budget: string;
   startDate: string;
@@ -68,6 +71,7 @@ const parseBudgetInput = (value: string): number | null | 'invalid' => {
 export const EditProjectModal: React.FC<EditProjectModalProps> = ({
   visible,
   project,
+  organizations = [],
   onClose,
   onSave,
 }) => {
@@ -75,6 +79,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
     name: '',
     client: '',
     location: '',
+    organizationId: null,
     progress: '0',
     budget: '',
     startDate: '',
@@ -87,6 +92,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         name: project.name || '',
         client: project.client || '',
         location: project.location || '',
+        organizationId: project.organization_id || null,
         progress: String(project.progress ?? 0),
         budget: project.budget != null ? String(project.budget) : '',
         startDate: toDateInput(project.start_date),
@@ -97,6 +103,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         name: '',
         client: '',
         location: '',
+        organizationId: null,
         progress: '0',
         budget: '',
         startDate: '',
@@ -147,6 +154,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         name: form.name.trim(),
         client: form.client.trim() || undefined,
         location: form.location.trim() || undefined,
+        organization_id: form.organizationId || null,
         progress: Math.round(progress),
         start_date: parsedStartDate,
         end_date: parsedEndDate,
@@ -246,6 +254,73 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
                 autoCapitalize="words"
                 returnKeyType="next"
               />
+
+              <View style={{ marginBottom: 20 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: '600',
+                    color: '#F8FAFC',
+                    marginBottom: 8,
+                  }}
+                >
+                  Workspace
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={{ flexDirection: 'row', paddingRight: 4 }}>
+                    <TouchableOpacity
+                      onPress={() => setForm((prev) => ({ ...prev, organizationId: null }))}
+                      style={{
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: form.organizationId === null ? 'rgba(58, 99, 243, 0.45)' : 'rgba(148, 163, 184, 0.28)',
+                        backgroundColor: form.organizationId === null ? 'rgba(58, 99, 243, 0.2)' : 'rgba(148, 163, 184, 0.12)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        marginRight: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: form.organizationId === null ? '#3A63F3' : '#CBD5E1',
+                          fontSize: 12,
+                          fontWeight: '700',
+                        }}
+                      >
+                        Personal
+                      </Text>
+                    </TouchableOpacity>
+                    {organizations.map((organization) => {
+                      const selected = form.organizationId === organization.id;
+                      return (
+                        <TouchableOpacity
+                          key={organization.id}
+                          onPress={() => setForm((prev) => ({ ...prev, organizationId: organization.id }))}
+                          style={{
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: selected ? 'rgba(58, 99, 243, 0.45)' : 'rgba(148, 163, 184, 0.28)',
+                            backgroundColor: selected ? 'rgba(58, 99, 243, 0.2)' : 'rgba(148, 163, 184, 0.12)',
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            marginRight: 8,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: selected ? '#3A63F3' : '#CBD5E1',
+                              fontSize: 12,
+                              fontWeight: '700',
+                            }}
+                          >
+                            {organization.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
 
               <GlassTextInput
                 label="Progress (%)"

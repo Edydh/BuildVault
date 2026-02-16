@@ -12,7 +12,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Project, createProject, getProjects, deleteProject, updateProject, getMediaByProject } from '../../lib/db';
+import {
+  Organization,
+  Project,
+  createProject,
+  deleteProject,
+  getMediaByProject,
+  getOrganizationsForCurrentUser,
+  getProjects,
+  getProjectsByOrganization,
+  updateProject,
+} from '../../lib/db';
 import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -23,6 +33,7 @@ import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
 import ProjectCard from '../../components/ProjectCard';
 import { BVHeader, BVSearchBar, BVFloatingAction, BVEmptyState } from '../../components/ui';
+import { WorkspaceSelection, getStoredWorkspace, isWorkspaceEqual, setStoredWorkspace } from '../../lib/workspace';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -84,6 +95,7 @@ type CreateProjectForm = {
   name: string;
   client: string;
   location: string;
+  organizationId: string | null;
   search: string;
   progress: string;
   budget: string;
@@ -97,6 +109,7 @@ const DEFAULT_CREATE_FORM: CreateProjectForm = {
   name: '',
   client: '',
   location: '',
+  organizationId: null,
   search: '',
   progress: '0',
   budget: '',
@@ -169,6 +182,8 @@ export default function ProjectsList() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [workspace, setWorkspace] = useState<WorkspaceSelection>({ type: 'personal' });
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -187,6 +202,11 @@ export default function ProjectsList() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [storageStats, setStorageStats] = useState<StorageStats>(EMPTY_STATS);
   const [statsLoading, setStatsLoading] = useState(false);
+  const organizationNameById = React.useMemo(() => {
+    const mapping = new Map<string, string>();
+    organizations.forEach((organization) => mapping.set(organization.id, organization.name));
+    return mapping;
+  }, [organizations]);
   
   // Persist and load filters
   useEffect(() => {
@@ -318,20 +338,79 @@ export default function ProjectsList() {
     return stats;
   }, []);
 
+  const getPersonalProjects = useCallback((): Project[] => {
+    return getProjects().filter((project) => !project.organization_id);
+  }, []);
+
+  const resolveWorkspace = useCallback((candidate: WorkspaceSelection, orgList: Organization[]): WorkspaceSelection => {
+    if (candidate.type === 'organization') {
+      const exists = orgList.some((organization) => organization.id === candidate.organizationId);
+      if (exists) {
+        return candidate;
+      }
+    }
+    return { type: 'personal' };
+  }, []);
+
+  const loadProjectsForWorkspace = useCallback(async (nextWorkspace: WorkspaceSelection) => {
+    const projectList =
+      nextWorkspace.type === 'organization'
+        ? getProjectsByOrganization(nextWorkspace.organizationId)
+        : getPersonalProjects();
+
+    setProjects(projectList);
+
+    const stats = await computeStorageStats(projectList);
+    setStorageStats(stats);
+  }, [computeStorageStats, getPersonalProjects]);
+
   const loadProjects = useCallback(async () => {
     setStatsLoading(true);
     try {
-      const projectList = getProjects();
-      setProjects(projectList);
-      const stats = await computeStorageStats(projectList);
-      setStorageStats(stats);
+      const orgList = getOrganizationsForCurrentUser();
+      const storedWorkspace = await getStoredWorkspace();
+      const nextWorkspace = resolveWorkspace(storedWorkspace, orgList);
+
+      if (!isWorkspaceEqual(storedWorkspace, nextWorkspace)) {
+        await setStoredWorkspace(nextWorkspace);
+      }
+
+      setOrganizations(orgList);
+      setWorkspace(nextWorkspace);
+      setForm((prev) => ({
+        ...prev,
+        organizationId: nextWorkspace.type === 'organization' ? nextWorkspace.organizationId : null,
+      }));
+
+      await loadProjectsForWorkspace(nextWorkspace);
     } catch (error) {
       console.error('Error loading projects:', error);
+      setProjects([]);
       setStorageStats(EMPTY_STATS);
     } finally {
       setStatsLoading(false);
     }
-  }, [computeStorageStats]);
+  }, [loadProjectsForWorkspace, resolveWorkspace]);
+
+  const handleWorkspaceChange = async (nextWorkspace: WorkspaceSelection) => {
+    setStatsLoading(true);
+    try {
+      const resolvedWorkspace = resolveWorkspace(nextWorkspace, organizations);
+      setWorkspace(resolvedWorkspace);
+      setForm((prev) => ({
+        ...prev,
+        organizationId: resolvedWorkspace.type === 'organization' ? resolvedWorkspace.organizationId : null,
+      }));
+      await setStoredWorkspace(resolvedWorkspace);
+      await loadProjectsForWorkspace(resolvedWorkspace);
+    } catch (error) {
+      console.error('Error changing workspace:', error);
+      setSheetMessage('Unable to switch workspace.');
+      setShowErrorSheet(true);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -387,10 +466,12 @@ export default function ProjectsList() {
     }
 
     try {
+      const organizationId = form.organizationId?.trim() ? form.organizationId : null;
       const project = createProject({
         name: form.name.trim(),
         client: form.client.trim() || undefined,
         location: form.location.trim() || undefined,
+        organization_id: organizationId,
         progress: Math.round(progress),
         start_date: parsedStartDate,
         end_date: parsedEndDate,
@@ -401,7 +482,11 @@ export default function ProjectsList() {
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setShowCreate(false);
-      setForm((prev) => ({ ...DEFAULT_CREATE_FORM, search: prev.search }));
+      setForm((prev) => ({
+        ...DEFAULT_CREATE_FORM,
+        search: prev.search,
+        organizationId: workspace.type === 'organization' ? workspace.organizationId : null,
+      }));
       await loadProjects();
     } catch {
       setSheetMessage('Failed to create project');
@@ -420,6 +505,7 @@ export default function ProjectsList() {
       name: string;
       client?: string;
       location?: string;
+      organization_id?: string | null;
       progress?: number;
       start_date?: number | null;
       end_date?: number | null;
@@ -651,6 +737,19 @@ export default function ProjectsList() {
     },
   ];
 
+  const activeWorkspaceLabel =
+    workspace.type === 'organization'
+      ? organizationNameById.get(workspace.organizationId) || 'Organization'
+      : 'Personal Workspace';
+
+  const openCreateModal = () => {
+    setForm((prev) => ({
+      ...DEFAULT_CREATE_FORM,
+      search: prev.search,
+      organizationId: workspace.type === 'organization' ? workspace.organizationId : null,
+    }));
+    setShowCreate(true);
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0F14' }}>
@@ -659,7 +758,7 @@ export default function ProjectsList() {
       <View style={{ paddingHorizontal: 16 }}>
         <BVHeader
           title="BuildVault"
-          subtitle="Projects dashboard"
+          subtitle={activeWorkspaceLabel}
           right={
             <View style={{ position: 'relative' }}>
               <TouchableOpacity
@@ -701,8 +800,64 @@ export default function ProjectsList() {
           value={form.search || ''}
           onChangeText={(text) => setForm((prev) => ({ ...prev, search: text }))}
           placeholder="Search projects..."
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 10 }}
         />
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 12, paddingRight: 6 }}
+        >
+          <TouchableOpacity
+            onPress={() => handleWorkspaceChange({ type: 'personal' })}
+            style={{
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: workspace.type === 'personal' ? 'rgba(58, 99, 243, 0.4)' : 'rgba(148, 163, 184, 0.28)',
+              backgroundColor: workspace.type === 'personal' ? 'rgba(58, 99, 243, 0.2)' : 'rgba(148, 163, 184, 0.12)',
+              paddingHorizontal: 12,
+              paddingVertical: 7,
+              marginRight: 8,
+            }}
+          >
+            <Text
+              style={{
+                color: workspace.type === 'personal' ? '#3A63F3' : '#CBD5E1',
+                fontSize: 12,
+                fontWeight: '700',
+              }}
+            >
+              Personal
+            </Text>
+          </TouchableOpacity>
+          {organizations.map((organization) => {
+            const selected = workspace.type === 'organization' && workspace.organizationId === organization.id;
+            return (
+              <TouchableOpacity
+                key={organization.id}
+                onPress={() => handleWorkspaceChange({ type: 'organization', organizationId: organization.id })}
+                style={{
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: selected ? 'rgba(58, 99, 243, 0.4)' : 'rgba(148, 163, 184, 0.28)',
+                  backgroundColor: selected ? 'rgba(58, 99, 243, 0.2)' : 'rgba(148, 163, 184, 0.12)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  marginRight: 8,
+                }}
+              >
+                <Text
+                  style={{
+                    color: selected ? '#3A63F3' : '#CBD5E1',
+                    fontSize: 12,
+                    fontWeight: '700',
+                  }}
+                >
+                  {organization.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <Animated.FlatList
@@ -717,6 +872,11 @@ export default function ProjectsList() {
         renderItem={({ item }) => (
           <ProjectCard 
             project={item} 
+            organizationLabel={
+              item.organization_id
+                ? organizationNameById.get(item.organization_id) || 'Organization'
+                : 'Independent Project'
+            }
             searchTerm={debouncedSearch}
             onPress={() => router.push(`/project/${item.id}`)}
             onLongPress={() => handleProjectOptions(item)}
@@ -763,7 +923,7 @@ export default function ProjectsList() {
             description="Create your first construction project to get started."
             icon="albums-outline"
             actionLabel="Create Project"
-            onAction={() => setShowCreate(true)}
+            onAction={openCreateModal}
             style={{ marginTop: 48 }}
           />
         )}
@@ -774,7 +934,7 @@ export default function ProjectsList() {
       <BVFloatingAction
         icon="add"
         size={64}
-        onPress={() => setShowCreate(true)}
+        onPress={openCreateModal}
       />
 
       <GlassModal visible={showCreate} onRequestClose={() => setShowCreate(false)}>
@@ -821,6 +981,73 @@ export default function ProjectsList() {
                 autoCapitalize="words"
                 returnKeyType="next"
               />
+
+              <View style={{ marginBottom: 20 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: '600',
+                    color: '#F8FAFC',
+                    marginBottom: 8,
+                  }}
+                >
+                  Workspace
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={{ flexDirection: 'row', paddingRight: 4 }}>
+                    <TouchableOpacity
+                      onPress={() => setForm((prev) => ({ ...prev, organizationId: null }))}
+                      style={{
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: form.organizationId === null ? 'rgba(58, 99, 243, 0.45)' : 'rgba(148, 163, 184, 0.28)',
+                        backgroundColor: form.organizationId === null ? 'rgba(58, 99, 243, 0.2)' : 'rgba(148, 163, 184, 0.12)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        marginRight: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: form.organizationId === null ? '#3A63F3' : '#CBD5E1',
+                          fontSize: 12,
+                          fontWeight: '700',
+                        }}
+                      >
+                        Personal
+                      </Text>
+                    </TouchableOpacity>
+                    {organizations.map((organization) => {
+                      const selected = form.organizationId === organization.id;
+                      return (
+                        <TouchableOpacity
+                          key={organization.id}
+                          onPress={() => setForm((prev) => ({ ...prev, organizationId: organization.id }))}
+                          style={{
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: selected ? 'rgba(58, 99, 243, 0.45)' : 'rgba(148, 163, 184, 0.28)',
+                            backgroundColor: selected ? 'rgba(58, 99, 243, 0.2)' : 'rgba(148, 163, 184, 0.12)',
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            marginRight: 8,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: selected ? '#3A63F3' : '#CBD5E1',
+                              fontSize: 12,
+                              fontWeight: '700',
+                            }}
+                          >
+                            {organization.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
 
               <GlassTextInput
                 label="Progress (%)"
@@ -905,6 +1132,7 @@ export default function ProjectsList() {
       <EditProjectModal
         visible={showEdit}
         project={editingProject}
+        organizations={organizations}
         onClose={handleCloseEditModal}
         onSave={handleUpdateProject}
       />

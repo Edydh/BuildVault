@@ -17,6 +17,7 @@ type Props = {
   onPress?: () => void;
   onLongPress?: () => void;
   searchTerm?: string;
+  organizationLabel?: string;
 };
 
 const STATUS_LABELS: Record<ProjectStatus, string> = {
@@ -104,7 +105,7 @@ function HighlightText({
   );
 }
 
-export default function ProjectCard({ project, onPress, onLongPress, searchTerm }: Props) {
+export default function ProjectCard({ project, onPress, onLongPress, searchTerm, organizationLabel }: Props) {
   const subtitle = [project.client, project.location].filter(Boolean).join(' • ');
   const mediaItems = getMediaByProject(project.id);
   const photoCount = mediaItems.filter((item) => item.type === 'photo').length;
@@ -165,6 +166,15 @@ export default function ProjectCard({ project, onPress, onLongPress, searchTerm 
           }}
         />
       )}
+      <Text
+        style={{
+          ...bvTypography.bodySmall,
+          color: bvColors.text.tertiary,
+          marginTop: subtitle.length > 0 ? bvSpacing[4] : bvSpacing[8],
+        }}
+      >
+        {organizationLabel || 'Independent Project'}
+      </Text>
 
       <View
         style={{

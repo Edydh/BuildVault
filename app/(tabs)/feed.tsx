@@ -4,8 +4,9 @@ import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BVCard, BVEmptyState, BVHeader, BVSearchBar } from '../../components/ui';
-import { PublicProjectSummary, getPublicProjectFeed } from '../../lib/db';
+import { Organization, PublicProjectSummary, getOrganizationsForCurrentUser, getPublicProjectFeed } from '../../lib/db';
 import { bvColors, bvFx } from '../../lib/theme/tokens';
+import { WorkspaceSelection, getStoredWorkspace, setStoredWorkspace } from '../../lib/workspace';
 
 export default function FeedTab() {
   const router = useRouter();
@@ -13,6 +14,8 @@ export default function FeedTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [feedItems, setFeedItems] = useState<PublicProjectSummary[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [workspace, setWorkspace] = useState<WorkspaceSelection>({ type: 'personal' });
 
   const loadFeed = useCallback(() => {
     try {
@@ -29,13 +32,38 @@ export default function FeedTab() {
   useFocusEffect(
     useCallback(() => {
       loadFeed();
+      (async () => {
+        try {
+          const [storedWorkspace] = await Promise.all([
+            getStoredWorkspace(),
+          ]);
+          const orgs = getOrganizationsForCurrentUser();
+          let nextWorkspace = storedWorkspace;
+          if (
+            storedWorkspace.type === 'organization' &&
+            !orgs.some((organization) => organization.id === storedWorkspace.organizationId)
+          ) {
+            nextWorkspace = { type: 'personal' };
+            await setStoredWorkspace(nextWorkspace);
+          }
+          setOrganizations(orgs);
+          setWorkspace(nextWorkspace);
+        } catch (error) {
+          console.error('Failed to load workspace for feed:', error);
+        }
+      })();
     }, [loadFeed])
   );
 
   const filteredItems = useMemo(() => {
+    const scopedItems =
+      workspace.type === 'organization'
+        ? feedItems.filter((item) => item.organization_id === workspace.organizationId)
+        : feedItems;
+
     const term = search.trim().toLowerCase();
-    if (!term) return feedItems;
-    return feedItems.filter((item) => {
+    if (!term) return scopedItems;
+    return scopedItems.filter((item) => {
       return (
         item.title.toLowerCase().includes(term) ||
         (item.summary || '').toLowerCase().includes(term) ||
@@ -45,7 +73,24 @@ export default function FeedTab() {
         (item.category || '').toLowerCase().includes(term)
       );
     });
-  }, [feedItems, search]);
+  }, [feedItems, search, workspace]);
+
+  const activeWorkspaceLabel = useMemo(() => {
+    if (workspace.type === 'organization') {
+      const organization = organizations.find((item) => item.id === workspace.organizationId);
+      return organization?.name || 'Organization';
+    }
+    return 'All Public Projects';
+  }, [workspace, organizations]);
+
+  const selectWorkspace = async (nextWorkspace: WorkspaceSelection) => {
+    setWorkspace(nextWorkspace);
+    try {
+      await setStoredWorkspace(nextWorkspace);
+    } catch (error) {
+      console.error('Failed to save workspace selection:', error);
+    }
+  };
 
   const formatStatus = (value: string): string => {
     if (!value) return 'Neutral';
@@ -90,7 +135,7 @@ export default function FeedTab() {
     <View style={{ flex: 1, backgroundColor: bvColors.surface.inverse }}>
       <BVHeader
         title="Feed"
-        subtitle="Public project highlights"
+        subtitle={workspace.type === 'organization' ? `Public highlights for ${activeWorkspaceLabel}` : 'Public project highlights'}
         right={
           <TouchableOpacity
             onPress={handleRefresh}
@@ -116,6 +161,64 @@ export default function FeedTab() {
           onChangeText={setSearch}
           placeholder="Search public projects..."
         />
+        {organizations.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: 10, paddingRight: 6 }}
+          >
+            <TouchableOpacity
+              onPress={() => selectWorkspace({ type: 'personal' })}
+              style={{
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: workspace.type === 'personal' ? bvFx.brandBorder : bvFx.glassBorderSoft,
+                backgroundColor: workspace.type === 'personal' ? bvFx.brandSoft : bvFx.glassSoft,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                marginRight: 8,
+              }}
+            >
+              <Text
+                style={{
+                  color: workspace.type === 'personal' ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                  fontSize: 12,
+                  fontWeight: '700',
+                }}
+              >
+                All Public
+              </Text>
+            </TouchableOpacity>
+            {organizations.map((organization) => {
+              const selected = workspace.type === 'organization' && workspace.organizationId === organization.id;
+              return (
+                <TouchableOpacity
+                  key={organization.id}
+                  onPress={() => selectWorkspace({ type: 'organization', organizationId: organization.id })}
+                  style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: selected ? bvFx.brandBorder : bvFx.glassBorderSoft,
+                    backgroundColor: selected ? bvFx.brandSoft : bvFx.glassSoft,
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    marginRight: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: selected ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {organization.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        ) : null}
       </View>
 
       <ScrollView
@@ -129,8 +232,12 @@ export default function FeedTab() {
           </View>
         ) : filteredItems.length === 0 ? (
           <BVEmptyState
-            title="No public projects yet"
-            description="Publish a project to make it appear in the feed."
+            title="No projects for this workspace"
+            description={
+              workspace.type === 'organization'
+                ? 'No public projects are published for the selected organization yet.'
+                : 'Publish a project to make it appear in the feed.'
+            }
             icon="globe-outline"
             style={{ marginTop: 48 }}
           />
