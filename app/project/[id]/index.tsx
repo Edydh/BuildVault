@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, getMediaById, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity, updateActivity, deleteActivity } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, ProjectMember, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, getMediaById, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity, updateActivity, deleteActivity, getProjectMembers } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -31,20 +31,45 @@ import { bvColors, bvFx } from '../../../lib/theme/tokens';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
-type ManualActivityType = 'material_purchase' | 'safety_inspection' | 'meeting_notes' | 'site_visit';
-
-const MANUAL_ACTIVITY_OPTIONS: Array<{
-  value: ManualActivityType;
+type ActivityStatus = 'assigned' | 'in_progress' | 'completed';
+type ActivityTypeOption = {
+  value: string;
   label: string;
   icon: IoniconName;
   color: string;
+  custom?: boolean;
+};
+
+const ACTIVITY_STATUS_OPTIONS: Array<{
+  value: ActivityStatus;
+  label: string;
+  color: string;
 }> = [
+  { value: 'assigned', label: 'Assigned', color: bvColors.semantic.warning },
+  { value: 'in_progress', label: 'In Progress', color: bvColors.brand.primaryLight },
+  { value: 'completed', label: 'Completed', color: bvColors.semantic.success },
+];
+const ACTIVITY_STATUS_VALUES = new Set<ActivityStatus>(ACTIVITY_STATUS_OPTIONS.map((option) => option.value));
+const ACTIVITY_TYPE_STORAGE_PREFIX = '@buildvault/activity-types:';
+const CUSTOM_ACTIVITY_PREFIX = 'custom:';
+const NEW_CUSTOM_ACTIVITY_VALUE = '__new_custom_activity__';
+
+const BASE_ACTIVITY_TYPE_OPTIONS: ActivityTypeOption[] = [
   { value: 'material_purchase', label: 'Material', icon: 'cash-outline', color: bvColors.semantic.success },
   { value: 'safety_inspection', label: 'Safety', icon: 'clipboard-outline', color: bvColors.semantic.danger },
   { value: 'meeting_notes', label: 'Meeting', icon: 'document-text-outline', color: bvColors.brand.primaryLight },
   { value: 'site_visit', label: 'Site Visit', icon: 'car-outline', color: bvColors.brand.primaryLight },
+  { value: 'quality_check', label: 'Quality Check', icon: 'shield-checkmark-outline', color: bvColors.semantic.success },
+  { value: 'delivery', label: 'Delivery', icon: 'cube-outline', color: bvColors.semantic.warning },
 ];
-const MANUAL_ACTIVITY_TYPES = new Set<ManualActivityType>(MANUAL_ACTIVITY_OPTIONS.map((option) => option.value));
+const LEGACY_MANUAL_ACTIVITY_TYPES = new Set<string>([
+  'material_purchase',
+  'safety_inspection',
+  'meeting_notes',
+  'site_visit',
+  'quality_check',
+  'delivery',
+]);
 const SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES = new Set<string>([
   'media_added',
   'media_moved',
@@ -53,12 +78,61 @@ const SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES = new Set<string>([
   'note_removed',
 ]);
 
-function isManualActivityType(value: string): value is ManualActivityType {
-  return MANUAL_ACTIVITY_TYPES.has(value as ManualActivityType);
+function isActivityStatus(value: string): value is ActivityStatus {
+  return ACTIVITY_STATUS_VALUES.has(value as ActivityStatus);
 }
 
-function isMediaLinkableActivityType(value: string): boolean {
-  return SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES.has(value) || isManualActivityType(value);
+function normalizeActivityStatus(value: unknown): ActivityStatus {
+  if (typeof value !== 'string') return 'assigned';
+  const normalized = value.trim().toLowerCase();
+  return isActivityStatus(normalized) ? normalized : 'assigned';
+}
+
+function formatActivityStatusLabel(status: ActivityStatus): string {
+  if (status === 'in_progress') return 'in progress';
+  if (status === 'completed') return 'completed';
+  return 'assigned';
+}
+
+function normalizeActivityTypeLabel(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s-]/g, '')
+    .slice(0, 48);
+}
+
+function toCustomActivityTypeId(label: string): string {
+  const normalized = normalizeActivityTypeLabel(label)
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return `${CUSTOM_ACTIVITY_PREFIX}${normalized || 'activity'}`;
+}
+
+function isCustomActivityTypeId(value: string): boolean {
+  return value.startsWith(CUSTOM_ACTIVITY_PREFIX);
+}
+
+function formatActivityTypeLabel(value: string): string {
+  const normalized = value.startsWith(CUSTOM_ACTIVITY_PREFIX)
+    ? value.slice(CUSTOM_ACTIVITY_PREFIX.length)
+    : value;
+  const readable = normalized.replace(/[_-]+/g, ' ').trim();
+  if (!readable) return 'Activity';
+  return readable.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function isManualEntryActivity(actionType: string, metadata?: Record<string, unknown> | null): boolean {
+  if (LEGACY_MANUAL_ACTIVITY_TYPES.has(actionType)) return true;
+  if (actionType === 'custom_activity') return true;
+  return metadata?.manual_entry === true;
+}
+
+function isMediaLinkableActivityType(value: string, metadata?: Record<string, unknown> | null): boolean {
+  return SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES.has(value) || isManualEntryActivity(value, metadata);
 }
 
 function isImageThumbnailUri(uri?: string | null): boolean {
@@ -157,7 +231,12 @@ function ProjectDetailContent() {
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [activityModalMode, setActivityModalMode] = useState<'create' | 'edit'>('create');
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
-  const [manualActivityType, setManualActivityType] = useState<ManualActivityType>('material_purchase');
+  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [customActivityTypes, setCustomActivityTypes] = useState<Array<{ id: string; label: string }>>([]);
+  const [manualActivityType, setManualActivityType] = useState<string>('material_purchase');
+  const [manualActivityCustomTypeLabel, setManualActivityCustomTypeLabel] = useState('');
+  const [manualActivityStatus, setManualActivityStatus] = useState<ActivityStatus>('assigned');
+  const [manualActivityAssigneeId, setManualActivityAssigneeId] = useState<string | null>(null);
   const [manualActivityDescription, setManualActivityDescription] = useState('');
   const [manualActivityAmount, setManualActivityAmount] = useState('');
   const [manualActivityReferenceId, setManualActivityReferenceId] = useState<string | null>(null);
@@ -182,6 +261,153 @@ function ProjectDetailContent() {
       console.error('Error saving view mode preference:', error);
     }
   }, []);
+
+  const activityTypeStorageKey = React.useMemo(() => {
+    if (!id) return null;
+    return `${ACTIVITY_TYPE_STORAGE_PREFIX}${id}`;
+  }, [id]);
+
+  const getProjectMemberDisplayName = useCallback((member: ProjectMember): string => {
+    const name = member.user_name_snapshot?.trim();
+    if (name) return name;
+    const email = member.user_email_snapshot?.trim() || member.invited_email?.trim();
+    if (email) return email;
+    return formatActivityTypeLabel(member.role);
+  }, []);
+
+  const saveCustomActivityTypes = useCallback(
+    async (nextTypes: Array<{ id: string; label: string }>) => {
+      if (!activityTypeStorageKey) return;
+      try {
+        await AsyncStorage.setItem(activityTypeStorageKey, JSON.stringify(nextTypes));
+      } catch (error) {
+        console.error('Error saving custom activity types:', error);
+      }
+    },
+    [activityTypeStorageKey]
+  );
+
+  const ensureCustomActivityType = useCallback(
+    async (inputLabel: string): Promise<{ id: string; label: string }> => {
+      const normalizedLabel = normalizeActivityTypeLabel(inputLabel);
+      if (!normalizedLabel) {
+        return { id: toCustomActivityTypeId('activity'), label: 'Activity' };
+      }
+
+      const existingByLabel = customActivityTypes.find(
+        (item) => item.label.trim().toLowerCase() === normalizedLabel.toLowerCase()
+      );
+      if (existingByLabel) {
+        return existingByLabel;
+      }
+
+      const baseId = toCustomActivityTypeId(normalizedLabel);
+      let candidateId = baseId;
+      let suffix = 2;
+      while (customActivityTypes.some((item) => item.id === candidateId)) {
+        candidateId = `${baseId}-${suffix}`;
+        suffix += 1;
+      }
+
+      const next = [...customActivityTypes, { id: candidateId, label: normalizedLabel }];
+      setCustomActivityTypes(next);
+      await saveCustomActivityTypes(next);
+      return { id: candidateId, label: normalizedLabel };
+    },
+    [customActivityTypes, saveCustomActivityTypes]
+  );
+
+  const upsertCustomActivityTypeInState = useCallback((typeId: string, label: string) => {
+    if (!isCustomActivityTypeId(typeId)) return;
+    const normalizedLabel = normalizeActivityTypeLabel(label) || formatActivityTypeLabel(typeId);
+    setCustomActivityTypes((prev) => {
+      if (prev.some((item) => item.id === typeId)) return prev;
+      return [...prev, { id: typeId, label: normalizedLabel }];
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!activityTypeStorageKey) {
+      setCustomActivityTypes([]);
+      return;
+    }
+
+    let mounted = true;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(activityTypeStorageKey);
+        if (!raw) {
+          if (mounted) setCustomActivityTypes([]);
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          if (mounted) setCustomActivityTypes([]);
+          return;
+        }
+        const normalized = parsed
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const typeId = typeof item.id === 'string' ? item.id.trim() : '';
+            const label = typeof item.label === 'string' ? normalizeActivityTypeLabel(item.label) : '';
+            if (!typeId || !label || !isCustomActivityTypeId(typeId)) return null;
+            return { id: typeId, label };
+          })
+          .filter((item): item is { id: string; label: string } => !!item);
+        if (mounted) setCustomActivityTypes(normalized);
+      } catch (error) {
+        console.error('Error loading custom activity types:', error);
+        if (mounted) setCustomActivityTypes([]);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [activityTypeStorageKey]);
+
+  const activityTypeOptions = React.useMemo<ActivityTypeOption[]>(() => {
+    const customOptions = customActivityTypes.map((item) => ({
+      value: item.id,
+      label: item.label,
+      icon: 'construct-outline' as IoniconName,
+      color: bvColors.brand.primaryLight,
+      custom: true,
+    }));
+    return [
+      ...BASE_ACTIVITY_TYPE_OPTIONS,
+      ...customOptions,
+      {
+        value: NEW_CUSTOM_ACTIVITY_VALUE,
+        label: '+ Custom',
+        icon: 'add-circle-outline',
+        color: bvColors.semantic.warning,
+        custom: true,
+      },
+    ];
+  }, [customActivityTypes]);
+
+  const assignableMembers = React.useMemo(
+    () => projectMembers.filter((member) => member.status === 'active'),
+    [projectMembers]
+  );
+
+  const selectedManualActivityOption = React.useMemo(
+    () => activityTypeOptions.find((option) => option.value === manualActivityType) || null,
+    [activityTypeOptions, manualActivityType]
+  );
+
+  const manualActivityDescriptionPlaceholder = React.useMemo(() => {
+    if (manualActivityType === 'material_purchase') return 'e.g. Steel beams and concrete';
+    if (manualActivityType === 'safety_inspection') return 'e.g. All checks passed with no violations';
+    if (manualActivityType === 'meeting_notes') return 'e.g. Weekly progress review with stakeholders';
+    if (manualActivityType === 'site_visit') return 'e.g. Follow-up site coordination visit';
+    if (manualActivityType === 'quality_check') return 'e.g. Drywall finishing passed inspection on level 2';
+    if (manualActivityType === 'delivery') return 'e.g. HVAC units delivered to loading area';
+    if (manualActivityType === NEW_CUSTOM_ACTIVITY_VALUE) return 'e.g. Describe the custom process update';
+    const label = selectedManualActivityOption?.label || formatActivityTypeLabel(manualActivityType);
+    return `e.g. ${label} update details`;
+  }, [manualActivityType, selectedManualActivityOption]);
 
   const loadData = useCallback((folderOverride?: string | null) => {
     if (!id) return;
@@ -209,6 +435,10 @@ function ProjectDetailContent() {
       // Recent activity feed (always scoped to full project, not folder)
       const activityItems = getActivityByProject(id, 12);
       setRecentActivity(activityItems);
+
+      // Team members (for activity assignment)
+      const members = getProjectMembers(id);
+      setProjectMembers(members);
       
       // Check for videos that need thumbnail regeneration
       const videosNeedingThumbnails = mediaItems.filter(item => 
@@ -602,6 +832,9 @@ function ProjectDetailContent() {
     setActivityModalMode('create');
     setEditingActivityId(null);
     setManualActivityType('material_purchase');
+    setManualActivityCustomTypeLabel('');
+    setManualActivityStatus('assigned');
+    setManualActivityAssigneeId(null);
     setManualActivityDescription('');
     setManualActivityAmount('');
     setManualActivityReferenceId(null);
@@ -612,6 +845,10 @@ function ProjectDetailContent() {
     setShowActivityModal(false);
     setActivityModalMode('create');
     setEditingActivityId(null);
+    setManualActivityType('material_purchase');
+    setManualActivityCustomTypeLabel('');
+    setManualActivityStatus('assigned');
+    setManualActivityAssigneeId(null);
     setManualActivityDescription('');
     setManualActivityAmount('');
     setManualActivityReferenceId(null);
@@ -629,22 +866,80 @@ function ProjectDetailContent() {
     return '';
   };
 
+  const parseActivityTypeId = (metadata: Record<string, unknown> | null): string | null => {
+    if (!metadata) return null;
+    if (typeof metadata.activity_type_id !== 'string') return null;
+    const value = metadata.activity_type_id.trim();
+    return value.length > 0 ? value : null;
+  };
+
+  const parseActivityTypeLabel = (metadata: Record<string, unknown> | null): string => {
+    if (!metadata || typeof metadata.activity_label !== 'string') return '';
+    return metadata.activity_label.trim();
+  };
+
+  const parseActivityAssigneeId = (metadata: Record<string, unknown> | null): string | null => {
+    if (!metadata || typeof metadata.assignee_member_id !== 'string') return null;
+    const value = metadata.assignee_member_id.trim();
+    return value.length > 0 ? value : null;
+  };
+
+  const parseActivityAssigneeName = (metadata: Record<string, unknown> | null): string | null => {
+    if (!metadata || typeof metadata.assignee_name !== 'string') return null;
+    const value = metadata.assignee_name.trim();
+    return value.length > 0 ? value : null;
+  };
+
+  const parseActivityStatus = (metadata: Record<string, unknown> | null): ActivityStatus => {
+    return normalizeActivityStatus(metadata?.status);
+  };
+
   const handleEditActivityPress = (entry: {
     id: string;
     actionType: string;
     metadataRaw: string | null;
     referenceId: string | null;
   }) => {
-    if (!isManualActivityType(entry.actionType)) {
+    const metadata = parseActivityMetadata(entry.metadataRaw);
+    if (!isManualEntryActivity(entry.actionType, metadata)) {
       return;
     }
 
-    const metadata = parseActivityMetadata(entry.metadataRaw);
     const description = typeof metadata?.description === 'string' ? metadata.description.trim() : '';
+    const savedTypeId = parseActivityTypeId(metadata);
+    const savedTypeLabel = parseActivityTypeLabel(metadata);
+
+    let selectedType = entry.actionType;
+    let customTypeLabel = '';
+
+    if (entry.actionType === 'custom_activity') {
+      if (savedTypeId && isCustomActivityTypeId(savedTypeId)) {
+        upsertCustomActivityTypeInState(savedTypeId, savedTypeLabel || formatActivityTypeLabel(savedTypeId));
+        selectedType = savedTypeId;
+      } else {
+        selectedType = NEW_CUSTOM_ACTIVITY_VALUE;
+        customTypeLabel = savedTypeLabel || '';
+      }
+    } else if (savedTypeId && isCustomActivityTypeId(savedTypeId)) {
+      upsertCustomActivityTypeInState(savedTypeId, savedTypeLabel || formatActivityTypeLabel(savedTypeId));
+      selectedType = savedTypeId;
+    } else if (savedTypeId && BASE_ACTIVITY_TYPE_OPTIONS.some((option) => option.value === savedTypeId)) {
+      selectedType = savedTypeId;
+    }
+
+    if (selectedType === NEW_CUSTOM_ACTIVITY_VALUE && !customTypeLabel) {
+      customTypeLabel = savedTypeLabel || formatActivityTypeLabel(entry.actionType);
+    }
+
+    const assigneeId = parseActivityAssigneeId(metadata);
+    const isAssigneeValid = assigneeId ? assignableMembers.some((member) => member.id === assigneeId) : false;
 
     setActivityModalMode('edit');
     setEditingActivityId(entry.id);
-    setManualActivityType(entry.actionType);
+    setManualActivityType(selectedType);
+    setManualActivityCustomTypeLabel(customTypeLabel);
+    setManualActivityStatus(parseActivityStatus(metadata));
+    setManualActivityAssigneeId(isAssigneeValid ? assigneeId : null);
     setManualActivityDescription(description);
     setManualActivityAmount(parseActivityAmount(metadata));
     setManualActivityReferenceId(entry.referenceId);
@@ -702,7 +997,7 @@ function ProjectDetailContent() {
     });
   };
 
-  const handleSaveActivity = () => {
+  const handleSaveActivity = async () => {
     if (!id) return;
 
     const description = manualActivityDescription.trim();
@@ -711,8 +1006,31 @@ function ProjectDetailContent() {
       return;
     }
 
+    const selectedTypeOption = activityTypeOptions.find((option) => option.value === manualActivityType);
+    let resolvedTypeId = manualActivityType;
+    let resolvedTypeLabel = selectedTypeOption?.label || formatActivityTypeLabel(manualActivityType);
+    let resolvedActionType = manualActivityType;
+
+    if (manualActivityType === NEW_CUSTOM_ACTIVITY_VALUE) {
+      const customLabel = normalizeActivityTypeLabel(manualActivityCustomTypeLabel);
+      if (!customLabel) {
+        Alert.alert('Missing type', 'Add a custom activity type label.');
+        return;
+      }
+      const savedCustomType = await ensureCustomActivityType(customLabel);
+      resolvedTypeId = savedCustomType.id;
+      resolvedTypeLabel = savedCustomType.label;
+      resolvedActionType = 'custom_activity';
+    } else if (isCustomActivityTypeId(manualActivityType)) {
+      resolvedActionType = 'custom_activity';
+      const existingCustom = customActivityTypes.find((item) => item.id === manualActivityType);
+      resolvedTypeLabel = existingCustom?.label || resolvedTypeLabel;
+    } else {
+      resolvedActionType = manualActivityType;
+    }
+
     let amount: number | null = null;
-    if (manualActivityType === 'material_purchase' && manualActivityAmount.trim().length > 0) {
+    if (resolvedTypeId === 'material_purchase' && manualActivityAmount.trim().length > 0) {
       const parsedAmount = Number(manualActivityAmount.replace(/,/g, '').trim());
       if (!Number.isFinite(parsedAmount) || parsedAmount < 0) {
         Alert.alert('Invalid amount', 'Enter a valid purchase amount.');
@@ -721,6 +1039,22 @@ function ProjectDetailContent() {
       amount = parsedAmount;
     }
 
+    const assignee = manualActivityAssigneeId
+      ? assignableMembers.find((member) => member.id === manualActivityAssigneeId) || null
+      : null;
+    const assigneeName = assignee ? getProjectMemberDisplayName(assignee) : null;
+
+    const metadata: Record<string, unknown> = {
+      description,
+      amount,
+      status: manualActivityStatus,
+      activity_type_id: resolvedTypeId,
+      activity_label: resolvedTypeLabel,
+      assignee_member_id: assignee?.id ?? null,
+      assignee_name: assigneeName,
+      manual_entry: true,
+    };
+
     try {
       if (activityModalMode === 'edit') {
         if (!editingActivityId) {
@@ -728,18 +1062,12 @@ function ProjectDetailContent() {
           return;
         }
         updateActivity(editingActivityId, {
-          actionType: manualActivityType,
+          actionType: resolvedActionType,
           referenceId: manualActivityReferenceId,
-          metadata: {
-            description,
-            amount,
-          },
+          metadata,
         });
       } else {
-        createActivity(id, manualActivityType, manualActivityReferenceId, {
-          description,
-          amount,
-        });
+        createActivity(id, resolvedActionType, manualActivityReferenceId, metadata);
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       handleCloseActivityModal();
@@ -892,6 +1220,8 @@ function ProjectDetailContent() {
     const metadataDescription = typeof metadata?.description === 'string'
       ? metadata.description.trim()
       : '';
+    const metadataActivityLabel = parseActivityTypeLabel(metadata);
+    const metadataIsManualEntry = isManualEntryActivity(entry.action_type, metadata);
     const metadataAmount = typeof metadata?.amount === 'number'
       ? metadata.amount
       : typeof metadata?.amount === 'string'
@@ -916,6 +1246,10 @@ function ProjectDetailContent() {
     const formatStatusLabel = (rawStatus: string): string => {
       if (!rawStatus) return 'Status';
       return rawStatus.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+    };
+    const appendManualContext = (baseDescription: string): string => {
+      const normalized = baseDescription.trim();
+      return normalized.length > 0 ? normalized : 'Project activity was logged.';
     };
 
     switch (entry.action_type) {
@@ -1023,9 +1357,9 @@ function ProjectDetailContent() {
       case 'material_purchase':
         return {
           title: 'Material Purchase',
-          description: metadataAmount && Number.isFinite(metadataAmount) && metadataAmount > 0
+          description: appendManualContext(metadataAmount && Number.isFinite(metadataAmount) && metadataAmount > 0
             ? `${metadataDescription || 'Materials purchased'} - ${formatCurrency(metadataAmount)}`
-            : metadataDescription || 'Materials purchase logged.',
+            : metadataDescription || 'Materials purchase logged.'),
           icon: 'cash-outline',
           iconBg: bvColors.semantic.success,
           iconColor: bvColors.neutral[0],
@@ -1034,7 +1368,7 @@ function ProjectDetailContent() {
       case 'safety_inspection':
         return {
           title: 'Safety Inspection',
-          description: metadataDescription || 'Safety inspection was logged.',
+          description: appendManualContext(metadataDescription || 'Safety inspection was logged.'),
           icon: 'clipboard-outline',
           iconBg: bvColors.semantic.danger,
           iconColor: bvColors.neutral[0],
@@ -1043,7 +1377,7 @@ function ProjectDetailContent() {
       case 'meeting_notes':
         return {
           title: 'Meeting Notes',
-          description: metadataDescription || 'Meeting notes were added.',
+          description: appendManualContext(metadataDescription || 'Meeting notes were added.'),
           icon: 'document-text-outline',
           iconBg: bvColors.brand.primaryLight,
           iconColor: bvColors.neutral[0],
@@ -1052,8 +1386,35 @@ function ProjectDetailContent() {
       case 'site_visit':
         return {
           title: 'Site Visit',
-          description: metadataDescription || 'Site visit was logged.',
+          description: appendManualContext(metadataDescription || 'Site visit was logged.'),
           icon: 'car-outline',
+          iconBg: bvColors.brand.primaryLight,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'quality_check':
+        return {
+          title: 'Quality Check',
+          description: appendManualContext(metadataDescription || 'Quality check was logged.'),
+          icon: 'shield-checkmark-outline',
+          iconBg: bvColors.semantic.success,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'delivery':
+        return {
+          title: 'Delivery',
+          description: appendManualContext(metadataDescription || 'Delivery update was logged.'),
+          icon: 'cube-outline',
+          iconBg: bvColors.semantic.warning,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'custom_activity':
+        return {
+          title: metadataActivityLabel || 'Custom Activity',
+          description: appendManualContext(metadataDescription || 'Project activity was logged.'),
+          icon: 'construct-outline',
           iconBg: bvColors.brand.primaryLight,
           iconColor: bvColors.neutral[0],
           expandable: false,
@@ -1152,6 +1513,16 @@ function ProjectDetailContent() {
           expandable: false,
         };
       default:
+        if (metadataIsManualEntry) {
+          return {
+            title: metadataActivityLabel || formatActivityTypeLabel(entry.action_type),
+            description: appendManualContext(metadataDescription || 'Project activity was recorded.'),
+            icon: 'construct-outline',
+            iconBg: bvColors.brand.primaryLight,
+            iconColor: bvColors.neutral[0],
+            expandable: false,
+          };
+        }
         return {
           title: 'Project event',
           description: metadataDescription || 'A project activity was recorded.',
@@ -2228,9 +2599,10 @@ function ProjectDetailContent() {
     return recentActivity.slice(0, 8).map((entry, index) => {
       const presentation = mapActivityPresentation(entry);
       const canExpand = presentation.expandable && projectPreviewUris.length > 0 && index === 0;
-      const canManage = isManualActivityType(entry.action_type);
+      const metadata = parseActivityMetadata(entry.metadata);
+      const canManage = isManualEntryActivity(entry.action_type, metadata);
       const referenceId = resolveActivityReferenceId(entry);
-      const canLinkToMedia = !!referenceId && isMediaLinkableActivityType(entry.action_type);
+      const canLinkToMedia = !!referenceId && isMediaLinkableActivityType(entry.action_type, metadata);
       const candidateMedia = canLinkToMedia && referenceId
         ? projectMediaById.get(referenceId) ?? getMediaById(referenceId)
         : null;
@@ -2246,6 +2618,8 @@ function ProjectDetailContent() {
       const actorName = typeof entry.actor_name_snapshot === 'string' && entry.actor_name_snapshot.trim().length > 0
         ? entry.actor_name_snapshot.trim()
         : null;
+      const assigneeName = parseActivityAssigneeName(metadata);
+      const status = canManage ? parseActivityStatus(metadata) : null;
       return {
         id: entry.id,
         actionType: entry.action_type,
@@ -2258,6 +2632,8 @@ function ProjectDetailContent() {
         canManage,
         timestampLabel: formatRelativeTime(entry.created_at),
         actorName,
+        assigneeName,
+        status,
         previewUris: canExpand ? projectPreviewUris : [],
         expanded: canExpand,
         ...presentation,
@@ -2758,6 +3134,8 @@ function ProjectDetailContent() {
                               </Text>
                               <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 2 }}>
                                 {entry.actorName ? `${entry.timestampLabel} • by ${entry.actorName}` : entry.timestampLabel}
+                                {entry.status ? ` • ${formatActivityStatusLabel(entry.status)}` : ''}
+                                {entry.assigneeName ? ` • ${entry.assigneeName}` : ''}
                               </Text>
                             </View>
                             {entry.linkedState === 'available' ? (
@@ -3057,7 +3435,7 @@ function ProjectDetailContent() {
             Activity Type
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 16 }}>
-            {MANUAL_ACTIVITY_OPTIONS.map((option) => {
+            {activityTypeOptions.map((option) => {
               const isSelected = manualActivityType === option.value;
               return (
                 <TouchableOpacity
@@ -3086,6 +3464,54 @@ function ProjectDetailContent() {
                       fontWeight: '600',
                       color: isSelected ? option.color : bvColors.text.secondary,
                     }}
+                    >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {manualActivityType === NEW_CUSTOM_ACTIVITY_VALUE && (
+            <GlassTextInput
+              label="Custom Type Label"
+              value={manualActivityCustomTypeLabel}
+              onChangeText={setManualActivityCustomTypeLabel}
+              placeholder="e.g. Permit Submission"
+              autoCapitalize="words"
+              returnKeyType="done"
+            />
+          )}
+
+          <Text style={{ fontSize: 15, fontWeight: '600', color: bvColors.text.primary, marginBottom: 10 }}>
+            Status
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 16 }}>
+            {ACTIVITY_STATUS_OPTIONS.map((option) => {
+              const isSelected = manualActivityStatus === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  onPress={() => setManualActivityStatus(option.value)}
+                  activeOpacity={0.86}
+                  style={{
+                    width: '32%',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: isSelected ? option.color : bvFx.neutralBorderSoft,
+                    backgroundColor: isSelected ? `${option.color}20` : bvColors.surface.chrome,
+                    paddingVertical: 10,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: '700',
+                      color: isSelected ? option.color : bvColors.text.secondary,
+                    }}
                   >
                     {option.label}
                   </Text>
@@ -3094,19 +3520,71 @@ function ProjectDetailContent() {
             })}
           </View>
 
+          <Text style={{ fontSize: 15, fontWeight: '600', color: bvColors.text.primary, marginBottom: 8 }}>
+            Assign To (Optional)
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 12, marginBottom: 16 }}>
+            <TouchableOpacity
+              onPress={() => setManualActivityAssigneeId(null)}
+              activeOpacity={0.86}
+              style={{
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: manualActivityAssigneeId === null ? bvColors.brand.primaryLight : bvFx.neutralBorderSoft,
+                backgroundColor: manualActivityAssigneeId === null ? bvFx.accentSoft : bvColors.surface.chrome,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                marginRight: 8,
+              }}
+            >
+              <Text style={{
+                color: manualActivityAssigneeId === null ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                fontSize: 12,
+                fontWeight: '700',
+              }}>
+                Unassigned
+              </Text>
+            </TouchableOpacity>
+            {assignableMembers.map((member) => {
+              const selected = manualActivityAssigneeId === member.id;
+              return (
+                <TouchableOpacity
+                  key={member.id}
+                  onPress={() => setManualActivityAssigneeId(member.id)}
+                  activeOpacity={0.86}
+                  style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: selected ? bvColors.brand.primaryLight : bvFx.neutralBorderSoft,
+                    backgroundColor: selected ? bvFx.accentSoft : bvColors.surface.chrome,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    marginRight: 8,
+                  }}
+                >
+                  <Text style={{
+                    color: selected ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                    fontSize: 12,
+                    fontWeight: '600',
+                  }}>
+                    {getProjectMemberDisplayName(member)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {assignableMembers.length === 0 && (
+            <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: -8, marginBottom: 14 }}>
+              No active team members yet. Add members in project settings to assign activities.
+            </Text>
+          )}
+
           <GlassTextInput
             label="Description"
             value={manualActivityDescription}
             onChangeText={setManualActivityDescription}
-            placeholder={
-              manualActivityType === 'material_purchase'
-                ? 'e.g. Steel beams and concrete'
-                : manualActivityType === 'safety_inspection'
-                  ? 'e.g. All checks passed with no violations'
-                  : manualActivityType === 'meeting_notes'
-                    ? 'e.g. Weekly progress review with stakeholders'
-                    : 'e.g. Follow-up site coordination visit'
-            }
+            placeholder={manualActivityDescriptionPlaceholder}
             multiline
             numberOfLines={4}
             inputStyle={{ minHeight: 96, textAlignVertical: 'top' }}
