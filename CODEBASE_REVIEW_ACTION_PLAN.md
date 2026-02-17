@@ -242,6 +242,20 @@ Storage and sync:
 - Local-first writes enqueue mutations; background sync pushes/pulls when online.
 - Conflict policy v1: server `updated_at` wins for editable fields; media rows append-only.
 
+### B5.1 Organization membership management (add to avoid scope drift)
+
+Settings > Organization must support:
+- Create organization (owner).
+- Invite members by email.
+- Accept invite flow.
+- Member list with role and status.
+- Role update and remove member actions (owner/admin only).
+
+Link to activities:
+- Add Activity assignee picker should include only active project members.
+- If assignee is an org member but not yet on project, support `Add to project + assign`.
+- Persist assignee as stable user/member reference (not just display name).
+
 ## Phased execution plan
 
 ### Phase 0: Hardening sprint (1 week)
@@ -261,6 +275,8 @@ Storage and sync:
 ### Phase 2.5: Supabase foundation (1 week)
 - Create Supabase schema for collaboration tables and project-owned entities.
 - Implement invite flow (owner invites coworker/client by email token).
+- Implement organization member management API + UI (settings modal and invite acceptance).
+- Implement org-member-to-project-member promotion flow for activity assignment.
 - Implement RLS + storage policies.
 - Add backend smoke tests for permission boundaries.
 
