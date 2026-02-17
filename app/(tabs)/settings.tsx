@@ -9,6 +9,7 @@ import {
   Animated,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -80,11 +81,16 @@ export default function Settings() {
   const [showProfileModal, setShowProfileModal] = React.useState(false);
   const [profileNameDraft, setProfileNameDraft] = React.useState('');
   const [isSavingProfile, setIsSavingProfile] = React.useState(false);
+  const [avatarLoadFailed, setAvatarLoadFailed] = React.useState(false);
 
   React.useEffect(() => {
     if (!user) return;
     setProfileNameDraft(user.name);
   }, [user]);
+
+  React.useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [user?.avatar]);
 
   // Load/save performance preference
   React.useEffect(() => {
@@ -661,12 +667,22 @@ export default function Settings() {
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginRight: 12,
+                overflow: 'hidden',
               }}>
-                <Ionicons 
-                  name={user.provider === 'apple' ? 'logo-apple' : 'logo-google'} 
-                  size={24} 
-                  color={bvColors.brand.primaryLight}
-                />
+                {user.avatar && !avatarLoadFailed ? (
+                  <Image
+                    source={{ uri: user.avatar }}
+                    style={{ width: '100%', height: '100%' }}
+                    onError={() => setAvatarLoadFailed(true)}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Ionicons 
+                    name={user.provider === 'apple' ? 'logo-apple' : 'logo-google'} 
+                    size={24} 
+                    color={bvColors.brand.primaryLight}
+                  />
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '600' }}>

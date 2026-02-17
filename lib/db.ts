@@ -3097,6 +3097,7 @@ export function updateUserAuthIdentity(
     providerId?: string;
     email?: string;
     name?: string;
+    avatar?: string | null;
   }
 ): User | null {
   return withErrorHandlingSync(() => {
@@ -3106,7 +3107,7 @@ export function updateUserAuthIdentity(
     }
 
     const updates: string[] = ['auth_user_id = ?', 'last_login_at = ?'];
-    const values: Array<string | number> = [authUserId, Date.now()];
+    const values: Array<string | number | null> = [authUserId, Date.now()];
 
     if (data.provider) {
       updates.push('provider = ?');
@@ -3123,6 +3124,11 @@ export function updateUserAuthIdentity(
     if (data.name?.trim()) {
       updates.push('name = ?');
       values.push(data.name.trim());
+    }
+    if (data.avatar !== undefined) {
+      const nextAvatar = typeof data.avatar === 'string' ? data.avatar.trim() : '';
+      updates.push('avatar = ?');
+      values.push(nextAvatar.length > 0 ? nextAvatar : null);
     }
 
     values.push(id);

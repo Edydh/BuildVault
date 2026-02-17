@@ -28,6 +28,9 @@ type SupabaseUserLike = {
   user_metadata?: {
     full_name?: string | null;
     name?: string | null;
+    avatar_url?: string | null;
+    picture?: string | null;
+    photo_url?: string | null;
   } | null;
   app_metadata?: {
     provider?: string | null;
@@ -264,6 +267,14 @@ export class AuthService {
       supabaseUser.user_metadata?.name ||
       supabaseUser.email?.split('@')[0] ||
       'User';
+    const avatarCandidate =
+      supabaseUser.user_metadata?.avatar_url ||
+      supabaseUser.user_metadata?.picture ||
+      supabaseUser.user_metadata?.photo_url ||
+      null;
+    const avatar = typeof avatarCandidate === 'string' && avatarCandidate.trim().length > 0
+      ? avatarCandidate.trim()
+      : null;
     const provider = supabaseUser.app_metadata?.provider === 'apple' ? 'apple' : 'google';
     const providerId = authUserId;
     const linkedLocalId = linkToLocalUserId?.trim() || null;
@@ -282,6 +293,7 @@ export class AuthService {
           providerId,
           email,
           name,
+          avatar: avatar ?? undefined,
         }) ?? localUser;
       }
     }
@@ -293,7 +305,7 @@ export class AuthService {
         name,
         provider,
         providerId,
-        avatar: null,
+        avatar,
       });
     } else {
       user = updateUserAuthIdentity(user.id, {
@@ -302,6 +314,7 @@ export class AuthService {
         providerId,
         email,
         name,
+        avatar: avatar ?? undefined,
       }) ?? user;
       user = getUserById(user.id) ?? user;
     }
