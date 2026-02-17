@@ -87,6 +87,7 @@ export default function ProjectPublicSettingsScreen() {
   const [contactPhone, setContactPhone] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [highlightsText, setHighlightsText] = useState('');
+  const [heroComment, setHeroComment] = useState('');
   const [heroMediaId, setHeroMediaId] = useState<string | null>(null);
   const visibilityDraftRef = useRef(false);
 
@@ -152,6 +153,7 @@ export default function ProjectPublicSettingsScreen() {
       setContactPhone(publicProfile?.contact_phone || '');
       setWebsiteUrl(publicProfile?.website_url || '');
       setHighlightsText(parseProfileHighlights(publicProfile));
+      setHeroComment(publicProfile?.hero_comment || '');
 
       const existingHero = publicProfile?.hero_media_id || null;
       const fallbackHero = media.find((item) => item.type === 'photo' || item.type === 'video')?.id ?? null;
@@ -193,6 +195,7 @@ export default function ProjectPublicSettingsScreen() {
         region: region.trim() || null,
         category: category.trim() || null,
         hero_media_id: heroMediaId,
+        hero_comment: heroComment.trim() || null,
         contact_email: contactEmail.trim() || null,
         contact_phone: contactPhone.trim() || null,
         website_url: websiteUrl.trim() || null,
@@ -242,6 +245,7 @@ export default function ProjectPublicSettingsScreen() {
         region: region.trim() || null,
         category: category.trim() || null,
         hero_media_id: heroMediaId,
+        hero_comment: heroComment.trim() || null,
         contact_email: contactEmail.trim() || null,
         contact_phone: contactPhone.trim() || null,
         website_url: websiteUrl.trim() || null,
@@ -621,6 +625,16 @@ export default function ProjectPublicSettingsScreen() {
             </Text>
           </BVCard>
         )}
+
+        <GlassTextInput
+          label="Hero Media Public Comment"
+          value={heroComment}
+          onChangeText={setHeroComment}
+          placeholder="Optional caption shown under the hero media in public view"
+          multiline
+          numberOfLines={3}
+          inputStyle={{ minHeight: 78, textAlignVertical: 'top' }}
+        />
       </ScrollView>
 
       <View

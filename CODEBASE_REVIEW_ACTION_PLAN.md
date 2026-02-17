@@ -283,6 +283,53 @@ Non-goals for initial rollout:
 - No direct messaging from comments.
 - No anonymous reactions.
 
+### B5.3 Public Media Posts v1 (single-media public publishing)
+
+Goal:
+- Allow a team to publish one media item with a short public comment/caption, without requiring the whole project to be public.
+
+Priority:
+- High product value, but after collaboration baseline is stable (`project_members`, roles, RLS, invites).
+
+V1 scope:
+- Add `Post Public` / `Unpublish` action on project media items.
+- Allow optional public caption/comment per post.
+- Show media posts in Feed as first-class cards (image/video + caption + project/org attribution).
+- Keep project visibility independent:
+  - project can stay private
+  - selected media post can still be public
+- Deep link from feed post to a public media detail page.
+
+Data model (Supabase target):
+- `public_media_posts`
+  - `id`
+  - `project_id`
+  - `media_id`
+  - `organization_id` (nullable)
+  - `caption`
+  - `published_by_user_id`
+  - `status` (`published | unpublished | removed`)
+  - `created_at`, `updated_at`, `published_at`
+- Constraints:
+  - unique active post per media (`media_id` while `status='published'`)
+  - foreign keys to `projects`, `media`, `users`
+
+Security and privacy:
+- Publish/unpublish allowed only for project owner/manager roles.
+- Public read allowed only for rows where `status='published'`.
+- No sensitive metadata leakage in public views (no private notes, no internal activity data).
+- Add explicit confirmation before publishing.
+
+Moderation and lifecycle:
+- Unpublish must be immediate and reversible.
+- Soft-delete path (`removed`) for moderation/admin tooling.
+- Basic reporting hook can be added later with comments rollout.
+
+Non-goals (v1):
+- No carousel/multi-photo post composer.
+- No per-post likes/comments yet (can reuse feed engagement layer in later phase).
+- No scheduled publishing.
+
 ## Phased execution plan
 
 ### Phase 0: Hardening sprint (1 week)
@@ -307,6 +354,8 @@ Non-goals for initial rollout:
 - Add feed engagement schema:
   - `public_project_likes (project_id, user_id, created_at, UNIQUE(project_id, user_id))`
   - `public_project_comments (id, project_id, user_id, body, status, created_at, updated_at)`
+- Add public media post schema:
+  - `public_media_posts (id, project_id, media_id, organization_id, caption, published_by_user_id, status, created_at, updated_at, published_at)`
 - Implement RLS + storage policies.
 - Add backend smoke tests for permission boundaries.
 
@@ -318,6 +367,10 @@ Non-goals for initial rollout:
   - Like toggle, like count, optimistic updates, rollback on failure.
 - Feed V2:
   - Comment create/edit/delete, owner moderation actions.
+- Public Media Post V1:
+  - Media-level `Post Public` / `Unpublish` action.
+  - Caption editor and publish confirmation.
+  - Feed cards for media posts + public media detail deep-link.
 
 ### Phase 4: Sync + performance + export/reporting (1 week)
 - Ship sync queue worker with retry/backoff and basic conflict handling.

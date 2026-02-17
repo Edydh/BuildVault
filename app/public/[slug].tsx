@@ -142,6 +142,22 @@ export default function PublicProjectDetailScreen() {
           </View>
         )}
 
+        {project.hero_comment ? (
+          <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={16}
+                color={bvColors.brand.primaryLight}
+                style={{ marginTop: 2, marginRight: 8 }}
+              />
+              <Text style={{ color: bvColors.text.secondary, fontSize: 14, lineHeight: 20, flex: 1 }}>
+                {project.hero_comment}
+              </Text>
+            </View>
+          </BVCard>
+        ) : null}
+
         <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 14 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={{ color: bvColors.text.primary, fontSize: 20, fontWeight: '700', flex: 1, marginRight: 10 }}>

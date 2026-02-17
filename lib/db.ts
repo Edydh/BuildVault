@@ -101,6 +101,7 @@ export interface ProjectPublicProfile {
   region?: string | null;
   category?: string | null;
   hero_media_id?: string | null;
+  hero_comment?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
   website_url?: string | null;
@@ -129,6 +130,7 @@ export interface PublicProjectSummary {
 }
 
 export interface PublicProjectDetail extends PublicProjectSummary {
+  hero_comment?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
   website_url?: string | null;
@@ -925,6 +927,7 @@ function mapProjectPublicProfileRow(row: Record<string, unknown>): ProjectPublic
     region: typeof row.region === 'string' ? row.region : null,
     category: typeof row.category === 'string' ? row.category : null,
     hero_media_id: typeof row.hero_media_id === 'string' ? row.hero_media_id : null,
+    hero_comment: typeof row.hero_comment === 'string' ? row.hero_comment : null,
     contact_email: typeof row.contact_email === 'string' ? row.contact_email : null,
     contact_phone: typeof row.contact_phone === 'string' ? row.contact_phone : null,
     website_url: typeof row.website_url === 'string' ? row.website_url : null,
@@ -1448,6 +1451,7 @@ export function migrate() {
         region TEXT,
         category TEXT,
         hero_media_id TEXT,
+        hero_comment TEXT,
         contact_email TEXT,
         contact_phone TEXT,
         website_url TEXT,
@@ -1477,6 +1481,7 @@ export function migrate() {
       `ALTER TABLE projects ADD COLUMN user_id TEXT`,
       `ALTER TABLE folders ADD COLUMN user_id TEXT`,
       `ALTER TABLE media ADD COLUMN user_id TEXT`,
+      `ALTER TABLE project_public_profiles ADD COLUMN hero_comment TEXT`,
       `ALTER TABLE activity_log ADD COLUMN user_id TEXT`,
       `ALTER TABLE project_members ADD COLUMN user_id TEXT`,
       `ALTER TABLE project_members ADD COLUMN invited_email TEXT`,
@@ -2440,6 +2445,10 @@ export function upsertProjectPublicProfile(
         updates.push('hero_media_id = ?');
         values.push(data.hero_media_id || null);
       }
+      if (data.hero_comment !== undefined) {
+        updates.push('hero_comment = ?');
+        values.push(data.hero_comment?.trim() || null);
+      }
       if (data.contact_email !== undefined) {
         updates.push('contact_email = ?');
         values.push(normalizeEmail(data.contact_email) || null);
@@ -2465,8 +2474,8 @@ export function upsertProjectPublicProfile(
     } else {
       db.runSync(
         `INSERT INTO project_public_profiles
-          (project_id, public_title, summary, city, region, category, hero_media_id, contact_email, contact_phone, website_url, highlights_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (project_id, public_title, summary, city, region, category, hero_media_id, hero_comment, contact_email, contact_phone, website_url, highlights_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           projectId,
           data.public_title?.trim() || null,
@@ -2475,6 +2484,7 @@ export function upsertProjectPublicProfile(
           data.region?.trim() || null,
           data.category?.trim() || null,
           data.hero_media_id || null,
+          data.hero_comment?.trim() || null,
           normalizeEmail(data.contact_email) || null,
           data.contact_phone?.trim() || null,
           data.website_url?.trim() || null,
@@ -2669,6 +2679,7 @@ export function getPublicProjectBySlug(slug: string): PublicProjectDetail | null
            FROM media m
            WHERE m.project_id = p.id
          ) AS media_count,
+         pp.hero_comment,
          pp.contact_email,
          pp.contact_phone,
          pp.website_url,
@@ -2704,6 +2715,7 @@ export function getPublicProjectBySlug(slug: string): PublicProjectDetail | null
 
     return {
       ...base,
+      hero_comment: typeof row.hero_comment === 'string' ? row.hero_comment : null,
       contact_email: typeof row.contact_email === 'string' ? row.contact_email : null,
       contact_phone: typeof row.contact_phone === 'string' ? row.contact_phone : null,
       website_url: typeof row.website_url === 'string' ? row.website_url : null,
