@@ -256,6 +256,33 @@ Link to activities:
 - If assignee is an org member but not yet on project, support `Add to project + assign`.
 - Persist assignee as stable user/member reference (not just display name).
 
+### B5.2 Feed engagement (post-collaboration milestone)
+
+Goal:
+- Increase public feed engagement with lightweight social proof and discussion.
+
+Delivery order:
+1. V1 `Likes` (ship first, low risk).
+2. V2 `Comments` + moderation controls.
+
+V1 scope (`Likes`):
+- One like per user per public project.
+- Toggle like/unlike from feed card and public project screen.
+- Show like count on cards/details.
+- RLS: only authenticated users can create/delete their own likes.
+
+V2 scope (`Comments`):
+- Comments on public projects only.
+- Owner/org admin can remove comments on owned public projects.
+- Author can edit/delete own comment within policy window.
+- Add abuse controls: rate limit, min/max length, soft moderation states.
+- Add report action for unsafe content triage.
+
+Non-goals for initial rollout:
+- No threaded replies.
+- No direct messaging from comments.
+- No anonymous reactions.
+
 ## Phased execution plan
 
 ### Phase 0: Hardening sprint (1 week)
@@ -277,6 +304,9 @@ Link to activities:
 - Implement invite flow (owner invites coworker/client by email token).
 - Implement organization member management API + UI (settings modal and invite acceptance).
 - Implement org-member-to-project-member promotion flow for activity assignment.
+- Add feed engagement schema:
+  - `public_project_likes (project_id, user_id, created_at, UNIQUE(project_id, user_id))`
+  - `public_project_comments (id, project_id, user_id, body, status, created_at, updated_at)`
 - Implement RLS + storage policies.
 - Add backend smoke tests for permission boundaries.
 
@@ -284,6 +314,10 @@ Link to activities:
 - Rebuild Dashboard, Project Overview, Capture, Gallery, Notes, Share.
 - Keep offline-first behavior and optimistic UI.
 - Replace heavy render-time DB work with efficient selectors.
+- Feed V1:
+  - Like toggle, like count, optimistic updates, rollback on failure.
+- Feed V2:
+  - Comment create/edit/delete, owner moderation actions.
 
 ### Phase 4: Sync + performance + export/reporting (1 week)
 - Ship sync queue worker with retry/backoff and basic conflict handling.
