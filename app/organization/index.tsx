@@ -20,12 +20,15 @@ import {
   getOrganizationsForCurrentUser,
   getPendingOrganizationInvitesForCurrentUser,
   inviteOrganizationMember,
+  removeOrganizationMember,
+  setOrganizationMemberRole,
 } from '../../lib/db';
 import { BVButton, BVCard, BVEmptyState, BVHeader } from '../../components/ui';
 import { GlassTextInput } from '../../components/glass';
 import { bvColors, bvFx, bvSpacing } from '../../lib/theme/tokens';
 
 const INVITE_ROLES: Array<Exclude<OrganizationMemberRole, 'owner'>> = ['admin', 'member', 'viewer'];
+const MANAGEABLE_ROLES: OrganizationMemberRole[] = ['owner', 'admin', 'member', 'viewer'];
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && typeof error.message === 'string') {
@@ -179,6 +182,74 @@ export default function OrganizationScreen() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleUpdateMemberRole = (member: OrganizationMember, role: OrganizationMemberRole) => {
+    if (!selectedOrgId) return;
+    try {
+      setBusy(true);
+      setOrganizationMemberRole(selectedOrgId, member.id, role);
+      loadData(selectedOrgId);
+      Alert.alert('Role updated', 'Member role updated successfully.');
+    } catch (error) {
+      Alert.alert('Error', getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemoveMember = (member: OrganizationMember) => {
+    if (!selectedOrgId) return;
+    const displayName = member.user_id === user?.id ? 'your membership' : member.invited_email || 'this member';
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${displayName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              setBusy(true);
+              removeOrganizationMember(selectedOrgId, member.id);
+              loadData(selectedOrgId);
+            } catch (error) {
+              Alert.alert('Error', getErrorMessage(error));
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleManageMember = (member: OrganizationMember) => {
+    if (!canManageMembers || !selectedOrgId) return;
+
+    const roleButtons = MANAGEABLE_ROLES.map((role) => ({
+      text: role === member.role ? `Role: ${labelFromRole(role)}` : `Set as ${labelFromRole(role)}`,
+      onPress: () => {
+        if (role !== member.role) {
+          handleUpdateMemberRole(member, role);
+        }
+      },
+    }));
+
+    Alert.alert(
+      'Manage Member',
+      member.invited_email || member.user_id || 'Team member',
+      [
+        ...roleButtons,
+        {
+          text: 'Remove Member',
+          style: 'destructive',
+          onPress: () => handleRemoveMember(member),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   return (
@@ -376,17 +447,43 @@ export default function OrganizationScreen() {
                     </View>
                     <View
                       style={{
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: bvFx.glassBorderSoft,
-                        backgroundColor: bvFx.glassSoft,
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
+                        flexDirection: 'row',
+                        alignItems: 'center',
                       }}
                     >
-                      <Text style={{ color: bvColors.text.secondary, fontSize: 11, fontWeight: '700' }}>
-                        {labelFromRole(member.role)}
-                      </Text>
+                      <View
+                        style={{
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: bvFx.glassBorderSoft,
+                          backgroundColor: bvFx.glassSoft,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                        }}
+                      >
+                        <Text style={{ color: bvColors.text.secondary, fontSize: 11, fontWeight: '700' }}>
+                          {labelFromRole(member.role)}
+                        </Text>
+                      </View>
+                      {canManageMembers ? (
+                        <TouchableOpacity
+                          onPress={() => handleManageMember(member)}
+                          disabled={busy}
+                          style={{
+                            marginLeft: 8,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: bvFx.brandBorder,
+                            backgroundColor: bvFx.brandSoft,
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                          }}
+                        >
+                          <Text style={{ color: bvColors.brand.primaryLight, fontSize: 11, fontWeight: '700' }}>
+                            Manage
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                   </View>
                 ))

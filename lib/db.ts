@@ -12,6 +12,7 @@ export interface Project {
   location?: string;
   organization_id?: string | null;
   status: ProjectStatus;
+  status_override?: ProjectStatus | null;
   visibility: ProjectVisibility;
   public_slug?: string | null;
   public_published_at?: number | null;
@@ -197,6 +198,8 @@ export interface ProjectProgressComputation {
   activity_contribution: number;
   last_activity_at?: number | null;
   has_phases: boolean;
+  status_override?: ProjectStatus | null;
+  is_status_overridden: boolean;
 }
 
 type UserIdentityRow = {
@@ -247,6 +250,8 @@ const ACTIVITY_PROGRESS_WEIGHTS: Record<string, number> = {
   invite_accepted: 2,
   project_created: 0,
   project_updated: 0,
+  project_marked_completed: 0,
+  project_reopened: 0,
   project_organization_updated: 1,
   project_public_profile_updated: 1,
   project_published: 1,
@@ -380,6 +385,7 @@ type ProjectProgressOptions = {
   legacyProgress: number;
   lastActivityAt?: number | null;
   scopedUserId?: string | null;
+  statusOverride?: ProjectStatus | null;
 };
 
 function toFiniteNumber(value: unknown): number {
@@ -494,6 +500,15 @@ function deriveStatusFromProcess(options: {
   return 'active';
 }
 
+function normalizeProjectStatusOverride(value: unknown): ProjectStatus | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (normalized === 'completed' || normalized === 'active' || normalized === 'delayed' || normalized === 'neutral') {
+    return normalized;
+  }
+  return null;
+}
+
 function computeProjectProgressInternal(options: ProjectProgressOptions): ProjectProgressComputation {
   const lastActivityAt =
     options.lastActivityAt === undefined
@@ -507,6 +522,21 @@ function computeProjectProgressInternal(options: ProjectProgressOptions): Projec
   const phaseCompletion = hasPhases && phases.totalWeight > 0
     ? clampProgress((phases.completedWeight / phases.totalWeight) * 100)
     : 0;
+
+  const statusOverride = normalizeProjectStatusOverride(options.statusOverride);
+  if (statusOverride === 'completed') {
+    return {
+      project_id: options.projectId,
+      progress: 100,
+      status: 'completed',
+      phase_completion: phaseCompletion,
+      activity_contribution: activityContribution,
+      last_activity_at: lastActivityAt,
+      has_phases: hasPhases,
+      status_override: statusOverride,
+      is_status_overridden: true,
+    };
+  }
 
   const computedProgress = hasPhases
     ? clampProgress(phaseCompletion + activityContribution)
@@ -528,6 +558,8 @@ function computeProjectProgressInternal(options: ProjectProgressOptions): Projec
     activity_contribution: activityContribution,
     last_activity_at: lastActivityAt,
     has_phases: hasPhases,
+    status_override: null,
+    is_status_overridden: false,
   };
 }
 
@@ -591,6 +623,7 @@ function mapProjectRow(row: Record<string, unknown>): Project {
     endDate,
     lastActivityAt: toNullableNumber(row.last_activity_at),
     scopedUserId,
+    statusOverride: normalizeProjectStatusOverride(row.status_override),
   });
   const visibility: ProjectVisibility = row.visibility === 'public' ? 'public' : 'private';
 
@@ -601,6 +634,7 @@ function mapProjectRow(row: Record<string, unknown>): Project {
     location: typeof row.location === 'string' ? row.location : undefined,
     organization_id: typeof row.organization_id === 'string' ? row.organization_id : null,
     status: computed.status,
+    status_override: computed.status_override ?? null,
     visibility,
     public_slug: typeof row.public_slug === 'string' ? row.public_slug : null,
     public_published_at: toNullableNumber(row.public_published_at),
@@ -908,6 +942,7 @@ function mapPublicProjectSummaryRow(row: Record<string, unknown>): PublicProject
     legacyProgress: clampProgress(row.progress),
     lastActivityAt: undefined,
     scopedUserId: null,
+    statusOverride: normalizeProjectStatusOverride(row.status_override),
   });
 
   return {
@@ -1352,6 +1387,7 @@ export function migrate() {
         public_published_at INTEGER,
         public_updated_at INTEGER,
         status TEXT NOT NULL DEFAULT 'neutral',
+        status_override TEXT,
         progress INTEGER NOT NULL DEFAULT 0,
         start_date INTEGER,
         end_date INTEGER,
@@ -1426,6 +1462,7 @@ export function migrate() {
     const alterStatements = [
       `ALTER TABLE media ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL`,
       `ALTER TABLE projects ADD COLUMN status TEXT DEFAULT 'neutral'`,
+      `ALTER TABLE projects ADD COLUMN status_override TEXT`,
       `ALTER TABLE projects ADD COLUMN progress INTEGER DEFAULT 0`,
       `ALTER TABLE projects ADD COLUMN start_date INTEGER`,
       `ALTER TABLE projects ADD COLUMN end_date INTEGER`,
@@ -1466,6 +1503,7 @@ export function migrate() {
 
     db.execSync(`
       UPDATE projects SET status = 'neutral' WHERE status IS NULL OR trim(status) = '';
+      UPDATE projects SET status_override = NULL WHERE status_override IS NOT NULL AND trim(status_override) = '';
       UPDATE projects SET progress = 0 WHERE progress IS NULL;
       UPDATE projects SET start_date = created_at WHERE start_date IS NULL;
       UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL;
@@ -1665,7 +1703,7 @@ export function createProject(data: {
 
 export function updateProject(
   id: string,
-  data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at' | 'status' | 'last_activity_at' | 'progress'>>
+  data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at' | 'status' | 'status_override' | 'last_activity_at' | 'progress'>>
 ): void {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
@@ -1723,6 +1761,30 @@ export function updateProject(
   }, 'Update project');
 }
 
+export function setProjectCompletionState(projectId: string, completed: boolean): Project | null {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
+
+    const updatedAt = Date.now();
+    if (completed) {
+      db.runSync(
+        'UPDATE projects SET status_override = ?, updated_at = ? WHERE id = ? AND user_id = ?',
+        ['completed', updatedAt, projectId, userId]
+      );
+      logActivityInternal(projectId, 'project_marked_completed', projectId, null, updatedAt);
+    } else {
+      db.runSync(
+        'UPDATE projects SET status_override = NULL, updated_at = ? WHERE id = ? AND user_id = ?',
+        [updatedAt, projectId, userId]
+      );
+      logActivityInternal(projectId, 'project_reopened', projectId, null, updatedAt);
+    }
+
+    return getProjectById(projectId);
+  }, 'Set project completion state');
+}
+
 export function deleteProject(id: string) {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
@@ -1776,6 +1838,7 @@ export function computeProjectProgress(projectId: string): ProjectProgressComput
       legacyProgress: clampProgress(row.progress),
       lastActivityAt: toNullableNumber(row.last_activity_at),
       scopedUserId: userId,
+      statusOverride: normalizeProjectStatusOverride(row.status_override),
     });
   }, 'Compute project progress');
 }
@@ -1904,6 +1967,118 @@ export function getOrganizationMembers(
     ) as Array<Record<string, unknown>>;
     return rows.map(mapOrganizationMemberRow);
   }, 'Get organization members');
+}
+
+export function setOrganizationMemberRole(
+  organizationId: string,
+  memberId: string,
+  role: OrganizationMemberRole
+): OrganizationMember | null {
+  return withErrorHandlingSync(() => {
+    const currentUserId = getScopedUserIdOrThrow();
+    const actingMembership = assertOrganizationManagementAccess(organizationId, currentUserId);
+
+    const existing = db.getFirstSync(
+      `SELECT *
+       FROM organization_members
+       WHERE organization_id = ? AND id = ?
+       LIMIT 1`,
+      [organizationId, memberId]
+    ) as Record<string, unknown> | null;
+    if (!existing) return null;
+
+    const member = mapOrganizationMemberRow(existing);
+    if (member.status === 'removed') {
+      throw new Error('Cannot update a removed member');
+    }
+    if (member.role === role) {
+      return member;
+    }
+
+    if (actingMembership.role === 'admin') {
+      if (member.role === 'owner' || member.role === 'admin') {
+        throw new Error('Only owner can change owner/admin roles');
+      }
+      if (role === 'owner' || role === 'admin') {
+        throw new Error('Only owner can assign owner/admin roles');
+      }
+    }
+
+    if (member.role === 'owner' && role !== 'owner' && member.status === 'active') {
+      const owners = db.getFirstSync(
+        `SELECT COUNT(*) AS count
+         FROM organization_members
+         WHERE organization_id = ?
+           AND role = 'owner'
+           AND status = 'active'`,
+        [organizationId]
+      ) as { count?: number } | null;
+      if ((owners?.count ?? 0) <= 1) {
+        throw new Error('Cannot demote the last active owner');
+      }
+    }
+
+    const now = Date.now();
+    db.runSync(
+      `UPDATE organization_members
+       SET role = ?, updated_at = ?
+       WHERE id = ?`,
+      [role, now, member.id]
+    );
+
+    const updated = db.getFirstSync('SELECT * FROM organization_members WHERE id = ? LIMIT 1', [member.id]) as
+      | Record<string, unknown>
+      | null;
+    if (!updated) {
+      throw new Error('Unable to update organization member role');
+    }
+    return mapOrganizationMemberRow(updated);
+  }, 'Set organization member role');
+}
+
+export function removeOrganizationMember(organizationId: string, memberId: string): void {
+  return withErrorHandlingSync(() => {
+    const currentUserId = getScopedUserIdOrThrow();
+    const actingMembership = assertOrganizationManagementAccess(organizationId, currentUserId);
+
+    const existing = db.getFirstSync(
+      `SELECT *
+       FROM organization_members
+       WHERE organization_id = ? AND id = ?
+       LIMIT 1`,
+      [organizationId, memberId]
+    ) as Record<string, unknown> | null;
+    if (!existing) return;
+
+    const member = mapOrganizationMemberRow(existing);
+    if (member.status === 'removed') return;
+
+    if (actingMembership.role === 'admin' && (member.role === 'owner' || member.role === 'admin')) {
+      throw new Error('Only owner can remove owner/admin members');
+    }
+
+    if (member.role === 'owner' && member.status === 'active') {
+      const owners = db.getFirstSync(
+        `SELECT COUNT(*) AS count
+         FROM organization_members
+         WHERE organization_id = ?
+           AND role = 'owner'
+           AND status = 'active'`,
+        [organizationId]
+      ) as { count?: number } | null;
+      if ((owners?.count ?? 0) <= 1) {
+        throw new Error('Cannot remove the last active owner');
+      }
+    }
+
+    const now = Date.now();
+    db.runSync(
+      `UPDATE organization_members
+       SET status = 'removed', updated_at = ?
+       WHERE id = ?`,
+      [now, member.id]
+    );
+  }, 'Remove organization member');
 }
 
 export function upsertOrganizationMember(data: {

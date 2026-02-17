@@ -14,13 +14,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, ProjectMember, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, getMediaById, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity, updateActivity, deleteActivity, getProjectMembers } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectProgressComputation, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, getMediaById, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity, updateActivity, deleteActivity, getProjectMembers, getOrganizationMembers, upsertProjectMember, computeProjectProgress, setProjectCompletionState } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '../../../lib/AuthContext';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import NoteEncouragement from '../../../components/NoteEncouragement';
@@ -148,6 +149,7 @@ function isImageThumbnailUri(uri?: string | null): boolean {
 function ProjectDetailContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [project, setProject] = useState<Project | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
@@ -232,6 +234,9 @@ function ProjectDetailContent() {
   const [activityModalMode, setActivityModalMode] = useState<'create' | 'edit'>('create');
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
+  const [projectProgressComputation, setProjectProgressComputation] = useState<ProjectProgressComputation | null>(null);
+  const [isAddingOrganizationAssignee, setIsAddingOrganizationAssignee] = useState<string | null>(null);
   const [customActivityTypes, setCustomActivityTypes] = useState<Array<{ id: string; label: string }>>([]);
   const [manualActivityType, setManualActivityType] = useState<string>('material_purchase');
   const [manualActivityCustomTypeLabel, setManualActivityCustomTypeLabel] = useState('');
@@ -273,6 +278,13 @@ function ProjectDetailContent() {
     const email = member.user_email_snapshot?.trim() || member.invited_email?.trim();
     if (email) return email;
     return formatActivityTypeLabel(member.role);
+  }, []);
+
+  const getOrganizationMemberDisplayName = useCallback((member: OrganizationMember): string => {
+    const email = member.invited_email?.trim();
+    if (email) return email;
+    if (member.user_id) return `User ${member.user_id.slice(0, 8)}`;
+    return `Member ${member.id.slice(0, 8)}`;
   }, []);
 
   const saveCustomActivityTypes = useCallback(
@@ -392,6 +404,27 @@ function ProjectDetailContent() {
     [projectMembers]
   );
 
+  const organizationAssignableMembers = React.useMemo(() => {
+    const projectUserIds = new Set(
+      assignableMembers
+        .map((member) => member.user_id)
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    );
+
+    return organizationMembers.filter(
+      (member) =>
+        member.status === 'active' &&
+        typeof member.user_id === 'string' &&
+        member.user_id.trim().length > 0 &&
+        !projectUserIds.has(member.user_id)
+    );
+  }, [organizationMembers, assignableMembers]);
+
+  const projectStatusLabel = React.useMemo(() => {
+    if (!project?.status) return 'neutral';
+    return project.status.replace(/_/g, ' ');
+  }, [project?.status]);
+
   const selectedManualActivityOption = React.useMemo(
     () => activityTypeOptions.find((option) => option.value === manualActivityType) || null,
     [activityTypeOptions, manualActivityType]
@@ -439,6 +472,18 @@ function ProjectDetailContent() {
       // Team members (for activity assignment)
       const members = getProjectMembers(id);
       setProjectMembers(members);
+
+      // Organization members can be promoted into project assignment on-demand.
+      if (projectData.organization_id) {
+        const orgMembers = getOrganizationMembers(projectData.organization_id);
+        setOrganizationMembers(orgMembers);
+      } else {
+        setOrganizationMembers([]);
+      }
+
+      // Progress breakdown for transparency.
+      const progress = computeProjectProgress(id);
+      setProjectProgressComputation(progress);
       
       // Check for videos that need thumbnail regeneration
       const videosNeedingThumbnails = mediaItems.filter(item => 
@@ -1078,6 +1123,60 @@ function ProjectDetailContent() {
     }
   };
 
+  const handleAssignOrganizationMember = (member: OrganizationMember) => {
+    if (!id || !member.user_id) return;
+
+    try {
+      setIsAddingOrganizationAssignee(member.id);
+      const promoted = upsertProjectMember({
+        projectId: id,
+        userId: member.user_id,
+        role: 'worker',
+        status: 'active',
+        invitedBy: user?.id ?? null,
+      });
+      setManualActivityAssigneeId(promoted.id);
+      loadData();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Alert.alert('Member added', `${getOrganizationMemberDisplayName(member)} can now be assigned in this project.`);
+    } catch (error) {
+      console.error('Error adding organization member to project:', error);
+      Alert.alert('Error', 'Could not add organization member to this project.');
+    } finally {
+      setIsAddingOrganizationAssignee(null);
+    }
+  };
+
+  const handleToggleProjectCompletion = () => {
+    if (!id || !project) return;
+    const markCompleted = project.status !== 'completed';
+    const title = markCompleted ? 'Mark Project Completed' : 'Reopen Project';
+    const message = markCompleted
+      ? 'This will set a manual completion override and mark progress as 100%.'
+      : 'This will remove the manual completion override and return to computed progress.';
+
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: markCompleted ? 'Mark Completed' : 'Reopen',
+        style: markCompleted ? 'default' : 'destructive',
+        onPress: () => {
+          try {
+            const updated = setProjectCompletionState(id, markCompleted);
+            if (updated) {
+              setProject(updated);
+            }
+            loadData();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          } catch (error) {
+            console.error('Error toggling project completion state:', error);
+            Alert.alert('Error', 'Could not update project completion state. Please try again.');
+          }
+        },
+      },
+    ]);
+  };
+
   const handleDeleteMedia = (mediaItem: MediaItem) => {
     const mediaTypeName = mediaItem.type === 'photo' ? 'photo' : 
                          mediaItem.type === 'video' ? 'video' : 'document';
@@ -1499,6 +1598,24 @@ function ProjectDetailContent() {
           title: 'Project Unpublished',
           description: 'Project was switched back to private visibility.',
           icon: 'lock-closed-outline',
+          iconBg: bvColors.semantic.warning,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'project_marked_completed':
+        return {
+          title: 'Project Marked Completed',
+          description: 'Manual completion override was enabled.',
+          icon: 'checkmark-done-outline',
+          iconBg: bvColors.semantic.success,
+          iconColor: bvColors.neutral[0],
+          expandable: false,
+        };
+      case 'project_reopened':
+        return {
+          title: 'Project Reopened',
+          description: 'Manual completion override was removed.',
+          icon: 'refresh-outline',
           iconBg: bvColors.semantic.warning,
           iconColor: bvColors.neutral[0],
           expandable: false,
@@ -2586,6 +2703,13 @@ function ProjectDetailContent() {
     { id: 'upload', icon: 'cloud-upload-outline', label: 'Upload', onPress: handleDocumentUpload, enabled: true },
     { id: 'public', icon: 'globe-outline', label: 'Public', onPress: handleOpenPublicSettings, enabled: true },
     { id: 'activity', icon: 'add-circle-outline', label: 'Activity', onPress: handleOpenActivityModal, enabled: true },
+    {
+      id: 'completion',
+      icon: project?.status === 'completed' ? 'refresh-outline' : 'checkmark-done-outline',
+      label: project?.status === 'completed' ? 'Reopen' : 'Complete',
+      onPress: handleToggleProjectCompletion,
+      enabled: true,
+    },
   ];
 
   const recentActivityFeed = React.useMemo(() => {
@@ -3023,13 +3147,13 @@ function ProjectDetailContent() {
               <Text style={{ color: bvColors.text.primary, fontSize: 22, fontWeight: '700', marginBottom: 12 }}>
                 Quick Actions
               </Text>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 8 }}>
                 {quickActions.map((action) => (
                   <TouchableOpacity
                     key={action.id}
                     onPress={action.onPress}
                     disabled={!action.enabled}
-                    style={{ width: '23.5%', opacity: action.enabled ? 1 : 0.45 }}
+                    style={{ width: '31.5%', opacity: action.enabled ? 1 : 0.45, marginBottom: 10 }}
                     activeOpacity={0.88}
                   >
                     <BVCard style={{ width: '100%' }} contentStyle={{ paddingVertical: 14, alignItems: 'center' }}>
@@ -3049,6 +3173,25 @@ function ProjectDetailContent() {
               <Text style={{ color: bvColors.text.primary, fontSize: 22, fontWeight: '700', marginBottom: 12 }}>
                 Project Summary
               </Text>
+              {projectProgressComputation ? (
+                <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 14 }}>
+                  <Text style={{ color: bvColors.text.primary, fontSize: 15, fontWeight: '700' }}>
+                    Progress Breakdown
+                  </Text>
+                  <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 4 }}>
+                    Status: {projectStatusLabel} • Computed progress: {projectProgressComputation.progress}%
+                  </Text>
+                  <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 4 }}>
+                    Phase completion: {projectProgressComputation.phase_completion}%
+                  </Text>
+                  <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 2 }}>
+                    Activity contribution (30d): +{projectProgressComputation.activity_contribution}%
+                  </Text>
+                  <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 2 }}>
+                    Mode: {projectProgressComputation.is_status_overridden ? 'Manual completion override' : 'Automatic'}
+                  </Text>
+                </BVCard>
+              ) : null}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
                 {[
                   { id: 'photos', label: 'Photos', value: mediaSummary.photos },
@@ -3574,10 +3717,49 @@ function ProjectDetailContent() {
             })}
           </ScrollView>
 
-          {assignableMembers.length === 0 && (
+          {assignableMembers.length === 0 && organizationAssignableMembers.length === 0 && (
             <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: -8, marginBottom: 14 }}>
               No active team members yet. Add members in project settings to assign activities.
             </Text>
+          )}
+
+          {organizationAssignableMembers.length > 0 && (
+            <>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: bvColors.text.muted, marginBottom: 8 }}>
+                Add from Organization
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 12, marginBottom: 14 }}>
+                {organizationAssignableMembers.map((member) => {
+                  const isAdding = isAddingOrganizationAssignee === member.id;
+                  return (
+                    <TouchableOpacity
+                      key={member.id}
+                      onPress={() => handleAssignOrganizationMember(member)}
+                      disabled={isAdding}
+                      activeOpacity={0.86}
+                      style={{
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: bvFx.brandBorder,
+                        backgroundColor: bvFx.brandSoft,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        marginRight: 8,
+                        opacity: isAdding ? 0.6 : 1,
+                      }}
+                    >
+                      <Text style={{
+                        color: bvColors.brand.primaryLight,
+                        fontSize: 12,
+                        fontWeight: '600',
+                      }}>
+                        {isAdding ? 'Adding...' : `+ ${getOrganizationMemberDisplayName(member)}`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </>
           )}
 
           <GlassTextInput
