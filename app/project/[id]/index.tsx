@@ -165,6 +165,7 @@ function ProjectDetailContent() {
   const [newFolderName, setNewFolderName] = useState('');
   const [folderModalMode, setFolderModalMode] = useState<'create' | 'edit'>('create');
   const [folderBeingEdited, setFolderBeingEdited] = useState<Folder | null>(null);
+  const [pendingFolderMoveMediaId, setPendingFolderMoveMediaId] = useState<string | null>(null);
   const [actionSheet, setActionSheet] = useState<{
     visible: boolean;
     title?: string;
@@ -1687,6 +1688,7 @@ function ProjectDetailContent() {
     setFolderModalMode('create');
     setFolderBeingEdited(null);
     setNewFolderName('');
+    setPendingFolderMoveMediaId(null);
   };
 
   const closeFolderModal = () => {
@@ -1694,8 +1696,9 @@ function ProjectDetailContent() {
     resetFolderForm();
   };
 
-  const openCreateFolderModal = () => {
+  const openCreateFolderModal = (mediaIdToMove?: string) => {
     resetFolderForm();
+    setPendingFolderMoveMediaId(mediaIdToMove ?? null);
     setShowFolderModal(true);
   };
 
@@ -1732,10 +1735,19 @@ function ProjectDetailContent() {
           name: trimmedName,
         });
         setFolders(prev => [...prev, folder]);
+        if (pendingFolderMoveMediaId) {
+          moveMediaToFolder(pendingFolderMoveMediaId, folder.id);
+        }
+        setCurrentFolder(folder.id);
         closeFolderModal();
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        Alert.alert('Success', 'Folder created successfully!');
-        loadData(currentFolder ?? null);
+        Alert.alert(
+          'Success',
+          pendingFolderMoveMediaId
+            ? 'Folder created and media moved successfully!'
+            : 'Folder created successfully!'
+        );
+        loadData(folder.id);
       }
     } catch (error) {
       console.error('Error saving folder:', error);
@@ -1804,6 +1816,12 @@ function ProjectDetailContent() {
 
   const handleMoveMedia = (mediaItem: MediaItem) => {
     const actions = [
+      {
+        label: 'Create New Folder',
+        onPress: () => {
+          openCreateFolderModal(mediaItem.id);
+        },
+      },
       {
         label: 'All Media',
         onPress: () => {
@@ -2988,7 +3006,7 @@ function ProjectDetailContent() {
           </Text>
         </View>
           {/* Folder Management inside header */}
-          {!isSelectionMode && (
+          {!isSelectionMode && folders.length > 0 && (
             <View style={{ marginTop: 12 }}>
               {/* Folder Selector */}
               <ScrollView 
@@ -3073,30 +3091,6 @@ function ProjectDetailContent() {
                     </TouchableOpacity>
                   </GlassCard>
                 ))}
-                <GlassCard
-                  style={{
-                    borderWidth: 1,
-                    borderColor: bvColors.brand.accent,
-                    backgroundColor: bvFx.accentTint,
-                  }}
-                  intensity={60}
-                  shadowEnabled={true}
-                >
-                  <TouchableOpacity
-                    onPress={openCreateFolderModal}
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Ionicons name="add" size={16} color={bvColors.brand.accent} />
-                    <Text style={{ color: bvColors.brand.accent, fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
-                      New Folder
-                    </Text>
-                  </TouchableOpacity>
-                </GlassCard>
               </ScrollView>
               {/* Current Folder Indicator */}
               <GlassCard
