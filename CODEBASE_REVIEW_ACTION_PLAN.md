@@ -1,6 +1,6 @@
 # BuildVault Action Plan (Stabilize + Rebuild)
 
-Date: 2026-02-14
+Date: 2026-02-14 (updated 2026-02-18)
 Scope: Expo React Native app (`app/`, `lib/`, `components/`)
 Inputs: codebase review + UI wireframe blueprint + SQLite target model + Figma token JSON
 
@@ -13,6 +13,37 @@ BuildVault should feel like “Apple Notes for construction media”:
 - Large touch targets and thumb-first actions
 - Project-centric structure with evidence-grade history
 - Collaboration-ready: owner invites coworkers/clients into project workspaces
+
+## Current Status (2026-02-18)
+
+Completed in codebase:
+- [x] Supabase collaboration schema and RLS baseline are in place (projects, members, activity, public profile, likes/comments, public media posts).
+- [x] Supabase storage sync for media binaries is live:
+  - upload on media create
+  - remote URL persistence
+  - backfill support when original local file still exists
+  - remote-aware delete/share paths in project media screens
+- [x] Public profile save/publish/unpublish now writes to Supabase (not local-only).
+- [x] Feed auto-sync behavior is active for media:
+  - new media in public projects auto-publishes to `public_media_posts`
+  - publishing a project backfills existing media posts
+  - unpublishing marks project media posts as `unpublished`
+- [x] Public Profile UI now shows a sync status summary (how many media posts were synced/hidden).
+
+Open constraints:
+- [ ] Web runtime remains deferred; mobile-first path is the active scope.
+- [ ] Feed rendering still reads local cache/query state; reliability depends on sync paths being invoked from app flows.
+
+## Next Priority Sequence (updated)
+
+1. Organization member management in Settings (invite, list, role change, remove, accept invite).
+2. Activity assignment flow wired to real members:
+   - picker from active project members
+   - optional "add to project + assign" from organization roster.
+3. Project completion controls:
+   - explicit mark completed/reopen action
+   - progress breakdown panel tied to phase/activity model.
+4. Feed engagement (likes/comments) stabilization after collaboration flows are complete.
 
 ## Track A: Stabilization (must do before visual rebuild)
 
