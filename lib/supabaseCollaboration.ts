@@ -38,6 +38,19 @@ type SupabaseActiveMembershipWithOrg = SupabaseOrganizationMemberRow & {
   organizations: SupabaseOrganizationRow | SupabaseOrganizationRow[] | null;
 };
 
+type InviteEmailFunctionResponse = {
+  ok?: boolean;
+  sent?: boolean;
+  reason?: string;
+  providerMessageId?: string | null;
+};
+
+export type OrganizationInviteDeliveryResult = {
+  inviteId: string;
+  emailSent: boolean;
+  emailError: string | null;
+};
+
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -99,6 +112,17 @@ function normalizeSlug(value?: string | null): string | null {
 function isUuid(value: string | null | undefined): boolean {
   if (!value) return false;
   return UUID_REGEX.test(value.trim());
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && typeof error.message === 'string') {
+    return error.message;
+  }
+  if (typeof error === 'object' && error && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return 'Unknown error';
 }
 
 function resolveSingleOrganization(
@@ -237,7 +261,7 @@ export async function inviteOrganizationMemberInSupabase(data: {
   organizationId: string;
   email: string;
   role?: Exclude<OrganizationMemberRole, 'owner'>;
-}): Promise<void> {
+}): Promise<OrganizationInviteDeliveryResult> {
   const authUser = await requireAuthUser('invite organization members');
 
   const normalizedEmail = normalizeEmail(data.email);
@@ -260,6 +284,7 @@ export async function inviteOrganizationMemberInSupabase(data: {
   }
 
   const existingId = existingRows?.[0]?.id;
+  let inviteId: string | null = existingId ?? null;
   if (existingId) {
     const { error: updateError } = await supabase
       .from('organization_members')
@@ -277,20 +302,62 @@ export async function inviteOrganizationMemberInSupabase(data: {
       mergeErrors(updateError, 'Unable to update existing invite');
     }
   } else {
-    const { error: insertError } = await supabase.from('organization_members').insert({
-      organization_id: data.organizationId,
-      invited_email: normalizedEmail,
-      role,
-      status: 'invited',
-      invited_by: authUser.id,
-    });
+    const { data: insertedRow, error: insertError } = await supabase
+      .from('organization_members')
+      .insert({
+        organization_id: data.organizationId,
+        invited_email: normalizedEmail,
+        role,
+        status: 'invited',
+        invited_by: authUser.id,
+      })
+      .select('id')
+      .single();
 
     if (insertError) {
       mergeErrors(insertError, 'Unable to create invitation');
     }
+
+    inviteId = insertedRow?.id ?? null;
+  }
+
+  if (!inviteId) {
+    throw new Error('Invitation created but missing invite identifier');
+  }
+
+  let emailSent = false;
+  let emailError: string | null = null;
+  try {
+    const { data: functionData, error: functionError } = await supabase.functions.invoke<InviteEmailFunctionResponse>(
+      'send-organization-invite',
+      {
+        body: {
+          inviteId,
+          organizationId: data.organizationId,
+          invitedEmail: normalizedEmail,
+          role,
+        },
+      }
+    );
+
+    if (functionError) {
+      emailError = functionError.message || 'Unable to invoke invite email function';
+    } else {
+      emailSent = functionData?.sent === true;
+      if (!emailSent && functionData?.reason) {
+        emailError = functionData.reason;
+      }
+    }
+  } catch (error) {
+    emailError = errorMessage(error);
   }
 
   await syncOrganizationDataFromSupabase();
+  return {
+    inviteId,
+    emailSent,
+    emailError,
+  };
 }
 
 export async function acceptOrganizationInviteInSupabase(inviteId: string): Promise<string> {

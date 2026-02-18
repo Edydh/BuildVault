@@ -26,3 +26,6 @@ package-lock.backup.json
 .env
 .env.local
 .env.production
+
+# Supabase CLI cache
+supabase/.temp/

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../lib/AuthContext';
 import {
   Organization,
@@ -56,6 +56,7 @@ function labelFromRole(role: OrganizationMemberRole): string {
 
 export default function OrganizationScreen() {
   const router = useRouter();
+  const { inviteId: inviteIdParam } = useLocalSearchParams<{ inviteId?: string }>();
   const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
@@ -73,6 +74,7 @@ export default function OrganizationScreen() {
   const [showManageMemberModal, setShowManageMemberModal] = useState(false);
   const [managedMember, setManagedMember] = useState<OrganizationMember | null>(null);
   const [managedRoleDraft, setManagedRoleDraft] = useState<OrganizationMemberRole>('member');
+  const [processedInviteLinkId, setProcessedInviteLinkId] = useState<string | null>(null);
 
   const hydrateFromLocal = useCallback((preferredOrgId?: string | null) => {
     const nextOrganizations = getOrganizationsForCurrentUser();
@@ -179,14 +181,21 @@ export default function OrganizationScreen() {
 
     try {
       setBusy(true);
-      await inviteOrganizationMemberInSupabase({
+      const inviteResult = await inviteOrganizationMemberInSupabase({
         organizationId: selectedOrgId,
         email,
         role: inviteRole,
       });
       setInviteEmail('');
       await loadData(selectedOrgId, { skipRemoteSync: true });
-      Alert.alert('Invitation sent', `Invite sent to ${email}.`);
+      if (inviteResult.emailSent) {
+        Alert.alert('Invitation sent', `Invite sent to ${email}.`);
+      } else {
+        Alert.alert(
+          'Invitation created',
+          `Invite created for ${email}. Email delivery is not configured yet or is temporarily unavailable. The user can still accept from Pending Invitations after signing in with that email.`
+        );
+      }
     } catch (error) {
       Alert.alert('Error', getErrorMessage(error));
     } finally {
@@ -319,6 +328,33 @@ export default function OrganizationScreen() {
     setShowManageMemberModal(false);
     setManagedMember(null);
   };
+
+  useEffect(() => {
+    const inviteId = typeof inviteIdParam === 'string' ? inviteIdParam.trim() : '';
+    if (!inviteId || loading || busy || processedInviteLinkId === inviteId) {
+      return;
+    }
+
+    const deepLinkInvite = invites.find((invite) => invite.id === inviteId);
+    if (!deepLinkInvite) {
+      return;
+    }
+
+    setProcessedInviteLinkId(inviteId);
+    Alert.alert(
+      'Invitation link detected',
+      `Accept invite to "${deepLinkInvite.organization_name}" as ${labelFromRole(deepLinkInvite.role)}?`,
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: 'Accept',
+          onPress: () => {
+            void handleAcceptInvite(inviteId);
+          },
+        },
+      ]
+    );
+  }, [busy, handleAcceptInvite, inviteIdParam, invites, loading, processedInviteLinkId]);
 
   return (
     <View style={{ flex: 1, backgroundColor: bvColors.surface.inverse }}>
