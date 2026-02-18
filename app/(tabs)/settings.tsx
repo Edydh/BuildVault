@@ -15,9 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getProjects, deleteProject } from '../../lib/db';
+import { getProjects } from '../../lib/db';
 import { deleteProjectDir, clearAllProjectDirs } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
+import { deleteProjectInSupabase } from '../../lib/supabaseProjectsSync';
 import NoteSettings from '../../components/NoteSettings';
 import {
   useGlassTheme,
@@ -117,7 +118,7 @@ export default function Settings() {
       const projects = getProjects();
       for (const project of projects) {
         await deleteProjectDir(project.id);
-        deleteProject(project.id);
+        await deleteProjectInSupabase(project.id);
       }
 
       await clearAllProjectDirs();

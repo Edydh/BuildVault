@@ -16,10 +16,10 @@ import {
 } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MediaItem, getMediaByProject, getMediaByFolder, updateMediaNote } from '../../../lib/db';
+import { MediaItem, getMediaByProject, getMediaByFolder } from '../../../lib/db';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
@@ -30,6 +30,12 @@ import NotePrompt from '../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../components/NoteSettings';
 import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider, useGlassTheme } from '../../../components/glass';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
+import {
+  deleteMediaInSupabase,
+  syncProjectContentFromSupabase,
+  syncProjectsAndActivityFromSupabase,
+  updateMediaNoteInSupabase,
+} from '../../../lib/supabaseProjectsSync';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -516,6 +522,7 @@ function PhotoGalleryContent() {
 
     const loadMedia = async () => {
       try {
+        await syncProjectContentFromSupabase(id);
         const sourceMedia = normalizedFolderId === undefined
           ? getMediaByProject(id)
           : getMediaByFolder(id, normalizedFolderId);
@@ -549,6 +556,20 @@ function PhotoGalleryContent() {
 
     loadMedia();
   }, [id, normalizedFolderId, resolvedInitialIndex]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!id) return undefined;
+      void (async () => {
+        try {
+          await syncProjectContentFromSupabase(id);
+        } catch (error) {
+          console.log('Gallery sync warning:', error);
+        }
+      })();
+      return undefined;
+    }, [id])
+  );
 
   React.useEffect(() => {
     // Scroll to initial index when media is loaded
@@ -658,8 +679,9 @@ function PhotoGalleryContent() {
       }
       
       // Delete from database
-      const { deleteMedia } = await import('../../../lib/db');
-      deleteMedia(mediaItem.id);
+      await deleteMediaInSupabase(mediaItem.id);
+      await syncProjectContentFromSupabase(id!);
+      await syncProjectsAndActivityFromSupabase();
       
       // Provide haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -701,11 +723,13 @@ function PhotoGalleryContent() {
     }
   }).current;
 
-  const handleSaveNote = () => {
+  const handleSaveNote = async () => {
     if (!media[currentIndex]) return;
 
     try {
-      updateMediaNote(media[currentIndex].id, note);
+      await updateMediaNoteInSupabase(media[currentIndex].id, note);
+      await syncProjectContentFromSupabase(id!);
+      await syncProjectsAndActivityFromSupabase();
       setMedia(prev => prev.map((item, index) => 
         index === currentIndex ? { ...item, note } : item
       ));

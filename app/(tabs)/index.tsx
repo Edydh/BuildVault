@@ -15,13 +15,10 @@ import * as Haptics from 'expo-haptics';
 import {
   Organization,
   Project,
-  createProject,
-  deleteProject,
   getMediaByProject,
   getOrganizationsForCurrentUser,
   getProjects,
   getProjectsByOrganization,
-  updateProject,
 } from '../../lib/db';
 import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -34,6 +31,12 @@ import EditProjectModal from '../../components/EditProjectModal';
 import ProjectCard from '../../components/ProjectCard';
 import { BVHeader, BVSearchBar, BVFloatingAction, BVEmptyState } from '../../components/ui';
 import { WorkspaceSelection, getStoredWorkspace, isWorkspaceEqual, setStoredWorkspace } from '../../lib/workspace';
+import {
+  createProjectInSupabase,
+  deleteProjectInSupabase,
+  syncProjectsAndActivityFromSupabase,
+  updateProjectInSupabase,
+} from '../../lib/supabaseProjectsSync';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -365,6 +368,7 @@ export default function ProjectsList() {
   const loadProjects = useCallback(async () => {
     setStatsLoading(true);
     try {
+      await syncProjectsAndActivityFromSupabase();
       const orgList = getOrganizationsForCurrentUser();
       const storedWorkspace = await getStoredWorkspace();
       const nextWorkspace = resolveWorkspace(storedWorkspace, orgList);
@@ -458,7 +462,7 @@ export default function ProjectsList() {
 
     try {
       const organizationId = form.organizationId?.trim() ? form.organizationId : null;
-      const project = createProject({
+      const project = await createProjectInSupabase({
         name: form.name.trim(),
         client: form.client.trim() || undefined,
         location: form.location.trim() || undefined,
@@ -502,7 +506,7 @@ export default function ProjectsList() {
     }
   ) => {
     try {
-      updateProject(id, data);
+      await updateProjectInSupabase(id, data);
       await loadProjects();
       setShowEdit(false);
       setEditingProject(null);
@@ -664,7 +668,7 @@ export default function ProjectsList() {
       await deleteProjectDir(selectedProject.id);
       
       // Delete project from database (this will cascade delete media records)
-      deleteProject(selectedProject.id);
+      await deleteProjectInSupabase(selectedProject.id);
       
       // Provide haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

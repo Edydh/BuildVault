@@ -41,7 +41,19 @@ export interface MediaItem {
   uri: string;
   thumb_uri?: string | null;
   note?: string | null;
+  metadata?: string | null;
   created_at: number;
+}
+
+export interface Note {
+  id: string;
+  project_id: string;
+  media_id?: string | null;
+  author_user_id?: string | null;
+  title?: string | null;
+  content: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface User {
@@ -113,6 +125,68 @@ type RemoteOrganizationMemberSyncRow = {
   created_at: number;
   updated_at: number;
   accepted_at?: number | null;
+};
+
+type RemoteProjectSyncRow = {
+  id: string;
+  owner_user_id?: string | null;
+  organization_id?: string | null;
+  name: string;
+  client?: string | null;
+  location?: string | null;
+  status?: ProjectStatus | null;
+  status_override?: ProjectStatus | null;
+  visibility?: ProjectVisibility | null;
+  public_slug?: string | null;
+  public_published_at?: number | null;
+  public_updated_at?: number | null;
+  progress?: number | null;
+  start_date?: number | null;
+  end_date?: number | null;
+  budget?: number | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type RemoteActivitySyncRow = {
+  id: string;
+  project_id: string;
+  action_type: string;
+  reference_id?: string | null;
+  actor_user_id?: string | null;
+  actor_name_snapshot?: string | null;
+  metadata?: string | null;
+  created_at: number;
+};
+
+type RemoteFolderSyncRow = {
+  id: string;
+  project_id: string;
+  name: string;
+  created_at: number;
+};
+
+type RemoteMediaSyncRow = {
+  id: string;
+  project_id: string;
+  folder_id?: string | null;
+  type: MediaItem['type'];
+  uri: string;
+  thumb_uri?: string | null;
+  note?: string | null;
+  metadata?: string | null;
+  created_at: number;
+};
+
+type RemoteNoteSyncRow = {
+  id: string;
+  project_id: string;
+  media_id?: string | null;
+  author_user_id?: string | null;
+  title?: string | null;
+  content: string;
+  created_at: number;
+  updated_at: number;
 };
 
 export interface ProjectPublicProfile {
@@ -242,6 +316,8 @@ const db = SQLite.openDatabaseSync('buildvault.db');
 const STALE_ACTIVITY_MS = 7 * 24 * 60 * 60 * 1000;
 const ACTIVITY_PROGRESS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVITY_CONTRIBUTION = 20;
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let activityActor: ActivityActor | null = null;
 let activeUserScopeId: string | null = null;
 const ORGANIZATION_MEMBER_ROLES: OrganizationMemberRole[] = ['owner', 'admin', 'member', 'viewer'];
@@ -291,6 +367,11 @@ function normalizeScopedUserId(value: string | null | undefined): string | null 
   if (!value) return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function isUuid(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return UUID_REGEX.test(value.trim());
 }
 
 function getScopedUserIdOrThrow(): string {
@@ -533,6 +614,15 @@ function normalizeProjectStatusOverride(value: unknown): ProjectStatus | null {
   return null;
 }
 
+function normalizeProjectStatus(value: unknown): ProjectStatus {
+  if (typeof value !== 'string') return 'neutral';
+  const normalized = value.trim();
+  if (normalized === 'completed' || normalized === 'active' || normalized === 'delayed' || normalized === 'neutral') {
+    return normalized;
+  }
+  return 'neutral';
+}
+
 function computeProjectProgressInternal(options: ProjectProgressOptions): ProjectProgressComputation {
   const lastActivityAt =
     options.lastActivityAt === undefined
@@ -704,6 +794,20 @@ function mapActivityRow(row: Record<string, unknown>): ActivityLogEntry {
     actor_name_snapshot: typeof row.actor_name_snapshot === 'string' ? row.actor_name_snapshot : null,
     metadata: typeof row.metadata === 'string' ? row.metadata : null,
     created_at: toNullableNumber(row.created_at) ?? Date.now(),
+  };
+}
+
+function mapNoteRow(row: Record<string, unknown>): Note {
+  const createdAt = toNullableNumber(row.created_at) ?? Date.now();
+  return {
+    id: String(row.id),
+    project_id: String(row.project_id),
+    media_id: typeof row.media_id === 'string' ? row.media_id : null,
+    author_user_id: typeof row.author_user_id === 'string' ? row.author_user_id : null,
+    title: typeof row.title === 'string' ? row.title : null,
+    content: typeof row.content === 'string' ? row.content : '',
+    created_at: createdAt,
+    updated_at: toNullableNumber(row.updated_at) ?? createdAt,
   };
 }
 
@@ -1518,12 +1622,27 @@ export function migrate() {
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT,
         project_id TEXT NOT NULL,
+        folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL,
         type TEXT NOT NULL,
         uri TEXT NOT NULL,
         thumb_uri TEXT,
         note TEXT,
+        metadata TEXT,
         created_at INTEGER NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS notes (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        project_id TEXT NOT NULL,
+        media_id TEXT,
+        author_user_id TEXT,
+        title TEXT,
+        content TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
+        FOREIGN KEY (media_id) REFERENCES media (id) ON DELETE SET NULL
       );
       CREATE TABLE IF NOT EXISTS activity_log (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1559,6 +1678,12 @@ export function migrate() {
 
     const alterStatements = [
       `ALTER TABLE media ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL`,
+      `ALTER TABLE media ADD COLUMN metadata TEXT`,
+      `ALTER TABLE notes ADD COLUMN user_id TEXT`,
+      `ALTER TABLE notes ADD COLUMN media_id TEXT`,
+      `ALTER TABLE notes ADD COLUMN author_user_id TEXT`,
+      `ALTER TABLE notes ADD COLUMN title TEXT`,
+      `ALTER TABLE notes ADD COLUMN updated_at INTEGER`,
       `ALTER TABLE projects ADD COLUMN status TEXT DEFAULT 'neutral'`,
       `ALTER TABLE projects ADD COLUMN status_override TEXT`,
       `ALTER TABLE projects ADD COLUMN progress INTEGER DEFAULT 0`,
@@ -1611,6 +1736,8 @@ export function migrate() {
       UPDATE projects SET user_id = '' WHERE user_id IS NULL;
       UPDATE folders SET user_id = '' WHERE user_id IS NULL;
       UPDATE media SET user_id = '' WHERE user_id IS NULL;
+      UPDATE notes SET user_id = '' WHERE user_id IS NULL;
+      UPDATE notes SET updated_at = created_at WHERE updated_at IS NULL;
       UPDATE activity_log SET user_id = '' WHERE user_id IS NULL;
       UPDATE organizations SET updated_at = created_at WHERE updated_at IS NULL;
       UPDATE organization_members SET role = 'member' WHERE role IS NULL OR trim(role) = '';
@@ -1648,6 +1775,8 @@ export function migrate() {
         CREATE INDEX IF NOT EXISTS idx_media_project_type_created_at ON media(project_id, type, created_at);
         CREATE INDEX IF NOT EXISTS idx_media_project_folder_created_at ON media(project_id, folder_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_media_project_note_present ON media(project_id) WHERE note IS NOT NULL AND length(trim(note)) > 0;
+        CREATE INDEX IF NOT EXISTS idx_notes_user_project_created_at ON notes(user_id, project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_notes_user_media_updated_at ON notes(user_id, media_id, updated_at);
         CREATE INDEX IF NOT EXISTS idx_folders_user_project ON folders(user_id, project_id);
         CREATE INDEX IF NOT EXISTS idx_activity_user_project_created_at ON activity_log(user_id, project_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_activity_project_created_at ON activity_log(project_id, created_at);
@@ -1974,6 +2103,367 @@ export function mergeOrganizationSnapshotFromSupabase(data: {
 
     deduplicateMembershipRows();
   }, 'Merge organization snapshot from Supabase');
+}
+
+export function mergeProjectsAndActivitySnapshotFromSupabase(data: {
+  currentAuthUserId: string;
+  projects: RemoteProjectSyncRow[];
+  activities: RemoteActivitySyncRow[];
+}): void {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    const scopedUser = getUserById(scopedUserId);
+    const scopedAuthUserId = scopedUser?.authUserId?.trim() || data.currentAuthUserId.trim();
+
+    const normalizeUserId = (remoteUserId?: string | null): string | null => {
+      if (!remoteUserId) return null;
+      const trimmed = remoteUserId.trim();
+      if (!trimmed) return null;
+      if (trimmed === scopedAuthUserId) {
+        return scopedUserId;
+      }
+      const localUser = getUserByAuthUserId(trimmed);
+      return localUser?.id ?? trimmed;
+    };
+
+    for (const project of data.projects) {
+      const id = project.id.trim();
+      const name = project.name.trim();
+      if (!id || !name) continue;
+
+      const ownerUserId = normalizeUserId(project.owner_user_id) ?? scopedUserId;
+      const organizationId = typeof project.organization_id === 'string' ? project.organization_id.trim() || null : null;
+      const status = normalizeProjectStatus(project.status);
+      const statusOverride = normalizeProjectStatusOverride(project.status_override);
+      const visibility: ProjectVisibility = project.visibility === 'public' ? 'public' : 'private';
+      const publicSlug = typeof project.public_slug === 'string' ? project.public_slug.trim() || null : null;
+      const progress = clampProgress(project.progress);
+      const createdAt = project.created_at || Date.now();
+      const updatedAt = project.updated_at || createdAt;
+      const startDate = project.start_date ?? createdAt;
+      const endDate = project.end_date ?? null;
+      const budget = toNullableNumber(project.budget);
+      const publicPublishedAt = project.public_published_at ?? null;
+      const publicUpdatedAt = project.public_updated_at ?? updatedAt;
+
+      db.runSync(
+        `INSERT INTO projects
+          (id, user_id, organization_id, name, client, location, visibility, public_slug, public_published_at, public_updated_at, status, status_override, progress, start_date, end_date, budget, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
+           organization_id = excluded.organization_id,
+           name = excluded.name,
+           client = excluded.client,
+           location = excluded.location,
+           visibility = excluded.visibility,
+           public_slug = excluded.public_slug,
+           public_published_at = excluded.public_published_at,
+           public_updated_at = excluded.public_updated_at,
+           status = excluded.status,
+           status_override = excluded.status_override,
+           progress = excluded.progress,
+           start_date = excluded.start_date,
+           end_date = excluded.end_date,
+           budget = excluded.budget,
+           updated_at = excluded.updated_at`,
+        [
+          id,
+          ownerUserId,
+          organizationId,
+          name,
+          project.client?.trim() || null,
+          project.location?.trim() || null,
+          visibility,
+          publicSlug,
+          publicPublishedAt,
+          publicUpdatedAt,
+          status,
+          statusOverride,
+          progress,
+          startDate,
+          endDate,
+          budget,
+          createdAt,
+          updatedAt,
+        ]
+      );
+
+      // Keep local assignment UX consistent until project_members sync is fully remote-wired.
+      const ownerUser = getUserById(ownerUserId);
+      const ownerMemberId = `${id}-owner-${ownerUserId}`;
+      db.runSync(
+        `INSERT INTO project_members
+          (id, project_id, user_id, invited_email, role, status, invited_by, user_name_snapshot, user_email_snapshot, created_at, updated_at, accepted_at)
+         VALUES (?, ?, ?, ?, 'owner', 'active', ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(project_id, user_id) DO UPDATE SET
+           role = 'owner',
+           status = 'active',
+           invited_email = excluded.invited_email,
+           invited_by = excluded.invited_by,
+           user_name_snapshot = excluded.user_name_snapshot,
+           user_email_snapshot = excluded.user_email_snapshot,
+           updated_at = excluded.updated_at,
+           accepted_at = COALESCE(project_members.accepted_at, excluded.accepted_at)`,
+        [
+          ownerMemberId,
+          id,
+          ownerUserId,
+          ownerUser?.email || null,
+          ownerUserId,
+          ownerUser?.name || null,
+          ownerUser?.email || null,
+          createdAt,
+          updatedAt,
+          createdAt,
+        ]
+      );
+    }
+
+    for (const activity of data.activities) {
+      const id = activity.id.trim();
+      const projectId = activity.project_id.trim();
+      const actionType = activity.action_type.trim();
+      if (!id || !projectId || !actionType) continue;
+
+      const projectRow = db.getFirstSync('SELECT user_id FROM projects WHERE id = ? LIMIT 1', [projectId]) as
+        | Record<string, unknown>
+        | null;
+      const ownerUserId = normalizeScopedUserId(
+        typeof projectRow?.user_id === 'string' ? projectRow.user_id : null
+      ) ?? scopedUserId;
+
+      const referenceId = normalizeActivityReferenceValue(activity.reference_id ?? null);
+      const actorUserId = normalizeUserId(activity.actor_user_id ?? null);
+      const actorNameSnapshot = activity.actor_name_snapshot?.trim() || null;
+      const metadata = activity.metadata?.trim() || null;
+      const createdAt = activity.created_at || Date.now();
+
+      db.runSync(
+        `INSERT INTO activity_log
+          (id, user_id, project_id, action_type, reference_id, actor_user_id, actor_name_snapshot, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
+           project_id = excluded.project_id,
+           action_type = excluded.action_type,
+           reference_id = excluded.reference_id,
+           actor_user_id = excluded.actor_user_id,
+           actor_name_snapshot = excluded.actor_name_snapshot,
+           metadata = excluded.metadata,
+           created_at = excluded.created_at`,
+        [id, ownerUserId, projectId, actionType, referenceId, actorUserId, actorNameSnapshot, metadata, createdAt]
+      );
+    }
+  }, 'Merge projects and activity snapshot from Supabase');
+}
+
+export function mergeProjectContentSnapshotFromSupabase(
+  data: {
+    projectId: string;
+    folders: RemoteFolderSyncRow[];
+    media: RemoteMediaSyncRow[];
+  },
+  options?: { pruneMissing?: boolean }
+): void {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    const projectId = data.projectId.trim();
+    if (!projectId) return;
+
+    const projectRow = db.getFirstSync(
+      `SELECT id
+       FROM projects
+       WHERE id = ?
+       LIMIT 1`,
+      [projectId]
+    ) as { id?: string } | null;
+    if (!projectRow?.id) return;
+
+    for (const folder of data.folders) {
+      const id = folder.id.trim();
+      const remoteProjectId = folder.project_id.trim();
+      const name = folder.name.trim();
+      if (!id || !remoteProjectId || !name) continue;
+      if (remoteProjectId !== projectId) continue;
+
+      const createdAt = folder.created_at || Date.now();
+      db.runSync(
+        `INSERT INTO folders (id, user_id, project_id, name, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
+           project_id = excluded.project_id,
+           name = excluded.name`,
+        [id, scopedUserId, projectId, name, createdAt]
+      );
+    }
+
+    for (const mediaItem of data.media) {
+      const id = mediaItem.id.trim();
+      const remoteProjectId = mediaItem.project_id.trim();
+      if (!id || !remoteProjectId) continue;
+      if (remoteProjectId !== projectId) continue;
+
+      const type = mediaItem.type === 'video' || mediaItem.type === 'doc' ? mediaItem.type : 'photo';
+      const folderId = typeof mediaItem.folder_id === 'string' ? mediaItem.folder_id.trim() || null : null;
+      const createdAt = mediaItem.created_at || Date.now();
+
+      db.runSync(
+        `INSERT INTO media (id, user_id, project_id, folder_id, type, uri, thumb_uri, note, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
+           project_id = excluded.project_id,
+           folder_id = excluded.folder_id,
+           type = excluded.type,
+           uri = excluded.uri,
+           thumb_uri = excluded.thumb_uri,
+           note = excluded.note,
+           metadata = excluded.metadata`,
+        [
+          id,
+          scopedUserId,
+          projectId,
+          folderId,
+          type,
+          mediaItem.uri,
+          mediaItem.thumb_uri || null,
+          mediaItem.note || null,
+          mediaItem.metadata || null,
+          createdAt,
+        ]
+      );
+    }
+
+    if (!options?.pruneMissing) return;
+
+    const remoteMediaIds = new Set(
+      data.media
+        .map((item) => item.id.trim())
+        .filter((value) => value.length > 0)
+    );
+    const localMediaIds = db.getAllSync(
+      `SELECT id
+       FROM media
+       WHERE project_id = ?
+         AND user_id = ?`,
+      [projectId, scopedUserId]
+    ) as Array<Record<string, unknown>>;
+
+    for (const row of localMediaIds) {
+      const id = typeof row.id === 'string' ? row.id.trim() : '';
+      if (!id || !isUuid(id)) continue;
+      if (remoteMediaIds.has(id)) continue;
+      db.runSync('DELETE FROM media WHERE id = ? AND user_id = ?', [id, scopedUserId]);
+    }
+
+    const remoteFolderIds = new Set(
+      data.folders
+        .map((item) => item.id.trim())
+        .filter((value) => value.length > 0)
+    );
+    const localFolderIds = db.getAllSync(
+      `SELECT id
+       FROM folders
+       WHERE project_id = ?
+         AND user_id = ?`,
+      [projectId, scopedUserId]
+    ) as Array<Record<string, unknown>>;
+
+    for (const row of localFolderIds) {
+      const id = typeof row.id === 'string' ? row.id.trim() : '';
+      if (!id || !isUuid(id)) continue;
+      if (remoteFolderIds.has(id)) continue;
+      db.runSync('UPDATE media SET folder_id = NULL WHERE folder_id = ? AND user_id = ?', [id, scopedUserId]);
+      db.runSync('DELETE FROM folders WHERE id = ? AND user_id = ?', [id, scopedUserId]);
+    }
+  }, 'Merge project content snapshot from Supabase');
+}
+
+export function mergeProjectNotesSnapshotFromSupabase(
+  data: {
+    currentAuthUserId: string;
+    projectId: string;
+    notes: RemoteNoteSyncRow[];
+  },
+  options?: { pruneMissing?: boolean }
+): void {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    const scopedUser = getUserById(scopedUserId);
+    const scopedAuthUserId = scopedUser?.authUserId?.trim() || data.currentAuthUserId.trim();
+    const projectId = data.projectId.trim();
+    if (!projectId) return;
+
+    const projectRow = db.getFirstSync(
+      `SELECT id
+       FROM projects
+       WHERE id = ?
+       LIMIT 1`,
+      [projectId]
+    ) as { id?: string } | null;
+    if (!projectRow?.id) return;
+
+    const normalizeUserId = (remoteUserId?: string | null): string | null => {
+      if (!remoteUserId) return null;
+      const trimmed = remoteUserId.trim();
+      if (!trimmed) return null;
+      if (trimmed === scopedAuthUserId) return scopedUserId;
+      const localUser = getUserByAuthUserId(trimmed);
+      return localUser?.id ?? trimmed;
+    };
+
+    for (const note of data.notes) {
+      const id = note.id.trim();
+      const remoteProjectId = note.project_id.trim();
+      const content = note.content.trim();
+      if (!id || !remoteProjectId || !content) continue;
+      if (remoteProjectId !== projectId) continue;
+
+      const mediaId = typeof note.media_id === 'string' ? note.media_id.trim() || null : null;
+      const authorUserId = normalizeUserId(note.author_user_id) ?? null;
+      const title = typeof note.title === 'string' ? note.title.trim() || null : null;
+      const createdAt = note.created_at || Date.now();
+      const updatedAt = note.updated_at || createdAt;
+
+      db.runSync(
+        `INSERT INTO notes (id, user_id, project_id, media_id, author_user_id, title, content, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
+           project_id = excluded.project_id,
+           media_id = excluded.media_id,
+           author_user_id = excluded.author_user_id,
+           title = excluded.title,
+           content = excluded.content,
+           created_at = excluded.created_at,
+           updated_at = excluded.updated_at`,
+        [id, scopedUserId, projectId, mediaId, authorUserId, title, content, createdAt, updatedAt]
+      );
+    }
+
+    if (!options?.pruneMissing) return;
+    const remoteNoteIds = new Set(
+      data.notes
+        .map((note) => note.id.trim())
+        .filter((value) => value.length > 0)
+    );
+    const localNoteIds = db.getAllSync(
+      `SELECT id
+       FROM notes
+       WHERE project_id = ?
+         AND user_id = ?`,
+      [projectId, scopedUserId]
+    ) as Array<Record<string, unknown>>;
+
+    for (const row of localNoteIds) {
+      const id = typeof row.id === 'string' ? row.id.trim() : '';
+      if (!id || !isUuid(id)) continue;
+      if (remoteNoteIds.has(id)) continue;
+      db.runSync('DELETE FROM notes WHERE id = ? AND user_id = ?', [id, scopedUserId]);
+    }
+  }, 'Merge project notes snapshot from Supabase');
 }
 
 export function deleteProject(id: string) {
@@ -3166,6 +3656,38 @@ export function removeProjectMember(projectId: string, userId: string): void {
   }, 'Remove project member');
 }
 
+function applyLatestNoteOverlayToMedia(items: MediaItem[], scopedUserId: string): MediaItem[] {
+  if (items.length === 0) return items;
+  const mediaIds = Array.from(new Set(items.map((item) => item.id).filter((id) => id.trim().length > 0)));
+  if (mediaIds.length === 0) return items;
+
+  const placeholders = mediaIds.map(() => '?').join(',');
+  const rows = db.getAllSync(
+    `SELECT media_id, content
+     FROM notes
+     WHERE user_id = ?
+       AND media_id IN (${placeholders})
+       AND content IS NOT NULL
+       AND length(trim(content)) > 0
+     ORDER BY updated_at DESC, created_at DESC`,
+    [scopedUserId, ...mediaIds]
+  ) as Array<Record<string, unknown>>;
+
+  const latestByMedia = new Map<string, string>();
+  for (const row of rows) {
+    const mediaId = typeof row.media_id === 'string' ? row.media_id : '';
+    if (!mediaId || latestByMedia.has(mediaId)) continue;
+    const content = typeof row.content === 'string' ? row.content : '';
+    latestByMedia.set(mediaId, content);
+  }
+
+  return items.map((item) => {
+    const latest = latestByMedia.get(item.id);
+    if (latest === undefined) return item;
+    return { ...item, note: latest };
+  });
+}
+
 export function getMediaByProject(projectId: string, type?: MediaItem['type']): MediaItem[] {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
@@ -3176,7 +3698,7 @@ export function getMediaByProject(projectId: string, type?: MediaItem['type']): 
 
     const params = type ? [projectId, userId, type] : [projectId, userId];
     const result = db.getAllSync(query, params) as MediaItem[];
-    return result;
+    return applyLatestNoteOverlayToMedia(result, userId);
   }, 'Get media by project');
 }
 
@@ -3197,8 +3719,19 @@ export function createMedia(data: Omit<MediaItem, 'id' | 'created_at'>): MediaIt
     const created_at = Date.now();
 
     db.runSync(
-      'INSERT INTO media (id, user_id, project_id, folder_id, type, uri, thumb_uri, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, userId, data.project_id, data.folder_id || null, data.type, data.uri, data.thumb_uri || null, data.note || null, created_at]
+      'INSERT INTO media (id, user_id, project_id, folder_id, type, uri, thumb_uri, note, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        userId,
+        data.project_id,
+        data.folder_id || null,
+        data.type,
+        data.uri,
+        data.thumb_uri || null,
+        data.note || null,
+        data.metadata || null,
+        created_at,
+      ]
     );
 
     touchProject(data.project_id, created_at, userId);
@@ -3221,6 +3754,7 @@ export function deleteMedia(id: string) {
       folder_id?: string | null;
     } | null;
 
+    db.runSync('DELETE FROM notes WHERE media_id = ? AND user_id = ?', [id, userId]);
     db.runSync('DELETE FROM media WHERE id = ? AND user_id = ?', [id, userId]);
 
     if (media?.project_id) {
@@ -3240,21 +3774,53 @@ export function updateMediaNote(id: string, note: string | null) {
       project_id?: string;
       note?: string | null;
     } | null;
+    if (!existing?.project_id) return;
 
-    db.runSync('UPDATE media SET note = ? WHERE id = ? AND user_id = ?', [note, id, userId]);
+    const currentNoteRow = db.getFirstSync(
+      `SELECT *
+       FROM notes
+       WHERE media_id = ?
+         AND user_id = ?
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 1`,
+      [id, userId]
+    ) as Record<string, unknown> | null;
 
-    if (existing?.project_id) {
-      const previousHasNote = !!existing.note?.trim();
-      const nextHasNote = !!note?.trim();
-      const actionType = !previousHasNote && nextHasNote
-        ? 'note_added'
-        : previousHasNote && !nextHasNote
-          ? 'note_removed'
-          : 'note_updated';
+    const nextContent = typeof note === 'string' ? note.trim() : '';
+    const now = Date.now();
 
-      touchProject(existing.project_id, Date.now(), userId);
-      logActivityInternal(existing.project_id, actionType, id, { has_note: nextHasNote });
+    if (nextContent.length > 0) {
+      if (currentNoteRow?.id) {
+        db.runSync(
+          `UPDATE notes
+           SET content = ?, updated_at = ?, author_user_id = ?
+           WHERE id = ? AND user_id = ?`,
+          [nextContent, now, userId, String(currentNoteRow.id), userId]
+        );
+      } else {
+        db.runSync(
+          `INSERT INTO notes
+            (id, user_id, project_id, media_id, author_user_id, title, content, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [createId(), userId, existing.project_id, id, userId, null, nextContent, now, now]
+        );
+      }
+    } else {
+      db.runSync('DELETE FROM notes WHERE media_id = ? AND user_id = ?', [id, userId]);
     }
+
+    db.runSync('UPDATE media SET note = ? WHERE id = ? AND user_id = ?', [nextContent || null, id, userId]);
+
+    const previousHasNote = !!existing.note?.trim() || !!(currentNoteRow && String(currentNoteRow.content ?? '').trim().length > 0);
+    const nextHasNote = nextContent.length > 0;
+    const actionType = !previousHasNote && nextHasNote
+      ? 'note_added'
+      : previousHasNote && !nextHasNote
+        ? 'note_removed'
+        : 'note_updated';
+
+    touchProject(existing.project_id, now, userId);
+    logActivityInternal(existing.project_id, actionType, id, { has_note: nextHasNote, note_scope: 'media', media_id: id }, now);
   }, 'Update media note');
 }
 
@@ -3275,7 +3841,9 @@ export function getMediaById(id: string): MediaItem | null {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
     const result = db.getFirstSync('SELECT * FROM media WHERE id = ? AND user_id = ?', [id, userId]) as MediaItem | null;
-    return result;
+    if (!result) return null;
+    const [withNote] = applyLatestNoteOverlayToMedia([result], userId);
+    return withNote ?? result;
   }, 'Get media by ID');
 }
 
@@ -3310,7 +3878,18 @@ export function getMediaFiltered(
     }
 
     if (opts.hasNoteOnly) {
-      where.push('note IS NOT NULL AND length(trim(note)) > 0');
+      where.push(
+        `(note IS NOT NULL AND length(trim(note)) > 0
+          OR EXISTS (
+            SELECT 1
+            FROM notes n
+            WHERE n.media_id = media.id
+              AND n.user_id = ?
+              AND n.content IS NOT NULL
+              AND length(trim(n.content)) > 0
+          ))`
+      );
+      params.push(userId);
     }
 
     if (opts.dateFrom) {
@@ -3342,8 +3921,253 @@ export function getMediaFiltered(
 
     const sql = `SELECT * FROM media WHERE ${where.join(' AND ')} ${orderBy}`;
     const result = db.getAllSync(sql, params) as MediaItem[];
-    return result;
+    return applyLatestNoteOverlayToMedia(result, userId);
   }, 'Get media filtered');
+}
+
+export function getNotesByProject(projectId: string, mediaId?: string | null): Note[] {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
+
+    const params: Array<string | number> = [projectId, userId];
+    let query = `
+      SELECT *
+      FROM notes
+      WHERE project_id = ?
+        AND user_id = ?
+    `;
+
+    if (typeof mediaId === 'string') {
+      query += ' AND media_id = ?';
+      params.push(mediaId);
+    } else if (mediaId === null) {
+      query += ' AND media_id IS NULL';
+    }
+
+    query += ' ORDER BY updated_at DESC, created_at DESC';
+    const rows = db.getAllSync(query, params) as Array<Record<string, unknown>>;
+    return rows.map(mapNoteRow);
+  }, 'Get notes by project');
+}
+
+export function createProjectNote(data: {
+  project_id: string;
+  content: string;
+  title?: string | null;
+  media_id?: string | null;
+}): Note {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(data.project_id, userId);
+
+    const content = data.content.trim();
+    if (!content) {
+      throw new Error('Note content is required');
+    }
+
+    const title = typeof data.title === 'string' ? data.title.trim() : '';
+    const mediaId =
+      typeof data.media_id === 'string' && data.media_id.trim().length > 0 ? data.media_id.trim() : null;
+
+    if (mediaId) {
+      const media = db.getFirstSync(
+        'SELECT id FROM media WHERE id = ? AND project_id = ? AND user_id = ? LIMIT 1',
+        [mediaId, data.project_id, userId]
+      ) as { id?: string } | null;
+      if (!media?.id) {
+        throw new Error('Linked media not found');
+      }
+      db.runSync('UPDATE media SET note = ? WHERE id = ? AND user_id = ?', [content, mediaId, userId]);
+    }
+
+    const id = createId();
+    const now = Date.now();
+    db.runSync(
+      `INSERT INTO notes
+        (id, user_id, project_id, media_id, author_user_id, title, content, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, userId, data.project_id, mediaId, userId, title || null, content, now, now]
+    );
+
+    touchProject(data.project_id, now, userId);
+    logActivityInternal(
+      data.project_id,
+      'note_added',
+      mediaId || id,
+      {
+        has_note: true,
+        note_scope: mediaId ? 'media' : 'project',
+        media_id: mediaId,
+        title: title || null,
+      },
+      now
+    );
+
+    return {
+      id,
+      project_id: data.project_id,
+      media_id: mediaId,
+      author_user_id: userId,
+      title: title || null,
+      content,
+      created_at: now,
+      updated_at: now,
+    };
+  }, 'Create project note');
+}
+
+export function updateProjectNote(
+  noteId: string,
+  data: {
+    content: string;
+    title?: string | null;
+  }
+): Note | null {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const existing = db.getFirstSync(
+      `SELECT *
+       FROM notes
+       WHERE id = ?
+         AND user_id = ?
+       LIMIT 1`,
+      [noteId, userId]
+    ) as Record<string, unknown> | null;
+    if (!existing) return null;
+
+    const projectId = typeof existing.project_id === 'string' ? existing.project_id : '';
+    if (!projectId) return null;
+    assertProjectAccess(projectId, userId);
+
+    const content = data.content.trim();
+    if (!content) {
+      throw new Error('Note content is required');
+    }
+    const title = typeof data.title === 'string' ? data.title.trim() : '';
+    const mediaId = typeof existing.media_id === 'string' ? existing.media_id : null;
+    const now = Date.now();
+
+    db.runSync(
+      `UPDATE notes
+       SET title = ?, content = ?, author_user_id = ?, updated_at = ?
+       WHERE id = ?
+         AND user_id = ?`,
+      [title || null, content, userId, now, noteId, userId]
+    );
+
+    if (mediaId) {
+      db.runSync('UPDATE media SET note = ? WHERE id = ? AND user_id = ?', [content, mediaId, userId]);
+    }
+
+    touchProject(projectId, now, userId);
+    logActivityInternal(
+      projectId,
+      'note_updated',
+      mediaId || noteId,
+      {
+        has_note: true,
+        note_scope: mediaId ? 'media' : 'project',
+        media_id: mediaId,
+        title: title || null,
+      },
+      now
+    );
+
+    return {
+      id: noteId,
+      project_id: projectId,
+      media_id: mediaId,
+      author_user_id: userId,
+      title: title || null,
+      content,
+      created_at: toNullableNumber(existing.created_at) ?? now,
+      updated_at: now,
+    };
+  }, 'Update project note');
+}
+
+export function deleteProjectNote(noteId: string): void {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const existing = db.getFirstSync(
+      `SELECT id, project_id, media_id
+       FROM notes
+       WHERE id = ?
+         AND user_id = ?
+       LIMIT 1`,
+      [noteId, userId]
+    ) as { id?: string; project_id?: string; media_id?: string | null } | null;
+    if (!existing?.id || !existing.project_id) return;
+    assertProjectAccess(existing.project_id, userId);
+
+    db.runSync('DELETE FROM notes WHERE id = ? AND user_id = ?', [noteId, userId]);
+
+    if (existing.media_id) {
+      const latestRemaining = db.getFirstSync(
+        `SELECT content
+         FROM notes
+         WHERE media_id = ?
+           AND user_id = ?
+           AND content IS NOT NULL
+           AND length(trim(content)) > 0
+         ORDER BY updated_at DESC, created_at DESC
+         LIMIT 1`,
+        [existing.media_id, userId]
+      ) as { content?: string | null } | null;
+      const nextContent =
+        typeof latestRemaining?.content === 'string' && latestRemaining.content.trim().length > 0
+          ? latestRemaining.content.trim()
+          : null;
+      db.runSync('UPDATE media SET note = ? WHERE id = ? AND user_id = ?', [nextContent, existing.media_id, userId]);
+    }
+
+    const now = Date.now();
+    touchProject(existing.project_id, now, userId);
+    logActivityInternal(
+      existing.project_id,
+      'note_removed',
+      existing.media_id || noteId,
+      {
+        has_note: false,
+        note_scope: existing.media_id ? 'media' : 'project',
+        media_id: existing.media_id || null,
+      },
+      now
+    );
+  }, 'Delete project note');
+}
+
+export function getLatestNoteByMedia(mediaId: string): Note | null {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const row = db.getFirstSync(
+      `SELECT *
+       FROM notes
+       WHERE media_id = ?
+         AND user_id = ?
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 1`,
+      [mediaId, userId]
+    ) as Record<string, unknown> | null;
+    return row ? mapNoteRow(row) : null;
+  }, 'Get latest note by media');
+}
+
+export function getEffectiveMediaNote(mediaId: string): string | null {
+  return withErrorHandlingSync(() => {
+    const latest = getLatestNoteByMedia(mediaId);
+    if (latest?.content?.trim()) {
+      return latest.content;
+    }
+    const userId = getScopedUserIdOrThrow();
+    const row = db.getFirstSync(
+      'SELECT note FROM media WHERE id = ? AND user_id = ? LIMIT 1',
+      [mediaId, userId]
+    ) as { note?: string | null } | null;
+    const fallback = typeof row?.note === 'string' ? row.note.trim() : '';
+    return fallback.length > 0 ? fallback : null;
+  }, 'Get effective media note');
 }
 
 // User management functions
@@ -3626,7 +4450,7 @@ export function getMediaByFolder(projectId: string, folderId?: string | null): M
 
     const params = folderId ? [projectId, userId, folderId] : [projectId, userId];
     const result = db.getAllSync(query, params) as MediaItem[];
-    return result;
+    return applyLatestNoteOverlayToMedia(result, userId);
   }, 'Get media by folder');
 }
 

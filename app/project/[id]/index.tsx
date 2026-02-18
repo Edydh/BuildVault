@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectProgressComputation, getProjectById, deleteMedia, Project, createMedia, Folder, getFoldersByProject, createFolder, updateFolderName, deleteFolder, getMediaByFolder, getMediaByProject, getMediaById, moveMediaToFolder, updateMediaNote, updateMediaThumbnail, getMediaFiltered, getActivityByProject, createActivity, updateActivity, deleteActivity, getProjectMembers, getOrganizationMembers, upsertProjectMember, computeProjectProgress, setProjectCompletionState } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectProgressComputation, getProjectById, Project, Folder, getFoldersByProject, getMediaByFolder, getMediaByProject, getMediaById, getMediaFiltered, getActivityByProject, getProjectMembers, getOrganizationMembers, upsertProjectMember, computeProjectProgress } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -29,6 +29,22 @@ import { GlassCard, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, S
 import { BVCard, BVEmptyState, BVFloatingAction } from '../../../components/ui';
 import { FAB_BOTTOM_OFFSET } from '../../../components/glass/layout';
 import { bvColors, bvFx } from '../../../lib/theme/tokens';
+import {
+  createActivityInSupabase,
+  createFolderInSupabase,
+  createMediaInSupabase,
+  deleteActivityInSupabase,
+  deleteFolderInSupabase,
+  deleteMediaInSupabase,
+  moveMediaToFolderInSupabase,
+  setProjectCompletionStateInSupabase,
+  syncProjectContentFromSupabase,
+  syncProjectsAndActivityFromSupabase,
+  updateFolderNameInSupabase,
+  updateMediaNoteInSupabase,
+  updateMediaThumbnailInSupabase,
+  updateActivityInSupabase,
+} from '../../../lib/supabaseProjectsSync';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
@@ -133,6 +149,9 @@ function isManualEntryActivity(actionType: string, metadata?: Record<string, unk
 }
 
 function isMediaLinkableActivityType(value: string, metadata?: Record<string, unknown> | null): boolean {
+  const noteScope =
+    typeof metadata?.note_scope === 'string' ? metadata.note_scope.trim().toLowerCase() : '';
+  if (noteScope === 'project') return false;
   return SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES.has(value) || isManualEntryActivity(value, metadata);
 }
 
@@ -533,7 +552,7 @@ function ProjectDetailContent() {
               to: thumbFileUri,
             });
 
-            updateMediaThumbnail(video.id, thumbFileUri);
+            await updateMediaThumbnailInSupabase(video.id, thumbFileUri);
             
             console.log(`Regenerated thumbnail for video ${video.id}: ${thumbFileUri}`);
           } catch (error) {
@@ -645,8 +664,19 @@ function ProjectDetailContent() {
   // Refresh data when returning from capture screen
   useFocusEffect(
     useCallback(() => {
-      loadData();
-    }, [loadData])
+      void (async () => {
+        try {
+          await syncProjectsAndActivityFromSupabase();
+          if (id) {
+            await syncProjectContentFromSupabase(id);
+          }
+        } catch (error) {
+          console.log('Project sync warning:', error);
+        } finally {
+          loadData();
+        }
+      })();
+    }, [id, loadData])
   );
 
   const handleCaptureMedia = () => {
@@ -699,7 +729,7 @@ function ProjectDetailContent() {
       const { fileUri, thumbUri } = await saveMediaToProject(id!, document.uri, mediaType);
       
       // Save to database with correct type
-      createMedia({
+      await createMediaInSupabase({
         project_id: id!,
         folder_id: currentFolder,
         type: mediaType,
@@ -707,6 +737,7 @@ function ProjectDetailContent() {
         thumb_uri: thumbUri,
         note: `Uploaded: ${document.name}`,
       });
+      await syncProjectsAndActivityFromSupabase();
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       loadData();
@@ -743,6 +774,11 @@ function ProjectDetailContent() {
   const handleOpenPublicSettings = () => {
     if (!id) return;
     router.push(`/project/${id}/public`);
+  };
+
+  const handleOpenNotesScreen = () => {
+    if (!id) return;
+    router.push(`/project/${id}/notes`);
   };
 
   const shareProjectSummary = async () => {
@@ -940,6 +976,13 @@ function ProjectDetailContent() {
     return normalizeActivityStatus(metadata?.status);
   };
 
+  const parseActivityNoteScope = (metadata: Record<string, unknown> | null): 'media' | 'project' | null => {
+    if (!metadata || typeof metadata.note_scope !== 'string') return null;
+    const value = metadata.note_scope.trim().toLowerCase();
+    if (value === 'media' || value === 'project') return value;
+    return null;
+  };
+
   const handleEditActivityPress = (entry: {
     id: string;
     actionType: string;
@@ -1002,14 +1045,16 @@ function ProjectDetailContent() {
           label: 'Delete Activity',
           destructive: true,
           onPress: () => {
-            try {
-              deleteActivity(entry.id);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              loadData();
-            } catch (error) {
-              console.error('Error deleting activity:', error);
-              Alert.alert('Error', 'Could not delete activity. Please try again.');
-            }
+            void (async () => {
+              try {
+                await deleteActivityInSupabase(entry.id);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                loadData();
+              } catch (error) {
+                console.error('Error deleting activity:', error);
+                Alert.alert('Error', 'Could not delete activity. Please try again.');
+              }
+            })();
           },
         },
       ],
@@ -1107,13 +1152,13 @@ function ProjectDetailContent() {
           Alert.alert('Error', 'No activity selected to edit.');
           return;
         }
-        updateActivity(editingActivityId, {
+        await updateActivityInSupabase(editingActivityId, {
           actionType: resolvedActionType,
           referenceId: manualActivityReferenceId,
           metadata,
         });
       } else {
-        createActivity(id, resolvedActionType, manualActivityReferenceId, metadata);
+        await createActivityInSupabase(id, resolvedActionType, manualActivityReferenceId, metadata);
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       handleCloseActivityModal();
@@ -1162,17 +1207,19 @@ function ProjectDetailContent() {
         text: markCompleted ? 'Mark Completed' : 'Reopen',
         style: markCompleted ? 'default' : 'destructive',
         onPress: () => {
-          try {
-            const updated = setProjectCompletionState(id, markCompleted);
-            if (updated) {
-              setProject(updated);
+          void (async () => {
+            try {
+              const updated = await setProjectCompletionStateInSupabase(id, markCompleted);
+              if (updated) {
+                setProject(updated);
+              }
+              loadData();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            } catch (error) {
+              console.error('Error toggling project completion state:', error);
+              Alert.alert('Error', 'Could not update project completion state. Please try again.');
             }
-            loadData();
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          } catch (error) {
-            console.error('Error toggling project completion state:', error);
-            Alert.alert('Error', 'Could not update project completion state. Please try again.');
-          }
+          })();
         },
       },
     ]);
@@ -1205,7 +1252,9 @@ function ProjectDetailContent() {
               if (mediaItem.type === 'photo' && id) {
                 await cleanupImageVariants(mediaItem.id, id);
               }
-              deleteMedia(mediaItem.id);
+              await deleteMediaInSupabase(mediaItem.id);
+              await syncProjectContentFromSupabase(id!);
+              await syncProjectsAndActivityFromSupabase();
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               loadData();
             } catch (error) {
@@ -1291,6 +1340,12 @@ function ProjectDetailContent() {
     router.push(`/project/${id}/media/${localMedia.id}`);
   };
 
+  const openProjectNotesFromActivity = () => {
+    if (!id) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(`/project/${id}/notes`);
+  };
+
   const getActivityLinkedPreviewUri = (linkedMedia: MediaItem | null): string | null => {
     if (!linkedMedia) return null;
     if (linkedMedia.type === 'photo') return linkedMedia.uri;
@@ -1330,6 +1385,11 @@ function ProjectDetailContent() {
     const metadataEmail = typeof metadata?.email === 'string' ? metadata.email.trim() : '';
     const metadataName = typeof metadata?.name === 'string' ? metadata.name.trim() : '';
     const metadataRole = typeof metadata?.role === 'string' ? metadata.role.trim() : '';
+    const metadataTitle = typeof metadata?.title === 'string' ? metadata.title.trim() : '';
+    const metadataNoteScope =
+      typeof metadata?.note_scope === 'string' && metadata.note_scope.trim().length > 0
+        ? metadata.note_scope.trim()
+        : 'media';
     const metadataFromRole = typeof metadata?.from_role === 'string' ? metadata.from_role.trim() : '';
     const metadataToRole = typeof metadata?.to_role === 'string' ? metadata.to_role.trim() : '';
     const metadataFromStatus = typeof metadata?.from_status === 'string' ? metadata.from_status.trim() : '';
@@ -1393,8 +1453,13 @@ function ProjectDetailContent() {
         };
       case 'note_added':
         return {
-          title: 'Note added',
-          description: 'A note was attached to a media item.',
+          title: metadataNoteScope === 'project' ? 'Project note added' : 'Note added',
+          description:
+            metadataNoteScope === 'project'
+              ? metadataTitle
+                ? `Project note "${metadataTitle}" was added.`
+                : 'A project note was added.'
+              : 'A note was attached to a media item.',
           icon: 'document-text-outline',
           iconBg: bvColors.brand.primaryLight,
           iconColor: bvColors.neutral[0],
@@ -1402,8 +1467,13 @@ function ProjectDetailContent() {
         };
       case 'note_updated':
         return {
-          title: 'Note updated',
-          description: 'A media note was edited.',
+          title: metadataNoteScope === 'project' ? 'Project note updated' : 'Note updated',
+          description:
+            metadataNoteScope === 'project'
+              ? metadataTitle
+                ? `Project note "${metadataTitle}" was updated.`
+                : 'A project note was edited.'
+              : 'A media note was edited.',
           icon: 'create-outline',
           iconBg: bvColors.brand.primaryLight,
           iconColor: bvColors.neutral[0],
@@ -1411,8 +1481,13 @@ function ProjectDetailContent() {
         };
       case 'note_removed':
         return {
-          title: 'Note removed',
-          description: 'A media note was removed.',
+          title: metadataNoteScope === 'project' ? 'Project note removed' : 'Note removed',
+          description:
+            metadataNoteScope === 'project'
+              ? metadataTitle
+                ? `Project note "${metadataTitle}" was removed.`
+                : 'A project note was removed.'
+              : 'A media note was removed.',
           icon: 'remove-circle-outline',
           iconBg: bvColors.semantic.danger,
           iconColor: bvColors.neutral[0],
@@ -1709,7 +1784,7 @@ function ProjectDetailContent() {
     setShowFolderModal(true);
   };
 
-  const handleFolderSubmit = () => {
+  const handleFolderSubmit = async () => {
     const trimmedName = newFolderName.trim();
     if (!trimmedName) {
       Alert.alert('Error', 'Please enter a folder name');
@@ -1719,7 +1794,9 @@ function ProjectDetailContent() {
     try {
       if (folderModalMode === 'edit' && folderBeingEdited) {
         const folderId = folderBeingEdited.id;
-        updateFolderName(folderId, trimmedName);
+        await updateFolderNameInSupabase(folderId, trimmedName);
+        await syncProjectContentFromSupabase(id!);
+        await syncProjectsAndActivityFromSupabase();
         setFolders(prev =>
           prev.map(folder =>
             folder.id === folderId ? { ...folder, name: trimmedName } : folder
@@ -1730,13 +1807,14 @@ function ProjectDetailContent() {
         Alert.alert('Success', 'Folder renamed successfully!');
         loadData(folderId);
       } else {
-        const folder = createFolder({
-          project_id: id!,
-          name: trimmedName,
-        });
+        const folder = await createFolderInSupabase(id!, trimmedName);
+        await syncProjectContentFromSupabase(id!);
+        await syncProjectsAndActivityFromSupabase();
         setFolders(prev => [...prev, folder]);
         if (pendingFolderMoveMediaId) {
-          moveMediaToFolder(pendingFolderMoveMediaId, folder.id);
+          await moveMediaToFolderInSupabase(pendingFolderMoveMediaId, folder.id);
+          await syncProjectContentFromSupabase(id!);
+          await syncProjectsAndActivityFromSupabase();
         }
         setCurrentFolder(folder.id);
         closeFolderModal();
@@ -1764,15 +1842,19 @@ function ProjectDetailContent() {
         {
           label: 'Delete Folder',
           destructive: true,
-          onPress: () => executeDeleteFolder(folder),
+          onPress: () => {
+            void executeDeleteFolder(folder);
+          },
         },
       ],
     });
   };
 
-  const executeDeleteFolder = (folder: Folder) => {
+  const executeDeleteFolder = async (folder: Folder) => {
     try {
-      deleteFolder(folder.id);
+      await deleteFolderInSupabase(folder.id);
+      await syncProjectContentFromSupabase(id!);
+      await syncProjectsAndActivityFromSupabase();
       setFolders(prev => prev.filter(f => f.id !== folder.id));
 
       const nextFolder = currentFolder === folder.id ? null : currentFolder;
@@ -1825,25 +1907,33 @@ function ProjectDetailContent() {
       {
         label: 'All Media',
         onPress: () => {
-          try {
-            moveMediaToFolder(mediaItem.id, null);
-            loadData();
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          } catch (error) {
-            console.error('Error moving media:', error);
-          }
+          void (async () => {
+            try {
+              await moveMediaToFolderInSupabase(mediaItem.id, null);
+              await syncProjectContentFromSupabase(id!);
+              await syncProjectsAndActivityFromSupabase();
+              loadData();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            } catch (error) {
+              console.error('Error moving media:', error);
+            }
+          })();
         },
       },
       ...folders.map(folder => ({
         label: folder.name,
         onPress: () => {
-          try {
-            moveMediaToFolder(mediaItem.id, folder.id);
-            loadData();
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          } catch (error) {
-            console.error('Error moving media:', error);
-          }
+          void (async () => {
+            try {
+              await moveMediaToFolderInSupabase(mediaItem.id, folder.id);
+              await syncProjectContentFromSupabase(id!);
+              await syncProjectsAndActivityFromSupabase();
+              loadData();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            } catch (error) {
+              console.error('Error moving media:', error);
+            }
+          })();
         },
       })),
     ];
@@ -2030,8 +2120,11 @@ function ProjectDetailContent() {
                 }
                 
                 // Delete from database
-                deleteMedia(mediaItem.id);
+                await deleteMediaInSupabase(mediaItem.id);
               }
+
+              await syncProjectContentFromSupabase(id!);
+              await syncProjectsAndActivityFromSupabase();
               
               // Provide haptic feedback
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -2062,11 +2155,13 @@ function ProjectDetailContent() {
     setShowNoteModal(true);
   };
 
-  const handleSaveNote = () => {
+  const handleSaveNote = async () => {
     if (!editingNoteItem) return;
     
     try {
-      updateMediaNote(editingNoteItem.id, noteText || null);
+      await updateMediaNoteInSupabase(editingNoteItem.id, noteText || null);
+      await syncProjectContentFromSupabase(id!);
+      await syncProjectsAndActivityFromSupabase();
       
       // Update the local state
       setMedia(prev => prev.map(item => 
@@ -2193,7 +2288,7 @@ function ProjectDetailContent() {
               }
 
               await FileSystem.moveAsync({ from: result.uri, to: targetUri });
-              updateMediaThumbnail(item.id, targetUri);
+              await updateMediaThumbnailInSupabase(item.id, targetUri);
               currentThumb = targetUri;
             }
 
@@ -2719,6 +2814,7 @@ function ProjectDetailContent() {
   }> = [
     { id: 'capture', icon: 'camera-outline', label: 'Capture', onPress: handleCaptureMedia, enabled: true },
     { id: 'upload', icon: 'cloud-upload-outline', label: 'Upload', onPress: handleDocumentUpload, enabled: true },
+    { id: 'notes', icon: 'document-text-outline', label: 'Notes', onPress: handleOpenNotesScreen, enabled: true },
     { id: 'public', icon: 'globe-outline', label: 'Public', onPress: handleOpenPublicSettings, enabled: true },
     { id: 'activity', icon: 'add-circle-outline', label: 'Activity', onPress: handleOpenActivityModal, enabled: true },
     {
@@ -2743,6 +2839,12 @@ function ProjectDetailContent() {
       const canExpand = presentation.expandable && projectPreviewUris.length > 0 && index === 0;
       const metadata = parseActivityMetadata(entry.metadata);
       const canManage = isManualEntryActivity(entry.action_type, metadata);
+      const noteScope = parseActivityNoteScope(metadata);
+      const canOpenProjectNotes =
+        noteScope === 'project' &&
+        (entry.action_type === 'note_added' ||
+          entry.action_type === 'note_updated' ||
+          entry.action_type === 'note_removed');
       const referenceId = resolveActivityReferenceId(entry);
       const canLinkToMedia = !!referenceId && isMediaLinkableActivityType(entry.action_type, metadata);
       const candidateMedia = canLinkToMedia && referenceId
@@ -2772,6 +2874,7 @@ function ProjectDetailContent() {
         linkedPreviewUri,
         linkedMediaType,
         canManage,
+        canOpenProjectNotes,
         timestampLabel: formatRelativeTime(entry.created_at),
         actorName,
         assigneeName,
@@ -3258,9 +3361,11 @@ function ProjectDetailContent() {
                               ? () => openLinkedMediaFromActivity(entry.linkedMediaId as string)
                               : entry.linkedState === 'missing'
                                 ? () => handleMissingLinkedMedia()
-                              : entry.canManage
-                                ? () => handleActivityCardPress(entry)
-                                : undefined
+                                : entry.canOpenProjectNotes
+                                  ? () => openProjectNotesFromActivity()
+                                  : entry.canManage
+                                    ? () => handleActivityCardPress(entry)
+                                    : undefined
                           }
                           onLongPress={entry.canManage ? () => handleActivityCardPress(entry) : undefined}
                         >
@@ -3304,6 +3409,21 @@ function ProjectDetailContent() {
                                 }}
                               >
                                 <Ionicons name="warning-outline" size={17} color={bvColors.semantic.warning} />
+                              </View>
+                            ) : entry.canOpenProjectNotes ? (
+                              <View
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  borderWidth: 1,
+                                  borderColor: bvFx.neutralBorderSoft,
+                                  backgroundColor: bvColors.surface.chrome,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Ionicons name="chevron-forward" size={18} color={bvColors.text.secondary} />
                               </View>
                             ) : entry.expanded ? (
                               <View
@@ -3409,6 +3529,29 @@ function ProjectDetailContent() {
                               <Ionicons name="warning-outline" size={16} color={bvColors.semantic.warning} />
                               <Text style={{ color: bvColors.text.muted, fontSize: 12, marginLeft: 8 }}>
                                 Linked media was removed
+                              </Text>
+                            </View>
+                          ) : entry.canOpenProjectNotes ? (
+                            <View
+                              style={{
+                                marginTop: 10,
+                                borderTopWidth: 1,
+                                borderTopColor: bvFx.neutralBorder,
+                                paddingTop: 10,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Ionicons name="document-text-outline" size={16} color={bvColors.brand.primaryLight} />
+                              <Text
+                                style={{
+                                  color: bvColors.brand.primaryLight,
+                                  fontSize: 12,
+                                  marginLeft: 8,
+                                  fontWeight: '600',
+                                }}
+                              >
+                                Tap to open project notes
                               </Text>
                             </View>
                           ) : null}

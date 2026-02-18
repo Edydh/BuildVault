@@ -19,7 +19,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { MediaItem, getMediaById, updateMediaNote, deleteMedia } from '../../../../lib/db';
+import { MediaItem, getMediaById } from '../../../../lib/db';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { cleanupImageVariants } from '../../../../lib/imageOptimization';
@@ -29,6 +29,12 @@ import { shouldShowPrompt, markPromptShown } from '../../../../components/NoteSe
 import { GlassHeader, GlassCard, GlassActionSheet, ScrollProvider, useGlassTheme } from '../../../../components/glass';
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  deleteMediaInSupabase,
+  syncProjectContentFromSupabase,
+  syncProjectsAndActivityFromSupabase,
+  updateMediaNoteInSupabase,
+} from '../../../../lib/supabaseProjectsSync';
 
 // ZoomableImage component
 function ZoomableImage({ uri }: { uri: string }) {
@@ -454,7 +460,7 @@ function FullScreenPhotoViewer({
 }
 
 function MediaDetailContent() {
-  const { mediaId } = useLocalSearchParams<{ mediaId: string }>();
+  const { id, mediaId } = useLocalSearchParams<{ id: string; mediaId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [media, setMedia] = useState<MediaItem | null>(null);
@@ -495,6 +501,9 @@ function MediaDetailContent() {
 
     const loadMedia = async () => {
       try {
+        if (id) {
+          await syncProjectContentFromSupabase(id);
+        }
         const mediaData = getMediaById(mediaId);
         if (!mediaData) {
           Alert.alert('Error', 'Media not found');
@@ -523,7 +532,7 @@ function MediaDetailContent() {
     };
 
     loadMedia();
-  }, [mediaId, router]);
+  }, [id, mediaId, router]);
 
   const handleShare = async () => {
     if (!media) return;
@@ -575,11 +584,13 @@ function MediaDetailContent() {
     }
   };
 
-  const handleSaveNote = () => {
+  const handleSaveNote = async () => {
     if (!media) return;
 
     try {
-      updateMediaNote(media.id, note);
+      await updateMediaNoteInSupabase(media.id, note);
+      await syncProjectContentFromSupabase(media.project_id);
+      await syncProjectsAndActivityFromSupabase();
       setMedia(prev => prev ? { ...prev, note } : null);
       setIsEditingNote(false);
       Alert.alert('Success', 'Note saved!');
@@ -638,7 +649,9 @@ function MediaDetailContent() {
       }
       
       // Delete from database
-      deleteMedia(media.id);
+      await deleteMediaInSupabase(media.id);
+      await syncProjectContentFromSupabase(media.project_id);
+      await syncProjectsAndActivityFromSupabase();
       
       // Provide haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

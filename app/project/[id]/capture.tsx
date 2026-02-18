@@ -11,7 +11,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { PinchGestureHandler, State } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
-import { createMedia } from '../../../lib/db';
+import { createMediaInSupabase } from '../../../lib/supabaseProjectsSync';
 import { saveMediaToProject } from '../../../lib/files';
 
 export default function CaptureScreen() {
@@ -139,7 +139,7 @@ export default function CaptureScreen() {
         // Save video
         console.log('Saving video to project...');
         const { fileUri, thumbUri } = await saveMediaToProject(id, video.uri, 'video');
-        createMedia({
+        await createMediaInSupabase({
           project_id: id,
           uri: fileUri,
           thumb_uri: thumbUri,
@@ -197,7 +197,7 @@ export default function CaptureScreen() {
       }
 
       const { fileUri, thumbUri } = await saveMediaToProject(id, photo.uri, 'photo');
-      createMedia({
+      await createMediaInSupabase({
         project_id: id,
         uri: fileUri,
         thumb_uri: thumbUri,

@@ -1,0 +1,1443 @@
+import type { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
+import {
+  ActivityLogEntry,
+  Folder,
+  MediaItem,
+  Note,
+  Project,
+  ProjectStatus,
+  ProjectVisibility,
+  createActivity,
+  createFolder,
+  createMedia,
+  createProjectNote,
+  deleteActivity,
+  deleteFolder,
+  deleteMedia,
+  deleteProjectNote,
+  deleteProject,
+  getActivityByProject,
+  getFoldersByProject,
+  getMediaById,
+  getProjectById,
+  mergeProjectContentSnapshotFromSupabase,
+  mergeProjectNotesSnapshotFromSupabase,
+  mergeProjectsAndActivitySnapshotFromSupabase,
+  moveMediaToFolder,
+  setProjectCompletionState,
+  updateActivity,
+  updateFolderName,
+  updateMediaNote,
+  updateMediaThumbnail,
+  updateProjectNote,
+  updateProject,
+} from './db';
+import { supabase } from './supabase';
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const PROJECT_COLUMNS =
+  'id, owner_user_id, organization_id, name, client, location, status, status_override, visibility, public_slug, public_published_at, public_updated_at, progress, start_date, end_date, budget, created_at, updated_at';
+
+const ACTIVITY_COLUMNS =
+  'id, project_id, action_type, reference_id, actor_user_id, actor_name_snapshot, metadata, created_at';
+const FOLDER_COLUMNS = 'id, project_id, name, created_at';
+const MEDIA_COLUMNS = 'id, project_id, folder_id, type, uri, thumb_uri, note, metadata, created_at';
+const NOTE_COLUMNS =
+  'id, project_id, media_id, author_user_id, title, content, created_at, updated_at';
+
+type SupabaseProjectRow = {
+  id: string;
+  owner_user_id: string;
+  organization_id: string | null;
+  name: string;
+  client: string | null;
+  location: string | null;
+  status: string | null;
+  status_override: string | null;
+  visibility: string | null;
+  public_slug: string | null;
+  public_published_at: string | null;
+  public_updated_at: string | null;
+  progress: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  budget: number | string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type SupabaseActivityRow = {
+  id: string;
+  project_id: string;
+  action_type: string;
+  reference_id: string | null;
+  actor_user_id: string | null;
+  actor_name_snapshot: string | null;
+  metadata: unknown;
+  created_at: string;
+};
+
+type SupabaseFolderRow = {
+  id: string;
+  project_id: string;
+  name: string;
+  created_at: string;
+};
+
+type SupabaseMediaRow = {
+  id: string;
+  project_id: string;
+  folder_id: string | null;
+  type: MediaItem['type'];
+  uri: string;
+  thumb_uri: string | null;
+  note: string | null;
+  metadata: unknown;
+  created_at: string;
+};
+
+type SupabaseNoteRow = {
+  id: string;
+  project_id: string;
+  media_id: string | null;
+  author_user_id: string | null;
+  title: string | null;
+  content: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function isUuid(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return UUID_REGEX.test(value.trim());
+}
+
+function toMillis(value?: string | null): number {
+  if (!value) return Date.now();
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+function toNullableMillis(value?: string | null): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function toIsoMillis(value?: number | null): string | null {
+  if (value === null || value === undefined) return null;
+  return new Date(value).toISOString();
+}
+
+function normalizeMetadata(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+function toMetadataPayload(value: unknown): Record<string, unknown> {
+  if (value === null || value === undefined) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return {};
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+      return { value: parsed };
+    } catch {
+      return { text: trimmed };
+    }
+  }
+  return { value };
+}
+
+function normalizeBudget(value: number | string | null): number | null {
+  if (value === null || value === undefined) return null;
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeProjectRow(row: SupabaseProjectRow) {
+  const status: ProjectStatus =
+    row.status === 'active' || row.status === 'delayed' || row.status === 'completed'
+      ? row.status
+      : 'neutral';
+  const statusOverride: ProjectStatus | null =
+    row.status_override === 'active' ||
+    row.status_override === 'delayed' ||
+    row.status_override === 'completed' ||
+    row.status_override === 'neutral'
+      ? row.status_override
+      : null;
+  const visibility: ProjectVisibility = row.visibility === 'public' ? 'public' : 'private';
+
+  return {
+    id: row.id,
+    owner_user_id: row.owner_user_id,
+    organization_id: row.organization_id,
+    name: row.name,
+    client: row.client,
+    location: row.location,
+    status,
+    status_override: statusOverride,
+    visibility,
+    public_slug: row.public_slug,
+    public_published_at: toNullableMillis(row.public_published_at),
+    public_updated_at: toNullableMillis(row.public_updated_at),
+    progress: row.progress ?? 0,
+    start_date: toNullableMillis(row.start_date),
+    end_date: toNullableMillis(row.end_date),
+    budget: normalizeBudget(row.budget),
+    created_at: toMillis(row.created_at),
+    updated_at: toMillis(row.updated_at),
+  };
+}
+
+function normalizeActivityRow(row: SupabaseActivityRow) {
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    action_type: row.action_type,
+    reference_id: row.reference_id,
+    actor_user_id: row.actor_user_id,
+    actor_name_snapshot: row.actor_name_snapshot,
+    metadata: normalizeMetadata(row.metadata),
+    created_at: toMillis(row.created_at),
+  };
+}
+
+function normalizeFolderRow(row: SupabaseFolderRow) {
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    name: row.name,
+    created_at: toMillis(row.created_at),
+  };
+}
+
+function normalizeMediaRow(row: SupabaseMediaRow) {
+  const type: MediaItem['type'] = row.type === 'video' || row.type === 'doc' ? row.type : 'photo';
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    folder_id: row.folder_id,
+    type,
+    uri: row.uri,
+    thumb_uri: row.thumb_uri,
+    note: row.note,
+    metadata: normalizeMetadata(row.metadata),
+    created_at: toMillis(row.created_at),
+  };
+}
+
+function normalizeNoteRow(row: SupabaseNoteRow) {
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    media_id: row.media_id,
+    author_user_id: row.author_user_id,
+    title: row.title,
+    content: row.content,
+    created_at: toMillis(row.created_at),
+    updated_at: toMillis(row.updated_at),
+  };
+}
+
+function chunkArray<T>(source: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < source.length; index += size) {
+    chunks.push(source.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function mergeErrors(error: PostgrestError | null | undefined, fallback: string): never {
+  throw new Error(error?.message || fallback);
+}
+
+async function requireAuthUser(actionLabel: string): Promise<SupabaseUser> {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) {
+    throw new Error(error?.message || `Must be signed in to ${actionLabel}`);
+  }
+  return data.user;
+}
+
+function getActorName(authUser: SupabaseUser): string | null {
+  const metadataName =
+    typeof authUser.user_metadata?.full_name === 'string'
+      ? authUser.user_metadata.full_name
+      : typeof authUser.user_metadata?.name === 'string'
+        ? authUser.user_metadata.name
+        : null;
+  const fallback = authUser.email?.split('@')[0] || null;
+  const resolved = (metadataName || fallback || '').trim();
+  return resolved.length > 0 ? resolved : null;
+}
+
+export async function syncProjectsAndActivityFromSupabase(): Promise<void> {
+  const authUser = await requireAuthUser('sync projects and activity');
+
+  const { data: projectRowsRaw, error: projectsError } = await supabase
+    .from('projects')
+    .select(PROJECT_COLUMNS)
+    .eq('owner_user_id', authUser.id)
+    .order('updated_at', { ascending: false });
+
+  if (projectsError) {
+    mergeErrors(projectsError, 'Failed to load projects');
+  }
+
+  const projectRows = (projectRowsRaw || []) as SupabaseProjectRow[];
+  const projectIds = projectRows.map((project) => project.id).filter(Boolean);
+
+  const activityRows: SupabaseActivityRow[] = [];
+  if (projectIds.length > 0) {
+    const chunks = chunkArray(projectIds, 100);
+    for (const chunk of chunks) {
+      const { data: rowsRaw, error } = await supabase
+        .from('activity_log')
+        .select(ACTIVITY_COLUMNS)
+        .in('project_id', chunk)
+        .order('created_at', { ascending: false })
+        .limit(5000);
+      if (error) {
+        mergeErrors(error, 'Failed to load project activity');
+      }
+      activityRows.push(...((rowsRaw || []) as SupabaseActivityRow[]));
+    }
+  }
+
+  mergeProjectsAndActivitySnapshotFromSupabase({
+    currentAuthUserId: authUser.id,
+    projects: projectRows.map(normalizeProjectRow),
+    activities: activityRows.map(normalizeActivityRow),
+  });
+}
+
+export async function syncProjectContentFromSupabase(projectId: string): Promise<void> {
+  if (!isUuid(projectId)) return;
+
+  const authUser = await requireAuthUser('sync project content');
+
+  const { data: folderRowsRaw, error: foldersError } = await supabase
+    .from('folders')
+    .select(FOLDER_COLUMNS)
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true });
+  if (foldersError) {
+    mergeErrors(foldersError, 'Failed to load project folders');
+  }
+
+  const { data: mediaRowsRaw, error: mediaError } = await supabase
+    .from('media')
+    .select(MEDIA_COLUMNS)
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+  if (mediaError) {
+    mergeErrors(mediaError, 'Failed to load project media');
+  }
+
+  const { data: noteRowsRaw, error: notesError } = await supabase
+    .from('notes')
+    .select(NOTE_COLUMNS)
+    .eq('project_id', projectId)
+    .order('updated_at', { ascending: false });
+  if (notesError) {
+    mergeErrors(notesError, 'Failed to load project notes');
+  }
+
+  mergeProjectContentSnapshotFromSupabase(
+    {
+      projectId,
+      folders: ((folderRowsRaw || []) as SupabaseFolderRow[]).map(normalizeFolderRow),
+      media: ((mediaRowsRaw || []) as SupabaseMediaRow[]).map(normalizeMediaRow),
+    },
+    { pruneMissing: true }
+  );
+
+  mergeProjectNotesSnapshotFromSupabase(
+    {
+      currentAuthUserId: authUser.id,
+      projectId,
+      notes: ((noteRowsRaw || []) as SupabaseNoteRow[]).map(normalizeNoteRow),
+    },
+    { pruneMissing: true }
+  );
+}
+
+export async function syncProjectNotesFromSupabase(projectId: string): Promise<void> {
+  if (!isUuid(projectId)) return;
+
+  const authUser = await requireAuthUser('sync project notes');
+  const { data: noteRowsRaw, error: notesError } = await supabase
+    .from('notes')
+    .select(NOTE_COLUMNS)
+    .eq('project_id', projectId)
+    .order('updated_at', { ascending: false });
+  if (notesError) {
+    mergeErrors(notesError, 'Failed to load project notes');
+  }
+
+  mergeProjectNotesSnapshotFromSupabase(
+    {
+      currentAuthUserId: authUser.id,
+      projectId,
+      notes: ((noteRowsRaw || []) as SupabaseNoteRow[]).map(normalizeNoteRow),
+    },
+    { pruneMissing: true }
+  );
+}
+
+export async function createProjectNoteInSupabase(data: {
+  project_id: string;
+  content: string;
+  title?: string | null;
+  media_id?: string | null;
+}): Promise<Note> {
+  const content = data.content.trim();
+  if (!content) {
+    throw new Error('Note content is required');
+  }
+
+  const title = typeof data.title === 'string' ? data.title.trim() : '';
+  const mediaId =
+    typeof data.media_id === 'string' && data.media_id.trim().length > 0 ? data.media_id.trim() : null;
+
+  if (!isUuid(data.project_id)) {
+    return createProjectNote({
+      project_id: data.project_id,
+      content,
+      title: title || null,
+      media_id: mediaId,
+    });
+  }
+
+  const authUser = await requireAuthUser('create project note');
+  let linkedMediaId: string | null = null;
+
+  if (mediaId) {
+    if (!isUuid(mediaId)) {
+      throw new Error('Invalid linked media id');
+    }
+    const { data: mediaLookupRow, error: mediaLookupError } = await supabase
+      .from('media')
+      .select('id, project_id')
+      .eq('id', mediaId)
+      .maybeSingle();
+    if (mediaLookupError) {
+      mergeErrors(mediaLookupError, 'Unable to load linked media');
+    }
+    if (!mediaLookupRow?.id || mediaLookupRow.project_id !== data.project_id) {
+      throw new Error('Linked media not found');
+    }
+    linkedMediaId = mediaLookupRow.id;
+  }
+
+  const { data: createdNoteRow, error: createError } = await supabase
+    .from('notes')
+    .insert({
+      project_id: data.project_id,
+      media_id: linkedMediaId,
+      author_user_id: authUser.id,
+      title: title || null,
+      content,
+    })
+    .select(NOTE_COLUMNS)
+    .single();
+  if (createError || !createdNoteRow) {
+    mergeErrors(createError, 'Unable to create note');
+  }
+
+  if (linkedMediaId) {
+    const { data: updatedMediaRow, error: mediaUpdateError } = await supabase
+      .from('media')
+      .update({ note: content })
+      .eq('id', linkedMediaId)
+      .select(MEDIA_COLUMNS)
+      .maybeSingle();
+    if (mediaUpdateError) {
+      mergeErrors(mediaUpdateError, 'Unable to update linked media note');
+    }
+    if (updatedMediaRow) {
+      mergeProjectContentSnapshotFromSupabase({
+        projectId: data.project_id,
+        folders: [],
+        media: [normalizeMediaRow(updatedMediaRow as SupabaseMediaRow)],
+      });
+    }
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: data.project_id,
+    action_type: 'note_added',
+    reference_id: linkedMediaId || createdNoteRow.id,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: {
+      has_note: true,
+      note_scope: linkedMediaId ? 'media' : 'project',
+      media_id: linkedMediaId,
+      title: title || null,
+    },
+  });
+  if (activityError) {
+    console.log('Project-note activity sync warning:', activityError.message);
+  }
+
+  mergeProjectNotesSnapshotFromSupabase({
+    currentAuthUserId: authUser.id,
+    projectId: data.project_id,
+    notes: [normalizeNoteRow(createdNoteRow as SupabaseNoteRow)],
+  });
+
+  return normalizeNoteRow(createdNoteRow as SupabaseNoteRow);
+}
+
+export async function updateProjectNoteInSupabase(
+  noteId: string,
+  data: {
+    content: string;
+    title?: string | null;
+  }
+): Promise<Note | null> {
+  const content = data.content.trim();
+  if (!content) {
+    throw new Error('Note content is required');
+  }
+
+  const title = typeof data.title === 'string' ? data.title.trim() : '';
+
+  if (!isUuid(noteId)) {
+    return updateProjectNote(noteId, {
+      content,
+      title: title || null,
+    });
+  }
+
+  const authUser = await requireAuthUser('update project note');
+  const { data: existingNoteRow, error: lookupError } = await supabase
+    .from('notes')
+    .select('id, project_id, media_id')
+    .eq('id', noteId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load note');
+  }
+  if (!existingNoteRow?.id || !existingNoteRow.project_id) {
+    return null;
+  }
+
+  const linkedMediaId =
+    typeof existingNoteRow.media_id === 'string' && existingNoteRow.media_id.trim().length > 0
+      ? existingNoteRow.media_id
+      : null;
+
+  const { data: updatedNoteRow, error: updateError } = await supabase
+    .from('notes')
+    .update({
+      title: title || null,
+      content,
+      author_user_id: authUser.id,
+    })
+    .eq('id', noteId)
+    .select(NOTE_COLUMNS)
+    .single();
+  if (updateError || !updatedNoteRow) {
+    mergeErrors(updateError, 'Unable to update note');
+  }
+
+  if (linkedMediaId) {
+    const { data: updatedMediaRow, error: mediaUpdateError } = await supabase
+      .from('media')
+      .update({ note: content })
+      .eq('id', linkedMediaId)
+      .select(MEDIA_COLUMNS)
+      .maybeSingle();
+    if (mediaUpdateError) {
+      mergeErrors(mediaUpdateError, 'Unable to update linked media note');
+    }
+    if (updatedMediaRow) {
+      mergeProjectContentSnapshotFromSupabase({
+        projectId: existingNoteRow.project_id,
+        folders: [],
+        media: [normalizeMediaRow(updatedMediaRow as SupabaseMediaRow)],
+      });
+    }
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: existingNoteRow.project_id,
+    action_type: 'note_updated',
+    reference_id: linkedMediaId || noteId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: {
+      has_note: true,
+      note_scope: linkedMediaId ? 'media' : 'project',
+      media_id: linkedMediaId,
+      title: title || null,
+    },
+  });
+  if (activityError) {
+    console.log('Project-note update activity sync warning:', activityError.message);
+  }
+
+  mergeProjectNotesSnapshotFromSupabase({
+    currentAuthUserId: authUser.id,
+    projectId: existingNoteRow.project_id,
+    notes: [normalizeNoteRow(updatedNoteRow as SupabaseNoteRow)],
+  });
+
+  return normalizeNoteRow(updatedNoteRow as SupabaseNoteRow);
+}
+
+export async function deleteProjectNoteInSupabase(noteId: string): Promise<void> {
+  if (!isUuid(noteId)) {
+    deleteProjectNote(noteId);
+    return;
+  }
+
+  const authUser = await requireAuthUser('delete project note');
+  const { data: existingNoteRow, error: lookupError } = await supabase
+    .from('notes')
+    .select('id, project_id, media_id')
+    .eq('id', noteId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load note');
+  }
+  if (!existingNoteRow?.id || !existingNoteRow.project_id) {
+    return;
+  }
+
+  const linkedMediaId =
+    typeof existingNoteRow.media_id === 'string' && existingNoteRow.media_id.trim().length > 0
+      ? existingNoteRow.media_id
+      : null;
+
+  const { error: deleteError } = await supabase.from('notes').delete().eq('id', noteId);
+  if (deleteError) {
+    mergeErrors(deleteError, 'Unable to delete note');
+  }
+
+  if (linkedMediaId) {
+    const { data: latestNoteRow, error: latestNoteError } = await supabase
+      .from('notes')
+      .select('content')
+      .eq('project_id', existingNoteRow.project_id)
+      .eq('media_id', linkedMediaId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestNoteError) {
+      mergeErrors(latestNoteError, 'Unable to load remaining linked note');
+    }
+
+    const nextContent =
+      typeof latestNoteRow?.content === 'string' && latestNoteRow.content.trim().length > 0
+        ? latestNoteRow.content.trim()
+        : null;
+
+    const { data: updatedMediaRow, error: mediaUpdateError } = await supabase
+      .from('media')
+      .update({ note: nextContent })
+      .eq('id', linkedMediaId)
+      .select(MEDIA_COLUMNS)
+      .maybeSingle();
+    if (mediaUpdateError) {
+      mergeErrors(mediaUpdateError, 'Unable to update linked media note');
+    }
+    if (updatedMediaRow) {
+      mergeProjectContentSnapshotFromSupabase({
+        projectId: existingNoteRow.project_id,
+        folders: [],
+        media: [normalizeMediaRow(updatedMediaRow as SupabaseMediaRow)],
+      });
+    }
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: existingNoteRow.project_id,
+    action_type: 'note_removed',
+    reference_id: linkedMediaId || noteId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: {
+      has_note: false,
+      note_scope: linkedMediaId ? 'media' : 'project',
+      media_id: linkedMediaId,
+    },
+  });
+  if (activityError) {
+    console.log('Project-note remove activity sync warning:', activityError.message);
+  }
+
+  await syncProjectNotesFromSupabase(existingNoteRow.project_id);
+}
+
+export async function createProjectInSupabase(data: {
+  name: string;
+  client?: string;
+  location?: string;
+  organization_id?: string | null;
+  start_date?: number | null;
+  end_date?: number | null;
+  budget?: number | null;
+}): Promise<Project> {
+  const authUser = await requireAuthUser('create project');
+  const now = Date.now();
+  const startDate = data.start_date ?? now;
+
+  const payload = {
+    owner_user_id: authUser.id,
+    organization_id: data.organization_id ?? null,
+    name: data.name.trim(),
+    client: data.client?.trim() || null,
+    location: data.location?.trim() || null,
+    status: 'neutral',
+    progress: 0,
+    start_date: toIsoMillis(startDate),
+    end_date: toIsoMillis(data.end_date ?? null),
+    budget: data.budget ?? null,
+    visibility: 'private',
+  };
+
+  const { data: createdRow, error } = await supabase
+    .from('projects')
+    .insert(payload)
+    .select(PROJECT_COLUMNS)
+    .single();
+
+  if (error || !createdRow) {
+    mergeErrors(error, 'Unable to create project');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: createdRow.id,
+    action_type: 'project_created',
+    reference_id: createdRow.id,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: { name: payload.name, progress: 0 },
+  });
+  if (activityError) {
+    console.log('Project-created activity sync warning:', activityError.message);
+  }
+
+  await syncProjectsAndActivityFromSupabase();
+  const localProject = getProjectById(createdRow.id);
+  if (!localProject) {
+    throw new Error('Project was created remotely but not available locally yet');
+  }
+  return localProject;
+}
+
+export async function updateProjectInSupabase(
+  projectId: string,
+  data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at' | 'status' | 'status_override' | 'last_activity_at' | 'progress'>>
+): Promise<void> {
+  if (!isUuid(projectId)) {
+    updateProject(projectId, data);
+    return;
+  }
+
+  const authUser = await requireAuthUser('update project');
+  const updates: Record<string, unknown> = {};
+
+  if (data.name !== undefined) updates.name = data.name.trim();
+  if (data.client !== undefined) updates.client = data.client?.trim() || null;
+  if (data.location !== undefined) updates.location = data.location?.trim() || null;
+  if (data.organization_id !== undefined) updates.organization_id = data.organization_id ?? null;
+  if (data.start_date !== undefined) updates.start_date = toIsoMillis(data.start_date ?? null);
+  if (data.end_date !== undefined) updates.end_date = toIsoMillis(data.end_date ?? null);
+  if (data.budget !== undefined) updates.budget = data.budget ?? null;
+
+  if (Object.keys(updates).length === 0) return;
+
+  const { error } = await supabase
+    .from('projects')
+    .update(updates)
+    .eq('id', projectId)
+    .eq('owner_user_id', authUser.id);
+
+  if (error) {
+    mergeErrors(error, 'Unable to update project');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: projectId,
+    action_type: 'project_updated',
+    reference_id: projectId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: { fields: Object.keys(updates) },
+  });
+  if (activityError) {
+    console.log('Project-updated activity sync warning:', activityError.message);
+  }
+
+  await syncProjectsAndActivityFromSupabase();
+}
+
+export async function deleteProjectInSupabase(projectId: string): Promise<void> {
+  if (!isUuid(projectId)) {
+    deleteProject(projectId);
+    return;
+  }
+
+  const authUser = await requireAuthUser('delete project');
+  const { error } = await supabase
+    .from('projects')
+    .delete()
+    .eq('id', projectId)
+    .eq('owner_user_id', authUser.id);
+
+  if (error) {
+    mergeErrors(error, 'Unable to delete project');
+  }
+
+  try {
+    deleteProject(projectId);
+  } catch (localError) {
+    console.log('Local project cleanup warning:', localError);
+  }
+}
+
+export async function setProjectCompletionStateInSupabase(
+  projectId: string,
+  completed: boolean
+): Promise<Project | null> {
+  if (!isUuid(projectId)) {
+    return setProjectCompletionState(projectId, completed);
+  }
+
+  const authUser = await requireAuthUser('update project completion state');
+  const statusOverride = completed ? 'completed' : null;
+  const actionType = completed ? 'project_marked_completed' : 'project_reopened';
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ status_override: statusOverride })
+    .eq('id', projectId)
+    .eq('owner_user_id', authUser.id);
+
+  if (error) {
+    mergeErrors(error, 'Unable to update project completion state');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: projectId,
+    action_type: actionType,
+    reference_id: projectId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: null,
+  });
+  if (activityError) {
+    console.log('Project completion activity sync warning:', activityError.message);
+  }
+
+  await syncProjectsAndActivityFromSupabase();
+  return getProjectById(projectId);
+}
+
+export async function createActivityInSupabase(
+  projectId: string,
+  actionType: string,
+  referenceId?: string | null,
+  metadata?: Record<string, unknown> | null
+): Promise<ActivityLogEntry> {
+  if (!isUuid(projectId)) {
+    return createActivity(projectId, actionType, referenceId, metadata);
+  }
+
+  const authUser = await requireAuthUser('create activity');
+  const actorName = getActorName(authUser);
+  const resolvedReference = typeof referenceId === 'string' && referenceId.trim().length > 0 ? referenceId.trim() : null;
+
+  const { data: createdRow, error } = await supabase
+    .from('activity_log')
+    .insert({
+      project_id: projectId,
+      action_type: actionType,
+      reference_id: resolvedReference,
+      actor_user_id: authUser.id,
+      actor_name_snapshot: actorName,
+      metadata: metadata ?? null,
+    })
+    .select(ACTIVITY_COLUMNS)
+    .single();
+
+  if (error || !createdRow) {
+    mergeErrors(error, 'Unable to create activity');
+  }
+
+  mergeProjectsAndActivitySnapshotFromSupabase({
+    currentAuthUserId: authUser.id,
+    projects: [],
+    activities: [normalizeActivityRow(createdRow as SupabaseActivityRow)],
+  });
+
+  const localEntry = getActivityByProject(projectId, 100).find((entry) => entry.id === createdRow.id);
+  if (!localEntry) {
+    throw new Error('Activity was created remotely but not available locally yet');
+  }
+  return localEntry;
+}
+
+export async function updateActivityInSupabase(
+  activityId: string,
+  data: {
+    actionType?: string;
+    referenceId?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }
+): Promise<ActivityLogEntry | null> {
+  if (!isUuid(activityId)) {
+    return updateActivity(activityId, data);
+  }
+
+  const authUser = await requireAuthUser('update activity');
+  const updates: Record<string, unknown> = {};
+
+  if (data.actionType !== undefined) {
+    updates.action_type = data.actionType.trim();
+  }
+  if (data.referenceId !== undefined) {
+    const value = typeof data.referenceId === 'string' ? data.referenceId.trim() : '';
+    updates.reference_id = value.length > 0 ? value : null;
+  }
+  if (data.metadata !== undefined) {
+    updates.metadata = data.metadata ?? null;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return null;
+  }
+
+  const { data: updatedRow, error } = await supabase
+    .from('activity_log')
+    .update(updates)
+    .eq('id', activityId)
+    .select(ACTIVITY_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    mergeErrors(error, 'Unable to update activity');
+  }
+  if (!updatedRow) return null;
+
+  mergeProjectsAndActivitySnapshotFromSupabase({
+    currentAuthUserId: authUser.id,
+    projects: [],
+    activities: [normalizeActivityRow(updatedRow as SupabaseActivityRow)],
+  });
+
+  return getActivityByProject(updatedRow.project_id, 100).find((entry) => entry.id === updatedRow.id) ?? null;
+}
+
+export async function deleteActivityInSupabase(activityId: string): Promise<void> {
+  if (!isUuid(activityId)) {
+    deleteActivity(activityId);
+    return;
+  }
+
+  await requireAuthUser('delete activity');
+  const { error } = await supabase
+    .from('activity_log')
+    .delete()
+    .eq('id', activityId);
+
+  if (error) {
+    mergeErrors(error, 'Unable to delete activity');
+  }
+
+  try {
+    deleteActivity(activityId);
+  } catch (localError) {
+    console.log('Local activity cleanup warning:', localError);
+  }
+}
+
+export async function createFolderInSupabase(projectId: string, name: string): Promise<Folder> {
+  if (!isUuid(projectId)) {
+    return createFolder({ project_id: projectId, name });
+  }
+
+  const authUser = await requireAuthUser('create folder');
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    throw new Error('Folder name is required');
+  }
+
+  const { data: createdRow, error } = await supabase
+    .from('folders')
+    .insert({
+      project_id: projectId,
+      name: trimmedName,
+      created_by_user_id: authUser.id,
+    })
+    .select(FOLDER_COLUMNS)
+    .single();
+  if (error || !createdRow) {
+    mergeErrors(error, 'Unable to create folder');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: projectId,
+    action_type: 'folder_created',
+    reference_id: createdRow.id,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: { name: trimmedName },
+  });
+  if (activityError) {
+    console.log('Folder-created activity sync warning:', activityError.message);
+  }
+
+  mergeProjectContentSnapshotFromSupabase({
+    projectId,
+    folders: [normalizeFolderRow(createdRow as SupabaseFolderRow)],
+    media: [],
+  });
+
+  const localFolder = getFoldersByProject(projectId).find((folder) => folder.id === createdRow.id);
+  if (!localFolder) {
+    throw new Error('Folder was created remotely but not available locally yet');
+  }
+  return localFolder;
+}
+
+export async function updateFolderNameInSupabase(folderId: string, name: string): Promise<void> {
+  if (!isUuid(folderId)) {
+    updateFolderName(folderId, name);
+    return;
+  }
+
+  const authUser = await requireAuthUser('rename folder');
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    throw new Error('Folder name is required');
+  }
+
+  const { data: existingRow, error: lookupError } = await supabase
+    .from('folders')
+    .select('id, project_id, name')
+    .eq('id', folderId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load folder details');
+  }
+  if (!existingRow?.project_id) {
+    throw new Error('Folder not found');
+  }
+
+  const { data: updatedRow, error } = await supabase
+    .from('folders')
+    .update({ name: trimmedName })
+    .eq('id', folderId)
+    .select(FOLDER_COLUMNS)
+    .single();
+  if (error || !updatedRow) {
+    mergeErrors(error, 'Unable to rename folder');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: existingRow.project_id,
+    action_type: 'folder_renamed',
+    reference_id: folderId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: { from: existingRow.name || null, to: trimmedName },
+  });
+  if (activityError) {
+    console.log('Folder-renamed activity sync warning:', activityError.message);
+  }
+
+  mergeProjectContentSnapshotFromSupabase({
+    projectId: existingRow.project_id,
+    folders: [normalizeFolderRow(updatedRow as SupabaseFolderRow)],
+    media: [],
+  });
+}
+
+export async function deleteFolderInSupabase(folderId: string): Promise<void> {
+  if (!isUuid(folderId)) {
+    deleteFolder(folderId);
+    return;
+  }
+
+  const authUser = await requireAuthUser('delete folder');
+  const { data: existingRow, error: lookupError } = await supabase
+    .from('folders')
+    .select('id, project_id, name')
+    .eq('id', folderId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load folder details');
+  }
+  if (!existingRow?.project_id) {
+    return;
+  }
+
+  const { error } = await supabase.from('folders').delete().eq('id', folderId);
+  if (error) {
+    mergeErrors(error, 'Unable to delete folder');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: existingRow.project_id,
+    action_type: 'folder_deleted',
+    reference_id: folderId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: { name: existingRow.name || null },
+  });
+  if (activityError) {
+    console.log('Folder-deleted activity sync warning:', activityError.message);
+  }
+
+  await syncProjectContentFromSupabase(existingRow.project_id);
+}
+
+export async function createMediaInSupabase(
+  data: Omit<MediaItem, 'id' | 'created_at' | 'metadata'> & {
+    metadata?: Record<string, unknown> | string | null;
+  }
+): Promise<MediaItem> {
+  const normalizedMetadata = normalizeMetadata(data.metadata);
+  if (!isUuid(data.project_id)) {
+    return createMedia({ ...data, metadata: normalizedMetadata });
+  }
+
+  const authUser = await requireAuthUser('create media');
+  const resolvedFolderId =
+    typeof data.folder_id === 'string' && data.folder_id.trim().length > 0 ? data.folder_id.trim() : null;
+
+  const { data: createdRow, error } = await supabase
+    .from('media')
+    .insert({
+      project_id: data.project_id,
+      folder_id: resolvedFolderId,
+      uploaded_by_user_id: authUser.id,
+      type: data.type,
+      uri: data.uri,
+      thumb_uri: data.thumb_uri || null,
+      note: data.note || null,
+      metadata: toMetadataPayload(data.metadata),
+    })
+    .select(MEDIA_COLUMNS)
+    .single();
+  if (error || !createdRow) {
+    mergeErrors(error, 'Unable to create media');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: data.project_id,
+    action_type: 'media_added',
+    reference_id: createdRow.id,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: {
+      type: data.type,
+      folder_id: resolvedFolderId,
+      has_note: !!data.note?.trim(),
+    },
+  });
+  if (activityError) {
+    console.log('Media-added activity sync warning:', activityError.message);
+  }
+
+  mergeProjectContentSnapshotFromSupabase({
+    projectId: data.project_id,
+    folders: [],
+    media: [normalizeMediaRow(createdRow as SupabaseMediaRow)],
+  });
+
+  const localMedia = getMediaById(createdRow.id);
+  if (!localMedia) {
+    throw new Error('Media was created remotely but not available locally yet');
+  }
+  return localMedia;
+}
+
+export async function updateMediaNoteInSupabase(mediaId: string, note: string | null): Promise<void> {
+  if (!isUuid(mediaId)) {
+    updateMediaNote(mediaId, note);
+    return;
+  }
+
+  const authUser = await requireAuthUser('update media note');
+  const { data: existingRow, error: lookupError } = await supabase
+    .from('media')
+    .select('id, project_id, note')
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load media details');
+  }
+  if (!existingRow?.project_id) {
+    throw new Error('Media not found');
+  }
+
+  const trimmedNote = typeof note === 'string' ? note.trim() : '';
+
+  const { data: existingNoteRow, error: noteLookupError } = await supabase
+    .from('notes')
+    .select(NOTE_COLUMNS)
+    .eq('project_id', existingRow.project_id)
+    .eq('media_id', mediaId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (noteLookupError) {
+    mergeErrors(noteLookupError, 'Unable to load existing note');
+  }
+
+  let latestNoteRow: SupabaseNoteRow | null = existingNoteRow as SupabaseNoteRow | null;
+
+  if (trimmedNote.length > 0) {
+    if (latestNoteRow?.id) {
+      const { data: updatedNoteRow, error: updateNoteError } = await supabase
+        .from('notes')
+        .update({
+          content: trimmedNote,
+          author_user_id: authUser.id,
+        })
+        .eq('id', latestNoteRow.id)
+        .select(NOTE_COLUMNS)
+        .single();
+      if (updateNoteError || !updatedNoteRow) {
+        mergeErrors(updateNoteError, 'Unable to update note');
+      }
+      latestNoteRow = updatedNoteRow as SupabaseNoteRow;
+    } else {
+      const { data: createdNoteRow, error: createNoteError } = await supabase
+        .from('notes')
+        .insert({
+          project_id: existingRow.project_id,
+          media_id: mediaId,
+          author_user_id: authUser.id,
+          title: null,
+          content: trimmedNote,
+        })
+        .select(NOTE_COLUMNS)
+        .single();
+      if (createNoteError || !createdNoteRow) {
+        mergeErrors(createNoteError, 'Unable to create note');
+      }
+      latestNoteRow = createdNoteRow as SupabaseNoteRow;
+    }
+  } else {
+    if (latestNoteRow?.id) {
+      const { error: deleteNoteError } = await supabase.from('notes').delete().eq('id', latestNoteRow.id);
+      if (deleteNoteError) {
+        mergeErrors(deleteNoteError, 'Unable to delete note');
+      }
+    }
+    latestNoteRow = null;
+  }
+
+  const { data: updatedRow, error } = await supabase
+    .from('media')
+    .update({ note: trimmedNote || null })
+    .eq('id', mediaId)
+    .select(MEDIA_COLUMNS)
+    .single();
+  if (error || !updatedRow) {
+    mergeErrors(error, 'Unable to update media note');
+  }
+
+  const previousHasNote =
+    (typeof (existingNoteRow as SupabaseNoteRow | null)?.content === 'string' &&
+      (existingNoteRow as SupabaseNoteRow).content.trim().length > 0) ||
+    (typeof existingRow.note === 'string' && existingRow.note.trim().length > 0);
+  const nextHasNote = trimmedNote.length > 0;
+  const actionType = !previousHasNote && nextHasNote
+    ? 'note_added'
+    : previousHasNote && !nextHasNote
+      ? 'note_removed'
+      : 'note_updated';
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: existingRow.project_id,
+    action_type: actionType,
+    reference_id: mediaId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: { has_note: nextHasNote, note_scope: 'media', media_id: mediaId },
+  });
+  if (activityError) {
+    console.log('Media-note activity sync warning:', activityError.message);
+  }
+
+  mergeProjectContentSnapshotFromSupabase({
+    projectId: existingRow.project_id,
+    folders: [],
+    media: [normalizeMediaRow(updatedRow as SupabaseMediaRow)],
+  });
+
+  if (latestNoteRow) {
+    mergeProjectNotesSnapshotFromSupabase({
+      currentAuthUserId: authUser.id,
+      projectId: existingRow.project_id,
+      notes: [normalizeNoteRow(latestNoteRow)],
+    });
+  } else {
+    await syncProjectNotesFromSupabase(existingRow.project_id);
+  }
+}
+
+export async function moveMediaToFolderInSupabase(mediaId: string, folderId: string | null): Promise<void> {
+  if (!isUuid(mediaId)) {
+    moveMediaToFolder(mediaId, folderId);
+    return;
+  }
+
+  const authUser = await requireAuthUser('move media');
+  const { data: existingRow, error: lookupError } = await supabase
+    .from('media')
+    .select('id, project_id, folder_id')
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load media details');
+  }
+  if (!existingRow?.project_id) {
+    throw new Error('Media not found');
+  }
+
+  const resolvedFolderId =
+    typeof folderId === 'string' && folderId.trim().length > 0 ? folderId.trim() : null;
+
+  const { data: updatedRow, error } = await supabase
+    .from('media')
+    .update({ folder_id: resolvedFolderId })
+    .eq('id', mediaId)
+    .select(MEDIA_COLUMNS)
+    .single();
+  if (error || !updatedRow) {
+    mergeErrors(error, 'Unable to move media');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: existingRow.project_id,
+    action_type: 'media_moved',
+    reference_id: mediaId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: {
+      from_folder_id: existingRow.folder_id || null,
+      to_folder_id: resolvedFolderId,
+    },
+  });
+  if (activityError) {
+    console.log('Media-moved activity sync warning:', activityError.message);
+  }
+
+  mergeProjectContentSnapshotFromSupabase({
+    projectId: existingRow.project_id,
+    folders: [],
+    media: [normalizeMediaRow(updatedRow as SupabaseMediaRow)],
+  });
+}
+
+export async function updateMediaThumbnailInSupabase(mediaId: string, thumbUri: string | null): Promise<void> {
+  if (!isUuid(mediaId)) {
+    updateMediaThumbnail(mediaId, thumbUri);
+    return;
+  }
+
+  await requireAuthUser('update media thumbnail');
+  const { data: updatedRow, error } = await supabase
+    .from('media')
+    .update({ thumb_uri: thumbUri || null })
+    .eq('id', mediaId)
+    .select(MEDIA_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    mergeErrors(error, 'Unable to update media thumbnail');
+  }
+  if (!updatedRow) return;
+
+  mergeProjectContentSnapshotFromSupabase({
+    projectId: updatedRow.project_id,
+    folders: [],
+    media: [normalizeMediaRow(updatedRow as SupabaseMediaRow)],
+  });
+}
+
+export async function deleteMediaInSupabase(mediaId: string): Promise<void> {
+  if (!isUuid(mediaId)) {
+    deleteMedia(mediaId);
+    return;
+  }
+
+  const authUser = await requireAuthUser('delete media');
+  const { data: existingRow, error: lookupError } = await supabase
+    .from('media')
+    .select('id, project_id, type, folder_id')
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load media details');
+  }
+  if (!existingRow?.project_id) {
+    return;
+  }
+
+  const { error: deleteNotesError } = await supabase.from('notes').delete().eq('media_id', mediaId);
+  if (deleteNotesError) {
+    mergeErrors(deleteNotesError, 'Unable to delete media notes');
+  }
+
+  const { error } = await supabase.from('media').delete().eq('id', mediaId);
+  if (error) {
+    mergeErrors(error, 'Unable to delete media');
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: existingRow.project_id,
+    action_type: 'media_deleted',
+    reference_id: mediaId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: {
+      type: existingRow.type || null,
+      folder_id: existingRow.folder_id || null,
+    },
+  });
+  if (activityError) {
+    console.log('Media-deleted activity sync warning:', activityError.message);
+  }
+
+  await syncProjectContentFromSupabase(existingRow.project_id);
+}
