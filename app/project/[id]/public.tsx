@@ -19,9 +19,11 @@ import {
   getMediaByProject,
   getProjectById,
   getProjectPublicProfile,
-  setProjectVisibility,
-  upsertProjectPublicProfile,
 } from '../../../lib/db';
+import {
+  setProjectVisibilityInSupabase,
+  upsertProjectPublicProfileInSupabase,
+} from '../../../lib/supabaseProjectsSync';
 import { BVCard, BVHeader, BVButton } from '../../../components/ui';
 import { GlassTextInput } from '../../../components/glass';
 import { bvColors, bvFx } from '../../../lib/theme/tokens';
@@ -188,7 +190,7 @@ export default function ProjectPublicSettingsScreen() {
     try {
       setSaving(true);
 
-      upsertProjectPublicProfile(id, {
+      await upsertProjectPublicProfileInSupabase(id, {
         public_title: publicTitle.trim() || project.name,
         summary: summary.trim() || null,
         city: city.trim() || null,
@@ -202,7 +204,7 @@ export default function ProjectPublicSettingsScreen() {
         highlights: parseHighlights(highlightsText),
       });
 
-      const updated = setProjectVisibility(id, shouldPublish ? 'public' : 'private', {
+      const updated = await setProjectVisibilityInSupabase(id, shouldPublish ? 'public' : 'private', {
         slug: shouldPublish ? normalizedSlug : undefined,
       });
 
@@ -238,7 +240,7 @@ export default function ProjectPublicSettingsScreen() {
     const normalizedSlug = slugify(slug || project.name);
     try {
       setSaving(true);
-      upsertProjectPublicProfile(id, {
+      await upsertProjectPublicProfileInSupabase(id, {
         public_title: publicTitle.trim() || project.name,
         summary: summary.trim() || null,
         city: city.trim() || null,
@@ -251,7 +253,7 @@ export default function ProjectPublicSettingsScreen() {
         website_url: websiteUrl.trim() || null,
         highlights: parseHighlights(highlightsText),
       });
-      const updated = setProjectVisibility(id, 'public', {
+      const updated = await setProjectVisibilityInSupabase(id, 'public', {
         slug: normalizedSlug,
       });
       setProject(updated);
@@ -274,7 +276,7 @@ export default function ProjectPublicSettingsScreen() {
     if (!id || !project) return;
     try {
       setSaving(true);
-      const updated = setProjectVisibility(id, 'private');
+      const updated = await setProjectVisibilityInSupabase(id, 'private');
       setProject(updated);
       applyVisibilityDraft(false);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

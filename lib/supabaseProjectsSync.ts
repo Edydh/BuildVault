@@ -6,6 +6,7 @@ import {
   MediaItem,
   Note,
   Project,
+  ProjectPublicProfile,
   ProjectStatus,
   ProjectVisibility,
   createActivity,
@@ -21,11 +22,15 @@ import {
   getFoldersByProject,
   getMediaById,
   getProjectById,
+  getProjectPublicProfile,
   mergeProjectContentSnapshotFromSupabase,
   mergeProjectNotesSnapshotFromSupabase,
+  mergeProjectPublicProfileSnapshotFromSupabase,
   mergeProjectsAndActivitySnapshotFromSupabase,
   moveMediaToFolder,
   setProjectCompletionState,
+  setProjectVisibility,
+  upsertProjectPublicProfile,
   updateActivity,
   updateFolderName,
   updateMediaNote,
@@ -47,6 +52,8 @@ const FOLDER_COLUMNS = 'id, project_id, name, created_at';
 const MEDIA_COLUMNS = 'id, project_id, folder_id, type, uri, thumb_uri, note, metadata, created_at';
 const NOTE_COLUMNS =
   'id, project_id, media_id, author_user_id, title, content, created_at, updated_at';
+const PROJECT_PUBLIC_PROFILE_COLUMNS =
+  'project_id, public_title, summary, city, region, category, hero_media_id, hero_comment, contact_email, contact_phone, website_url, highlights_json, created_at, updated_at';
 const STORAGE_BUCKET = 'buildvault-media';
 const PUBLIC_STORAGE_PATH_SEGMENT = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
 const SIGNED_STORAGE_PATH_SEGMENT = `/storage/v1/object/sign/${STORAGE_BUCKET}/`;
@@ -113,11 +120,49 @@ type SupabaseNoteRow = {
   updated_at: string;
 };
 
+type SupabaseProjectPublicProfileRow = {
+  project_id: string;
+  public_title: string | null;
+  summary: string | null;
+  city: string | null;
+  region: string | null;
+  category: string | null;
+  hero_media_id: string | null;
+  hero_comment: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  website_url: string | null;
+  highlights_json: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
 type SupabaseProjectVisibilityRow = {
   id: string;
   organization_id: string | null;
   visibility: string | null;
+  public_slug?: string | null;
+  public_published_at?: string | null;
 };
+
+type SupabaseProjectMediaCaptionRow = {
+  id: string;
+  note: string | null;
+};
+
+type SupabasePublicMediaPostLookupRow = {
+  id: string;
+  media_id: string;
+  caption: string | null;
+  status: string | null;
+};
+
+type PublicProfileUpsertInput = Partial<
+  Omit<ProjectPublicProfile, 'project_id' | 'created_at' | 'updated_at' | 'hero_media_id'> & {
+    hero_media_id?: string | null;
+    highlights?: string[] | null;
+  }
+>;
 
 function isUuid(value: string | null | undefined): boolean {
   if (!value) return false;
@@ -610,6 +655,25 @@ function normalizeNoteRow(row: SupabaseNoteRow) {
   };
 }
 
+function normalizeProjectPublicProfileRow(row: SupabaseProjectPublicProfileRow) {
+  return {
+    project_id: row.project_id,
+    public_title: row.public_title,
+    summary: row.summary,
+    city: row.city,
+    region: row.region,
+    category: row.category,
+    hero_media_id: row.hero_media_id,
+    hero_comment: row.hero_comment,
+    contact_email: row.contact_email,
+    contact_phone: row.contact_phone,
+    website_url: row.website_url,
+    highlights_json: normalizeMetadata(row.highlights_json),
+    created_at: toMillis(row.created_at),
+    updated_at: toMillis(row.updated_at),
+  };
+}
+
 function chunkArray<T>(source: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < source.length; index += size) {
@@ -640,6 +704,139 @@ function getActorName(authUser: SupabaseUser): string | null {
   const fallback = authUser.email?.split('@')[0] || null;
   const resolved = (metadataName || fallback || '').trim();
   return resolved.length > 0 ? resolved : null;
+}
+
+async function syncProjectPublicProfileSnapshotFromSupabase(projectId: string): Promise<void> {
+  const normalizedProjectId = projectId.trim();
+  if (!normalizedProjectId) return;
+
+  const { data: profileRowRaw, error } = await supabase
+    .from('project_public_profiles')
+    .select(PROJECT_PUBLIC_PROFILE_COLUMNS)
+    .eq('project_id', normalizedProjectId)
+    .maybeSingle();
+
+  if (error) {
+    console.log('Public profile sync warning:', error.message);
+    return;
+  }
+
+  if (!profileRowRaw) {
+    mergeProjectPublicProfileSnapshotFromSupabase(normalizedProjectId, null);
+    return;
+  }
+
+  mergeProjectPublicProfileSnapshotFromSupabase(
+    normalizedProjectId,
+    normalizeProjectPublicProfileRow(profileRowRaw as SupabaseProjectPublicProfileRow)
+  );
+}
+
+async function syncPublicMediaPostsForProjectVisibility(params: {
+  authUserId: string;
+  projectId: string;
+  organizationId: string | null;
+  visibility: ProjectVisibility;
+}): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  if (params.visibility === 'private') {
+    const { error } = await supabase
+      .from('public_media_posts')
+      .update({ status: 'unpublished' })
+      .eq('project_id', params.projectId)
+      .neq('status', 'removed');
+    if (error) {
+      console.log('Public media visibility sync warning (unpublish):', error.message);
+    }
+    return;
+  }
+
+  const { data: mediaRowsRaw, error: mediaError } = await supabase
+    .from('media')
+    .select('id, note')
+    .eq('project_id', params.projectId);
+  if (mediaError) {
+    console.log('Public media visibility sync warning (media lookup):', mediaError.message);
+    return;
+  }
+
+  const mediaRows = (mediaRowsRaw || []) as SupabaseProjectMediaCaptionRow[];
+  if (mediaRows.length === 0) return;
+
+  const { data: postRowsRaw, error: postError } = await supabase
+    .from('public_media_posts')
+    .select('id, media_id, caption, status')
+    .eq('project_id', params.projectId);
+  if (postError) {
+    console.log('Public media visibility sync warning (post lookup):', postError.message);
+    return;
+  }
+
+  const postsByMediaId = new Map<string, SupabasePublicMediaPostLookupRow>();
+  for (const row of (postRowsRaw || []) as SupabasePublicMediaPostLookupRow[]) {
+    if (!row?.media_id) continue;
+    if (postsByMediaId.has(row.media_id)) continue;
+    postsByMediaId.set(row.media_id, row);
+  }
+
+  const rowsToInsert: Array<Record<string, unknown>> = [];
+  const rowsToUpdate: Array<{
+    id: string;
+    caption: string | null;
+  }> = [];
+
+  for (const mediaRow of mediaRows) {
+    const mediaId = mediaRow.id?.trim();
+    if (!mediaId) continue;
+    const derivedCaption = mediaRow.note?.trim() || null;
+    const existingPost = postsByMediaId.get(mediaId);
+
+    if (existingPost?.status === 'removed') {
+      continue;
+    }
+
+    if (existingPost?.id) {
+      rowsToUpdate.push({
+        id: existingPost.id,
+        caption: existingPost.caption?.trim() || derivedCaption,
+      });
+      continue;
+    }
+
+    rowsToInsert.push({
+      project_id: params.projectId,
+      media_id: mediaId,
+      organization_id: params.organizationId,
+      caption: derivedCaption,
+      published_by_user_id: params.authUserId,
+      status: 'published',
+      published_at: nowIso,
+    });
+  }
+
+  for (const row of rowsToUpdate) {
+    const { error } = await supabase
+      .from('public_media_posts')
+      .update({
+        organization_id: params.organizationId,
+        caption: row.caption,
+        published_by_user_id: params.authUserId,
+        status: 'published',
+        published_at: nowIso,
+      })
+      .eq('id', row.id);
+    if (error) {
+      console.log('Public media visibility sync warning (update):', error.message);
+    }
+  }
+
+  for (const chunk of chunkArray(rowsToInsert, 200)) {
+    const { error } = await supabase.from('public_media_posts').insert(chunk);
+    if (error) {
+      console.log('Public media visibility sync warning (insert):', error.message);
+    }
+  }
 }
 
 async function maybePublishMediaPostForPublicProject(params: {
@@ -1225,6 +1422,200 @@ export async function updateProjectInSupabase(
   }
 
   await syncProjectsAndActivityFromSupabase();
+}
+
+export async function upsertProjectPublicProfileInSupabase(
+  projectId: string,
+  data: PublicProfileUpsertInput
+): Promise<ProjectPublicProfile | null> {
+  if (!isUuid(projectId)) {
+    return upsertProjectPublicProfile(projectId, data);
+  }
+
+  const authUser = await requireAuthUser('update project public profile');
+  const updates: Record<string, unknown> = {};
+  const changedFields: string[] = [];
+
+  if (data.public_title !== undefined) {
+    updates.public_title = data.public_title?.trim() || null;
+    changedFields.push('public_title');
+  }
+  if (data.summary !== undefined) {
+    updates.summary = data.summary?.trim() || null;
+    changedFields.push('summary');
+  }
+  if (data.city !== undefined) {
+    updates.city = data.city?.trim() || null;
+    changedFields.push('city');
+  }
+  if (data.region !== undefined) {
+    updates.region = data.region?.trim() || null;
+    changedFields.push('region');
+  }
+  if (data.category !== undefined) {
+    updates.category = data.category?.trim() || null;
+    changedFields.push('category');
+  }
+  if (data.hero_media_id !== undefined) {
+    updates.hero_media_id = data.hero_media_id || null;
+    changedFields.push('hero_media_id');
+  }
+  if (data.hero_comment !== undefined) {
+    updates.hero_comment = data.hero_comment?.trim() || null;
+    changedFields.push('hero_comment');
+  }
+  if (data.contact_email !== undefined) {
+    updates.contact_email = data.contact_email?.trim() || null;
+    changedFields.push('contact_email');
+  }
+  if (data.contact_phone !== undefined) {
+    updates.contact_phone = data.contact_phone?.trim() || null;
+    changedFields.push('contact_phone');
+  }
+  if (data.website_url !== undefined) {
+    updates.website_url = data.website_url?.trim() || null;
+    changedFields.push('website_url');
+  }
+  if (data.highlights !== undefined) {
+    const normalizedHighlights = Array.isArray(data.highlights)
+      ? data.highlights.map((value) => value.trim()).filter((value) => value.length > 0).slice(0, 8)
+      : [];
+    updates.highlights_json = normalizedHighlights;
+    changedFields.push('highlights_json');
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return getProjectPublicProfile(projectId);
+  }
+
+  const { data: existingProfile, error: lookupError } = await supabase
+    .from('project_public_profiles')
+    .select('project_id')
+    .eq('project_id', projectId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load project public profile');
+  }
+
+  if (existingProfile?.project_id) {
+    const { error: updateError } = await supabase
+      .from('project_public_profiles')
+      .update(updates)
+      .eq('project_id', projectId);
+    if (updateError) {
+      mergeErrors(updateError, 'Unable to update project public profile');
+    }
+  } else {
+    const { error: insertError } = await supabase.from('project_public_profiles').insert({
+      project_id: projectId,
+      ...updates,
+    });
+    if (insertError) {
+      mergeErrors(insertError, 'Unable to create project public profile');
+    }
+  }
+
+  const actorName = getActorName(authUser);
+  const { error: activityError } = await supabase.from('activity_log').insert({
+    project_id: projectId,
+    action_type: 'project_public_profile_updated',
+    reference_id: projectId,
+    actor_user_id: authUser.id,
+    actor_name_snapshot: actorName,
+    metadata: { fields: changedFields },
+  });
+  if (activityError) {
+    console.log('Public profile activity sync warning:', activityError.message);
+  }
+
+  await syncProjectPublicProfileSnapshotFromSupabase(projectId);
+  await syncProjectsAndActivityFromSupabase();
+  return getProjectPublicProfile(projectId);
+}
+
+export async function setProjectVisibilityInSupabase(
+  projectId: string,
+  visibility: ProjectVisibility,
+  options?: { slug?: string | null }
+): Promise<Project> {
+  if (!isUuid(projectId)) {
+    return setProjectVisibility(projectId, visibility, options);
+  }
+
+  const authUser = await requireAuthUser('set project visibility');
+  const nowIso = new Date().toISOString();
+  const { data: existingProjectRaw, error: lookupError } = await supabase
+    .from('projects')
+    .select('id, organization_id, visibility, public_slug, public_published_at')
+    .eq('id', projectId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load project visibility');
+  }
+  if (!existingProjectRaw?.id) {
+    throw new Error('Project not found');
+  }
+
+  const existingProject = existingProjectRaw as SupabaseProjectVisibilityRow;
+  const currentVisibility: ProjectVisibility = existingProject.visibility === 'public' ? 'public' : 'private';
+  const providedSlug = typeof options?.slug === 'string' ? options.slug.trim().toLowerCase() : '';
+  const retainedSlug =
+    typeof existingProject.public_slug === 'string' ? existingProject.public_slug.trim().toLowerCase() : '';
+  const nextSlug = providedSlug || retainedSlug;
+
+  const updates: Record<string, unknown> = {
+    visibility,
+    public_updated_at: nowIso,
+  };
+
+  if (visibility === 'public') {
+    if (!nextSlug) {
+      throw new Error('Public slug is required to publish this project');
+    }
+    updates.public_slug = nextSlug;
+    updates.public_published_at = existingProject.public_published_at || nowIso;
+  }
+
+  const { error: updateError } = await supabase
+    .from('projects')
+    .update(updates)
+    .eq('id', projectId);
+  if (updateError) {
+    mergeErrors(updateError, 'Unable to update project visibility');
+  }
+
+  if (currentVisibility !== visibility) {
+    const actorName = getActorName(authUser);
+    const actionType = visibility === 'public' ? 'project_published' : 'project_unpublished';
+    const metadata = visibility === 'public' ? { public_slug: nextSlug || null } : null;
+    const { error: activityError } = await supabase.from('activity_log').insert({
+      project_id: projectId,
+      action_type: actionType,
+      reference_id: projectId,
+      actor_user_id: authUser.id,
+      actor_name_snapshot: actorName,
+      metadata,
+    });
+    if (activityError) {
+      console.log('Project visibility activity sync warning:', activityError.message);
+    }
+  }
+
+  await syncPublicMediaPostsForProjectVisibility({
+    authUserId: authUser.id,
+    projectId,
+    organizationId: existingProject.organization_id ?? null,
+    visibility,
+  });
+
+  await syncProjectsAndActivityFromSupabase();
+  await syncProjectPublicProfileSnapshotFromSupabase(projectId);
+
+  const localProject = getProjectById(projectId);
+  if (!localProject) {
+    throw new Error('Project visibility updated remotely but not available locally yet');
+  }
+  return localProject;
 }
 
 export async function deleteProjectInSupabase(projectId: string): Promise<void> {

@@ -189,6 +189,23 @@ type RemoteNoteSyncRow = {
   updated_at: number;
 };
 
+type RemoteProjectPublicProfileSyncRow = {
+  project_id: string;
+  public_title?: string | null;
+  summary?: string | null;
+  city?: string | null;
+  region?: string | null;
+  category?: string | null;
+  hero_media_id?: string | null;
+  hero_comment?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  website_url?: string | null;
+  highlights_json?: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
 export interface ProjectPublicProfile {
   project_id: string;
   public_title?: string | null;
@@ -2464,6 +2481,59 @@ export function mergeProjectNotesSnapshotFromSupabase(
       db.runSync('DELETE FROM notes WHERE id = ? AND user_id = ?', [id, scopedUserId]);
     }
   }, 'Merge project notes snapshot from Supabase');
+}
+
+export function mergeProjectPublicProfileSnapshotFromSupabase(
+  projectId: string,
+  profile: RemoteProjectPublicProfileSyncRow | null
+): void {
+  return withErrorHandlingSync(() => {
+    const normalizedProjectId = projectId.trim();
+    if (!normalizedProjectId) return;
+
+    if (!profile) {
+      db.runSync('DELETE FROM project_public_profiles WHERE project_id = ?', [normalizedProjectId]);
+      return;
+    }
+
+    const createdAt = profile.created_at || Date.now();
+    const updatedAt = profile.updated_at || createdAt;
+
+    db.runSync(
+      `INSERT INTO project_public_profiles
+        (project_id, public_title, summary, city, region, category, hero_media_id, hero_comment, contact_email, contact_phone, website_url, highlights_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id) DO UPDATE SET
+         public_title = excluded.public_title,
+         summary = excluded.summary,
+         city = excluded.city,
+         region = excluded.region,
+         category = excluded.category,
+         hero_media_id = excluded.hero_media_id,
+         hero_comment = excluded.hero_comment,
+         contact_email = excluded.contact_email,
+         contact_phone = excluded.contact_phone,
+         website_url = excluded.website_url,
+         highlights_json = excluded.highlights_json,
+         updated_at = excluded.updated_at`,
+      [
+        normalizedProjectId,
+        profile.public_title?.trim() || null,
+        profile.summary?.trim() || null,
+        profile.city?.trim() || null,
+        profile.region?.trim() || null,
+        profile.category?.trim() || null,
+        profile.hero_media_id || null,
+        profile.hero_comment?.trim() || null,
+        profile.contact_email?.trim() || null,
+        profile.contact_phone?.trim() || null,
+        profile.website_url?.trim() || null,
+        profile.highlights_json || null,
+        createdAt,
+        updatedAt,
+      ]
+    );
+  }, 'Merge project public profile snapshot from Supabase');
 }
 
 export function deleteProject(id: string) {
