@@ -2693,6 +2693,26 @@ export function updateOrganizationName(id: string, name: string): Organization |
   }, 'Update organization name');
 }
 
+export function deleteOrganizationForCurrentUser(organizationId: string): void {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const normalizedId = organizationId.trim();
+    if (!normalizedId) return;
+
+    const row = db.getFirstSync(
+      'SELECT id, owner_user_id FROM organizations WHERE id = ? LIMIT 1',
+      [normalizedId]
+    ) as { id?: string; owner_user_id?: string } | null;
+
+    if (!row?.id) return;
+    if (row.owner_user_id !== userId) {
+      throw new Error('Only organization owner can delete organization');
+    }
+
+    db.runSync('DELETE FROM organizations WHERE id = ?', [normalizedId]);
+  }, 'Delete organization');
+}
+
 export function getOrganizationMembers(
   organizationId: string,
   options?: { includeRemoved?: boolean }

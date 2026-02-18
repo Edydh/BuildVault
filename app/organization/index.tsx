@@ -21,6 +21,7 @@ import {
 import {
   acceptOrganizationInviteInSupabase,
   createOrganizationInSupabase,
+  deleteOrganizationInSupabase,
   inviteOrganizationMemberInSupabase,
   removeOrganizationMemberInSupabase,
   setOrganizationMemberRoleInSupabase,
@@ -125,6 +126,7 @@ export default function OrganizationScreen() {
   );
 
   const canManageMembers = myMembership?.role === 'owner' || myMembership?.role === 'admin';
+  const canDeleteSelectedOrganization = myMembership?.role === 'owner';
   const filteredMembers = useMemo(() => {
     if (memberFilter === 'all') return members;
     return members.filter((member) => member.status === memberFilter);
@@ -203,6 +205,36 @@ export default function OrganizationScreen() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleDeleteOrganization = () => {
+    if (!selectedOrganization || !canDeleteSelectedOrganization) return;
+
+    Alert.alert(
+      'Delete Organization',
+      `Delete "${selectedOrganization.name}"? This cannot be undone. Projects will remain, but become independent projects.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                setBusy(true);
+                await deleteOrganizationInSupabase(selectedOrganization.id);
+                await loadData(null, { skipRemoteSync: true });
+                Alert.alert('Organization deleted', `"${selectedOrganization.name}" was deleted.`);
+              } catch (error) {
+                Alert.alert('Error', getErrorMessage(error));
+              } finally {
+                setBusy(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
   };
 
   const handleUpdateMemberRole = async (member: OrganizationMember, role: OrganizationMemberRole) => {
@@ -448,6 +480,17 @@ export default function OrganizationScreen() {
                       You are {labelFromRole(myMembership.role)}
                     </Text>
                   </View>
+                ) : null}
+                {canDeleteSelectedOrganization ? (
+                  <BVButton
+                    title="Delete Organization"
+                    variant="danger"
+                    icon="trash-outline"
+                    onPress={handleDeleteOrganization}
+                    disabled={busy}
+                    loading={busy}
+                    style={{ marginTop: 12 }}
+                  />
                 ) : null}
               </BVCard>
             ) : null}

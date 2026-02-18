@@ -13,7 +13,7 @@ import {
 } from '../lib/theme/tokens';
 
 type Props = {
-  project: Project;
+  project?: Project | null;
   onPress?: () => void;
   onLongPress?: () => void;
   searchTerm?: string;
@@ -106,6 +106,10 @@ function HighlightText({
 }
 
 export default function ProjectCard({ project, onPress, onLongPress, searchTerm, organizationLabel }: Props) {
+  if (!project || typeof project.id !== 'string' || typeof project.name !== 'string') {
+    return null;
+  }
+
   const subtitle = [project.client, project.location].filter(Boolean).join(' • ');
   const mediaItems = getMediaByProject(project.id);
   const photoCount = mediaItems.filter((item) => item.type === 'photo').length;
@@ -113,8 +117,8 @@ export default function ProjectCard({ project, onPress, onLongPress, searchTerm,
   const noteCount = mediaItems.filter((item) => !!item.note?.trim()).length;
   const lastUpdatedAt = project.updated_at || mediaItems[0]?.created_at || project.created_at;
 
-  const status = project.status || 'neutral';
-  const statusColor = bvStatusColors[status];
+  const status: ProjectStatus = project.status && project.status in STATUS_LABELS ? project.status : 'neutral';
+  const statusColor = bvStatusColors[status] || bvColors.brand.primaryLight;
   const progress = Math.max(0, Math.min(100, Math.round(project.progress ?? 0)));
 
   const metrics = [

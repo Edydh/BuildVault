@@ -1,5 +1,6 @@
 import type { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
 import {
+  deleteOrganizationForCurrentUser,
   Organization,
   OrganizationMember,
   OrganizationMemberRole,
@@ -36,6 +37,9 @@ type SupabaseInviteMembershipWithOrg = SupabaseOrganizationMemberRow & {
 type SupabaseActiveMembershipWithOrg = SupabaseOrganizationMemberRow & {
   organizations: SupabaseOrganizationRow | SupabaseOrganizationRow[] | null;
 };
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function toMillis(value?: string | null): number {
   if (!value) return Date.now();
@@ -90,6 +94,11 @@ function normalizeSlug(value?: string | null): string | null {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return normalized.length > 0 ? normalized : null;
+}
+
+function isUuid(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return UUID_REGEX.test(value.trim());
 }
 
 function resolveSingleOrganization(
@@ -367,5 +376,31 @@ export async function removeOrganizationMemberInSupabase(data: {
     mergeErrors(error, 'Unable to remove member');
   }
 
+  await syncOrganizationDataFromSupabase();
+}
+
+export async function deleteOrganizationInSupabase(organizationId: string): Promise<void> {
+  await requireAuthUser('delete organization');
+  const normalizedId = organizationId.trim();
+  if (!normalizedId) {
+    throw new Error('Organization ID is required');
+  }
+
+  if (!isUuid(normalizedId)) {
+    // Legacy local-only organization IDs cannot be deleted from Supabase.
+    deleteOrganizationForCurrentUser(normalizedId);
+    return;
+  }
+
+  const { error } = await supabase
+    .from('organizations')
+    .delete()
+    .eq('id', normalizedId);
+
+  if (error) {
+    mergeErrors(error, 'Unable to delete organization');
+  }
+
+  deleteOrganizationForCurrentUser(normalizedId);
   await syncOrganizationDataFromSupabase();
 }

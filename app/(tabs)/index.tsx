@@ -239,8 +239,15 @@ export default function ProjectsList() {
 
   // Filter + sort projects
   const filteredProjects = React.useMemo(() => {
+    const safeProjects = projects.filter(
+      (project): project is Project =>
+        !!project &&
+        typeof project.id === 'string' &&
+        project.id.trim().length > 0 &&
+        typeof project.name === 'string'
+    );
     const searchTerm = (debouncedSearch || '').toLowerCase();
-    const filtered = projects.filter(p => {
+    const filtered = safeProjects.filter(p => {
       // Basic fields
       const basicMatch = !searchTerm || (
         p.name.toLowerCase().includes(searchTerm) ||
@@ -856,25 +863,30 @@ export default function ProjectsList() {
       <Animated.FlatList
         ref={flatListRef}
         data={filteredProjects}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => (typeof item?.id === 'string' && item.id ? item.id : `invalid-project-${index}`)}
         contentContainerStyle={{ 
           padding: 16, 
           paddingTop: 8,
           paddingBottom: insets.bottom + 100, // Tab bar + safe area
         }}
-        renderItem={({ item }) => (
-          <ProjectCard 
-            project={item} 
-            organizationLabel={
-              item.organization_id
-                ? organizationNameById.get(item.organization_id) || 'Organization'
-                : 'Independent Project'
-            }
-            searchTerm={debouncedSearch}
-            onPress={() => router.push(`/project/${item.id}`)}
-            onLongPress={() => handleProjectOptions(item)}
-          />
-        )}
+        renderItem={({ item }) => {
+          if (!item || typeof item.id !== 'string' || typeof item.name !== 'string') {
+            return null;
+          }
+          return (
+            <ProjectCard
+              project={item}
+              organizationLabel={
+                item.organization_id
+                  ? organizationNameById.get(item.organization_id) || 'Organization'
+                  : 'Independent Project'
+              }
+              searchTerm={debouncedSearch}
+              onPress={() => router.push(`/project/${item.id}`)}
+              onLongPress={() => handleProjectOptions(item)}
+            />
+          );
+        }}
         onScroll={handleScroll}
         scrollEventThrottle={1}
         showsVerticalScrollIndicator={true}
