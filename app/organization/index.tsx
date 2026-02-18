@@ -14,15 +14,18 @@ import {
   OrganizationInvite,
   OrganizationMember,
   OrganizationMemberRole,
-  acceptOrganizationInvite,
-  createOrganization,
   getOrganizationMembers,
   getOrganizationsForCurrentUser,
   getPendingOrganizationInvitesForCurrentUser,
-  inviteOrganizationMember,
-  removeOrganizationMember,
-  setOrganizationMemberRole,
 } from '../../lib/db';
+import {
+  acceptOrganizationInviteInSupabase,
+  createOrganizationInSupabase,
+  inviteOrganizationMemberInSupabase,
+  removeOrganizationMemberInSupabase,
+  setOrganizationMemberRoleInSupabase,
+  syncOrganizationDataFromSupabase,
+} from '../../lib/supabaseCollaboration';
 import { BVButton, BVCard, BVEmptyState, BVHeader } from '../../components/ui';
 import { GlassTextInput } from '../../components/glass';
 import { bvColors, bvFx, bvSpacing } from '../../lib/theme/tokens';
@@ -64,33 +67,44 @@ export default function OrganizationScreen() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<Exclude<OrganizationMemberRole, 'owner'>>('member');
 
-  const loadData = useCallback((preferredOrgId?: string | null) => {
+  const hydrateFromLocal = useCallback((preferredOrgId?: string | null) => {
+    const nextOrganizations = getOrganizationsForCurrentUser();
+    const nextInvites = getPendingOrganizationInvitesForCurrentUser();
+
+    const fallbackSelectedId =
+      (preferredOrgId && nextOrganizations.some((item) => item.id === preferredOrgId) && preferredOrgId) ||
+      (selectedOrgId && nextOrganizations.some((item) => item.id === selectedOrgId) && selectedOrgId) ||
+      nextOrganizations[0]?.id ||
+      null;
+
+    const nextMembers = fallbackSelectedId ? getOrganizationMembers(fallbackSelectedId) : [];
+
+    setOrganizations(nextOrganizations);
+    setInvites(nextInvites);
+    setSelectedOrgId(fallbackSelectedId);
+    setMembers(nextMembers);
+  }, [selectedOrgId]);
+
+  const loadData = useCallback(async (
+    preferredOrgId?: string | null,
+    options?: { skipRemoteSync?: boolean }
+  ) => {
     try {
-      const nextOrganizations = getOrganizationsForCurrentUser();
-      const nextInvites = getPendingOrganizationInvitesForCurrentUser();
-
-      const fallbackSelectedId =
-        (preferredOrgId && nextOrganizations.some((item) => item.id === preferredOrgId) && preferredOrgId) ||
-        (selectedOrgId && nextOrganizations.some((item) => item.id === selectedOrgId) && selectedOrgId) ||
-        nextOrganizations[0]?.id ||
-        null;
-
-      const nextMembers = fallbackSelectedId ? getOrganizationMembers(fallbackSelectedId) : [];
-
-      setOrganizations(nextOrganizations);
-      setInvites(nextInvites);
-      setSelectedOrgId(fallbackSelectedId);
-      setMembers(nextMembers);
+      if (!options?.skipRemoteSync && user) {
+        setLoading(true);
+        await syncOrganizationDataFromSupabase();
+      }
+      hydrateFromLocal(preferredOrgId);
     } catch (error) {
       Alert.alert('Error', getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [selectedOrgId]);
+  }, [hydrateFromLocal, user]);
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      void loadData();
     }, [loadData])
   );
 
@@ -106,7 +120,7 @@ export default function OrganizationScreen() {
 
   const canManageMembers = myMembership?.role === 'owner' || myMembership?.role === 'admin';
 
-  const handleCreateOrganization = () => {
+  const handleCreateOrganization = async () => {
     const name = orgName.trim();
     if (!name) {
       Alert.alert('Missing name', 'Please provide an organization name.');
@@ -115,13 +129,13 @@ export default function OrganizationScreen() {
 
     try {
       setBusy(true);
-      const created = createOrganization({
+      const created = await createOrganizationInSupabase({
         name,
         slug: orgSlug.trim() || null,
       });
       setOrgName('');
       setOrgSlug('');
-      loadData(created.id);
+      await loadData(created.id, { skipRemoteSync: true });
       Alert.alert('Organization created', `${created.name} is ready. You can now invite members.`);
     } catch (error) {
       Alert.alert('Error', getErrorMessage(error));
@@ -140,7 +154,7 @@ export default function OrganizationScreen() {
     }
   };
 
-  const handleInviteMember = () => {
+  const handleInviteMember = async () => {
     if (!selectedOrgId) {
       Alert.alert('Select organization', 'Choose an organization first.');
       return;
@@ -153,16 +167,13 @@ export default function OrganizationScreen() {
 
     try {
       setBusy(true);
-      inviteOrganizationMember({
+      await inviteOrganizationMemberInSupabase({
         organizationId: selectedOrgId,
         email,
         role: inviteRole,
-        invitedBy: user?.id ?? null,
       });
       setInviteEmail('');
-      const nextMembers = getOrganizationMembers(selectedOrgId);
-      setMembers(nextMembers);
-      loadData(selectedOrgId);
+      await loadData(selectedOrgId, { skipRemoteSync: true });
       Alert.alert('Invitation sent', `Invite sent to ${email}.`);
     } catch (error) {
       Alert.alert('Error', getErrorMessage(error));
@@ -171,11 +182,11 @@ export default function OrganizationScreen() {
     }
   };
 
-  const handleAcceptInvite = (inviteId: string) => {
+  const handleAcceptInvite = async (inviteId: string) => {
     try {
       setBusy(true);
-      const accepted = acceptOrganizationInvite(inviteId);
-      loadData(accepted.organization_id);
+      const acceptedOrganizationId = await acceptOrganizationInviteInSupabase(inviteId);
+      await loadData(acceptedOrganizationId, { skipRemoteSync: true });
       Alert.alert('Joined organization', 'Invitation accepted successfully.');
     } catch (error) {
       Alert.alert('Error', getErrorMessage(error));
@@ -184,12 +195,16 @@ export default function OrganizationScreen() {
     }
   };
 
-  const handleUpdateMemberRole = (member: OrganizationMember, role: OrganizationMemberRole) => {
+  const handleUpdateMemberRole = async (member: OrganizationMember, role: OrganizationMemberRole) => {
     if (!selectedOrgId) return;
     try {
       setBusy(true);
-      setOrganizationMemberRole(selectedOrgId, member.id, role);
-      loadData(selectedOrgId);
+      await setOrganizationMemberRoleInSupabase({
+        organizationId: selectedOrgId,
+        memberId: member.id,
+        role,
+      });
+      await loadData(selectedOrgId, { skipRemoteSync: true });
       Alert.alert('Role updated', 'Member role updated successfully.');
     } catch (error) {
       Alert.alert('Error', getErrorMessage(error));
@@ -210,15 +225,20 @@ export default function OrganizationScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            try {
-              setBusy(true);
-              removeOrganizationMember(selectedOrgId, member.id);
-              loadData(selectedOrgId);
-            } catch (error) {
-              Alert.alert('Error', getErrorMessage(error));
-            } finally {
-              setBusy(false);
-            }
+            void (async () => {
+              try {
+                setBusy(true);
+                await removeOrganizationMemberInSupabase({
+                  organizationId: selectedOrgId,
+                  memberId: member.id,
+                });
+                await loadData(selectedOrgId, { skipRemoteSync: true });
+              } catch (error) {
+                Alert.alert('Error', getErrorMessage(error));
+              } finally {
+                setBusy(false);
+              }
+            })();
           },
         },
       ]
@@ -232,7 +252,7 @@ export default function OrganizationScreen() {
       text: role === member.role ? `Role: ${labelFromRole(role)}` : `Set as ${labelFromRole(role)}`,
       onPress: () => {
         if (role !== member.role) {
-          handleUpdateMemberRole(member, role);
+          void handleUpdateMemberRole(member, role);
         }
       },
     }));
@@ -296,7 +316,7 @@ export default function OrganizationScreen() {
                 </Text>
                 <BVButton
                   title="Accept Invite"
-                  onPress={() => handleAcceptInvite(invite.id)}
+                  onPress={() => void handleAcceptInvite(invite.id)}
                   style={{ marginTop: 10 }}
                   icon="checkmark-circle-outline"
                   disabled={busy}
@@ -329,7 +349,7 @@ export default function OrganizationScreen() {
           <BVButton
             title="Create Organization"
             icon="business-outline"
-            onPress={handleCreateOrganization}
+            onPress={() => void handleCreateOrganization()}
             disabled={busy}
             loading={busy}
           />
@@ -540,7 +560,7 @@ export default function OrganizationScreen() {
                   <BVButton
                     title="Send Invitation"
                     icon="mail-outline"
-                    onPress={handleInviteMember}
+                    onPress={() => void handleInviteMember()}
                     disabled={busy}
                     loading={busy}
                   />

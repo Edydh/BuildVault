@@ -4,6 +4,7 @@ import { authService, AuthResult } from './auth';
 import { User } from './db';
 import * as dbModule from './db';
 import { supabase } from './supabase';
+import { syncOrganizationDataFromSupabase } from './supabaseCollaboration';
 
 interface AuthContextType {
   user: User | null;
@@ -46,6 +47,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(nextUser);
   };
 
+  const syncCollaborationState = async () => {
+    try {
+      await syncOrganizationDataFromSupabase();
+    } catch (error) {
+      console.log('Collaboration sync skipped:', error);
+    }
+  };
+
   useEffect(() => {
     checkAuthState();
     // Subscribe to Supabase auth state changes
@@ -56,6 +65,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (session?.user) {
             const synced = await authService.upsertUserFromSupabase(session.user);
             applyUser(synced);
+            await syncCollaborationState();
           } else {
             // Don't immediately fetch local user, let the sign-in flow handle it
             console.log('Session without user, skipping local user fetch');
@@ -88,6 +98,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const synced = await authService.upsertUserFromSupabase(data.session.user);
         console.log('Current user (supabase):', synced ? 'Found' : 'Not found');
         applyUser(synced);
+        await syncCollaborationState();
         return;
       }
 
@@ -114,6 +125,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (result.success && result.user) {
         console.log('Setting user in AuthContext:', result.user.name || 'Apple User');
         applyUser(result.user);
+        await syncCollaborationState();
         
         // Force a small delay to ensure state is updated
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -143,6 +155,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (result.success && result.user) {
         console.log('Setting user in AuthContext:', result.user.name || 'Google User');
         applyUser(result.user);
+        await syncCollaborationState();
         
         // Force a small delay to ensure state is updated
         await new Promise(resolve => setTimeout(resolve, 100));

@@ -93,6 +93,28 @@ export interface OrganizationInvite {
   updated_at: number;
 }
 
+type RemoteOrganizationSyncRow = {
+  id: string;
+  name: string;
+  slug?: string | null;
+  owner_user_id?: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type RemoteOrganizationMemberSyncRow = {
+  id: string;
+  organization_id: string;
+  user_id?: string | null;
+  invited_email?: string | null;
+  role: OrganizationMemberRole;
+  status: OrganizationMemberStatus;
+  invited_by?: string | null;
+  created_at: number;
+  updated_at: number;
+  accepted_at?: number | null;
+};
+
 export interface ProjectPublicProfile {
   project_id: string;
   public_title?: string | null;
@@ -871,6 +893,78 @@ function deduplicateUsersByIdentity() {
     for (let index = 1; index < rows.length; index += 1) {
       mergeUserRecords(String(rows[index].id), canonicalId);
     }
+  }
+}
+
+function deduplicateMembershipRows() {
+  const organizationUserDuplicates = db.getAllSync(
+    `SELECT organization_id, user_id
+     FROM organization_members
+     WHERE user_id IS NOT NULL
+     GROUP BY organization_id, user_id
+     HAVING COUNT(*) > 1`
+  ) as Array<Record<string, unknown>>;
+
+  for (const group of organizationUserDuplicates) {
+    const organizationId = typeof group.organization_id === 'string' ? group.organization_id : '';
+    const userId = typeof group.user_id === 'string' ? group.user_id : '';
+    if (!organizationId || !userId) continue;
+
+    const canonical = db.getFirstSync(
+      `SELECT id
+       FROM organization_members
+       WHERE organization_id = ? AND user_id = ?
+       ORDER BY
+         CASE status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END ASC,
+         updated_at DESC,
+         created_at DESC,
+         id DESC
+       LIMIT 1`,
+      [organizationId, userId]
+    ) as Record<string, unknown> | null;
+    const canonicalId = typeof canonical?.id === 'string' ? canonical.id : null;
+    if (!canonicalId) continue;
+
+    db.runSync(
+      `DELETE FROM organization_members
+       WHERE organization_id = ? AND user_id = ? AND id <> ?`,
+      [organizationId, userId, canonicalId]
+    );
+  }
+
+  const projectUserDuplicates = db.getAllSync(
+    `SELECT project_id, user_id
+     FROM project_members
+     WHERE user_id IS NOT NULL
+     GROUP BY project_id, user_id
+     HAVING COUNT(*) > 1`
+  ) as Array<Record<string, unknown>>;
+
+  for (const group of projectUserDuplicates) {
+    const projectId = typeof group.project_id === 'string' ? group.project_id : '';
+    const userId = typeof group.user_id === 'string' ? group.user_id : '';
+    if (!projectId || !userId) continue;
+
+    const canonical = db.getFirstSync(
+      `SELECT id
+       FROM project_members
+       WHERE project_id = ? AND user_id = ?
+       ORDER BY
+         CASE status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END ASC,
+         updated_at DESC,
+         created_at DESC,
+         id DESC
+       LIMIT 1`,
+      [projectId, userId]
+    ) as Record<string, unknown> | null;
+    const canonicalId = typeof canonical?.id === 'string' ? canonical.id : null;
+    if (!canonicalId) continue;
+
+    db.runSync(
+      `DELETE FROM project_members
+       WHERE project_id = ? AND user_id = ? AND id <> ?`,
+      [projectId, userId, canonicalId]
+    );
   }
 }
 
@@ -1788,6 +1882,98 @@ export function setProjectCompletionState(projectId: string, completed: boolean)
 
     return getProjectById(projectId);
   }, 'Set project completion state');
+}
+
+export function mergeOrganizationSnapshotFromSupabase(data: {
+  currentAuthUserId: string;
+  organizations: RemoteOrganizationSyncRow[];
+  members: RemoteOrganizationMemberSyncRow[];
+}): void {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    const scopedUser = getUserById(scopedUserId);
+    const scopedAuthUserId = scopedUser?.authUserId?.trim() || data.currentAuthUserId.trim();
+
+    const normalizeUserId = (remoteUserId?: string | null): string | null => {
+      if (!remoteUserId) return null;
+      const trimmed = remoteUserId.trim();
+      if (!trimmed) return null;
+      if (trimmed === scopedAuthUserId) {
+        return scopedUserId;
+      }
+      const localUser = getUserByAuthUserId(trimmed);
+      return localUser?.id ?? trimmed;
+    };
+
+    for (const organization of data.organizations) {
+      const id = organization.id.trim();
+      if (!id) continue;
+      const name = organization.name.trim();
+      if (!name) continue;
+      const slug = normalizeOrganizationSlug(organization.slug ?? null);
+      const ownerUserId = normalizeUserId(organization.owner_user_id) ?? scopedUserId;
+      const createdAt = organization.created_at || Date.now();
+      const updatedAt = organization.updated_at || createdAt;
+
+      db.runSync(
+        `INSERT INTO organizations (id, name, slug, owner_user_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           slug = excluded.slug,
+           owner_user_id = excluded.owner_user_id,
+           updated_at = excluded.updated_at`,
+        [id, name, slug, ownerUserId, createdAt, updatedAt]
+      );
+    }
+
+    for (const member of data.members) {
+      const id = member.id.trim();
+      const organizationId = member.organization_id.trim();
+      if (!id || !organizationId) continue;
+      const userId = normalizeUserId(member.user_id ?? null);
+      const invitedEmail = normalizeEmail(member.invited_email ?? null);
+      const role = isOrganizationMemberRole(member.role) ? member.role : 'member';
+      const status = isOrganizationMemberStatus(member.status) ? member.status : 'invited';
+      const invitedBy = normalizeUserId(member.invited_by ?? null);
+      const createdAt = member.created_at || Date.now();
+      const updatedAt = member.updated_at || createdAt;
+      const acceptedAt = member.accepted_at ?? (status === 'active' ? updatedAt : null);
+
+      if (userId) {
+        const conflictingUserMembership = db.getFirstSync(
+          `SELECT id
+           FROM organization_members
+           WHERE organization_id = ?
+             AND user_id = ?
+             AND id <> ?
+           LIMIT 1`,
+          [organizationId, userId, id]
+        ) as Record<string, unknown> | null;
+        if (conflictingUserMembership && typeof conflictingUserMembership.id === 'string') {
+          db.runSync('DELETE FROM organization_members WHERE id = ?', [conflictingUserMembership.id]);
+        }
+      }
+
+      db.runSync(
+        `INSERT INTO organization_members
+          (id, organization_id, user_id, invited_email, role, status, invited_by, created_at, updated_at, accepted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           organization_id = excluded.organization_id,
+           user_id = excluded.user_id,
+           invited_email = excluded.invited_email,
+           role = excluded.role,
+           status = excluded.status,
+           invited_by = excluded.invited_by,
+           updated_at = excluded.updated_at,
+           accepted_at = excluded.accepted_at`,
+        [id, organizationId, userId, invitedEmail, role, status, invitedBy, createdAt, updatedAt, acceptedAt]
+      );
+    }
+
+    deduplicateMembershipRows();
+  }, 'Merge organization snapshot from Supabase');
 }
 
 export function deleteProject(id: string) {
