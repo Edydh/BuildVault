@@ -27,11 +27,13 @@ import {
   syncOrganizationDataFromSupabase,
 } from '../../lib/supabaseCollaboration';
 import { BVButton, BVCard, BVEmptyState, BVHeader } from '../../components/ui';
-import { GlassTextInput } from '../../components/glass';
+import { GlassModal, GlassTextInput } from '../../components/glass';
 import { bvColors, bvFx, bvSpacing } from '../../lib/theme/tokens';
 
 const INVITE_ROLES: Array<Exclude<OrganizationMemberRole, 'owner'>> = ['admin', 'member', 'viewer'];
 const MANAGEABLE_ROLES: OrganizationMemberRole[] = ['owner', 'admin', 'member', 'viewer'];
+const MEMBER_FILTERS = ['all', 'active', 'invited', 'removed'] as const;
+type MemberFilter = typeof MEMBER_FILTERS[number];
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && typeof error.message === 'string') {
@@ -66,6 +68,10 @@ export default function OrganizationScreen() {
   const [orgSlug, setOrgSlug] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<Exclude<OrganizationMemberRole, 'owner'>>('member');
+  const [memberFilter, setMemberFilter] = useState<MemberFilter>('all');
+  const [showManageMemberModal, setShowManageMemberModal] = useState(false);
+  const [managedMember, setManagedMember] = useState<OrganizationMember | null>(null);
+  const [managedRoleDraft, setManagedRoleDraft] = useState<OrganizationMemberRole>('member');
 
   const hydrateFromLocal = useCallback((preferredOrgId?: string | null) => {
     const nextOrganizations = getOrganizationsForCurrentUser();
@@ -119,6 +125,10 @@ export default function OrganizationScreen() {
   );
 
   const canManageMembers = myMembership?.role === 'owner' || myMembership?.role === 'admin';
+  const filteredMembers = useMemo(() => {
+    if (memberFilter === 'all') return members;
+    return members.filter((member) => member.status === memberFilter);
+  }, [memberFilter, members]);
 
   const handleCreateOrganization = async () => {
     const name = orgName.trim();
@@ -233,6 +243,8 @@ export default function OrganizationScreen() {
                   memberId: member.id,
                 });
                 await loadData(selectedOrgId, { skipRemoteSync: true });
+                setShowManageMemberModal(false);
+                setManagedMember(null);
               } catch (error) {
                 Alert.alert('Error', getErrorMessage(error));
               } finally {
@@ -245,31 +257,35 @@ export default function OrganizationScreen() {
     );
   };
 
-  const handleManageMember = (member: OrganizationMember) => {
-    if (!canManageMembers || !selectedOrgId) return;
+  const openManageMemberModal = (member: OrganizationMember) => {
+    if (!canManageMembers) return;
+    setManagedMember(member);
+    setManagedRoleDraft(member.role);
+    setShowManageMemberModal(true);
+  };
 
-    const roleButtons = MANAGEABLE_ROLES.map((role) => ({
-      text: role === member.role ? `Role: ${labelFromRole(role)}` : `Set as ${labelFromRole(role)}`,
-      onPress: () => {
-        if (role !== member.role) {
-          void handleUpdateMemberRole(member, role);
-        }
-      },
-    }));
+  const closeManageMemberModal = () => {
+    setShowManageMemberModal(false);
+    setManagedMember(null);
+  };
 
-    Alert.alert(
-      'Manage Member',
-      member.invited_email || member.user_id || 'Team member',
-      [
-        ...roleButtons,
-        {
-          text: 'Remove Member',
-          style: 'destructive',
-          onPress: () => handleRemoveMember(member),
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+  const canRemoveManagedMember = useMemo(() => {
+    if (!managedMember || !myMembership) return false;
+    if (myMembership.role === 'admin' && (managedMember.role === 'owner' || managedMember.role === 'admin')) {
+      return false;
+    }
+    return true;
+  }, [managedMember, myMembership]);
+
+  const handleSaveManagedRole = async () => {
+    if (!managedMember) return;
+    if (managedRoleDraft === managedMember.role) {
+      setShowManageMemberModal(false);
+      return;
+    }
+    await handleUpdateMemberRole(managedMember, managedRoleDraft);
+    setShowManageMemberModal(false);
+    setManagedMember(null);
   };
 
   return (
@@ -440,10 +456,41 @@ export default function OrganizationScreen() {
               <Text style={{ color: bvColors.text.primary, fontSize: 18, fontWeight: '700', marginBottom: 10 }}>
                 Members
               </Text>
-              {members.length === 0 ? (
+              <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+                {MEMBER_FILTERS.map((filter) => {
+                  const selected = filter === memberFilter;
+                  return (
+                    <TouchableOpacity
+                      key={filter}
+                      onPress={() => setMemberFilter(filter)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 7,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: selected ? bvFx.brandBorder : bvFx.glassBorderSoft,
+                        backgroundColor: selected ? bvFx.brandSoft : bvFx.glassSoft,
+                        marginRight: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: selected ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                          fontSize: 11,
+                          fontWeight: '700',
+                          textTransform: 'capitalize',
+                        }}
+                      >
+                        {filter}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {filteredMembers.length === 0 ? (
                 <Text style={{ color: bvColors.text.muted }}>No members in this organization yet.</Text>
               ) : (
-                members.map((member) => (
+                filteredMembers.map((member) => (
                   <View
                     key={member.id}
                     style={{
@@ -487,7 +534,7 @@ export default function OrganizationScreen() {
                       </View>
                       {canManageMembers ? (
                         <TouchableOpacity
-                          onPress={() => handleManageMember(member)}
+                          onPress={() => openManageMemberModal(member)}
                           disabled={busy}
                           style={{
                             marginLeft: 8,
@@ -591,6 +638,76 @@ export default function OrganizationScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <GlassModal visible={showManageMemberModal} onRequestClose={closeManageMemberModal}>
+        <Text style={{ color: bvColors.text.primary, fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
+          Manage Member
+        </Text>
+        <Text style={{ color: bvColors.text.muted, marginBottom: 12 }}>
+          {managedMember?.invited_email || managedMember?.user_id || 'Team member'}
+        </Text>
+        <Text style={{ color: bvColors.text.secondary, fontSize: 12, marginBottom: 6 }}>Role</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 14 }}>
+          {MANAGEABLE_ROLES.map((role) => {
+            const selected = role === managedRoleDraft;
+            const disableRole =
+              !managedMember ||
+              managedMember.status === 'removed' ||
+              (myMembership?.role === 'admin' && (managedMember.role === 'owner' || managedMember.role === 'admin'));
+            return (
+              <TouchableOpacity
+                key={role}
+                onPress={() => setManagedRoleDraft(role)}
+                disabled={disableRole || busy}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: selected ? bvFx.brandBorder : bvFx.glassBorderSoft,
+                  backgroundColor: selected ? bvFx.brandSoft : bvFx.glassSoft,
+                  marginRight: 8,
+                  marginBottom: 8,
+                  opacity: disableRole ? 0.5 : 1,
+                }}
+              >
+                <Text
+                  style={{
+                    color: selected ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                    fontSize: 12,
+                    fontWeight: '700',
+                  }}
+                >
+                  {labelFromRole(role)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <BVButton
+          title="Save Role"
+          onPress={() => void handleSaveManagedRole()}
+          disabled={!managedMember || busy}
+          loading={busy}
+          icon="save-outline"
+          style={{ marginBottom: 10 }}
+        />
+        <BVButton
+          title="Remove Member"
+          variant="danger"
+          onPress={() => managedMember && handleRemoveMember(managedMember)}
+          disabled={!managedMember || !canRemoveManagedMember || busy}
+          icon="person-remove-outline"
+          style={{ marginBottom: 10 }}
+        />
+        <BVButton
+          title="Cancel"
+          variant="secondary"
+          onPress={closeManageMemberModal}
+          disabled={busy}
+        />
+      </GlassModal>
     </View>
   );
 }
