@@ -113,6 +113,12 @@ type SupabaseNoteRow = {
   updated_at: string;
 };
 
+type SupabaseProjectVisibilityRow = {
+  id: string;
+  organization_id: string | null;
+  visibility: string | null;
+};
+
 function isUuid(value: string | null | undefined): boolean {
   if (!value) return false;
   return UUID_REGEX.test(value.trim());
@@ -634,6 +640,78 @@ function getActorName(authUser: SupabaseUser): string | null {
   const fallback = authUser.email?.split('@')[0] || null;
   const resolved = (metadataName || fallback || '').trim();
   return resolved.length > 0 ? resolved : null;
+}
+
+async function maybePublishMediaPostForPublicProject(params: {
+  authUserId: string;
+  projectId: string;
+  mediaId: string;
+  caption?: string | null;
+}): Promise<void> {
+  try {
+    const { data: projectRowRaw, error: projectLookupError } = await supabase
+      .from('projects')
+      .select('id, organization_id, visibility')
+      .eq('id', params.projectId)
+      .maybeSingle();
+    if (projectLookupError) {
+      console.log('Public media auto-publish warning (project lookup):', projectLookupError.message);
+      return;
+    }
+
+    const projectRow = projectRowRaw as SupabaseProjectVisibilityRow | null;
+    const localProject = getProjectById(params.projectId);
+    const remoteIsPublic = projectRow?.visibility === 'public';
+    const localIsPublic = localProject?.visibility === 'public';
+    if (!remoteIsPublic && !localIsPublic) {
+      return;
+    }
+
+    const organizationId = projectRow?.organization_id ?? localProject?.organization_id ?? null;
+    const trimmedCaption = typeof params.caption === 'string' ? params.caption.trim() : '';
+
+    const { data: existingPostRow, error: existingPostError } = await supabase
+      .from('public_media_posts')
+      .select('id, status')
+      .eq('media_id', params.mediaId)
+      .maybeSingle();
+    if (existingPostError) {
+      console.log('Public media auto-publish warning (existing post lookup):', existingPostError.message);
+      return;
+    }
+
+    if (existingPostRow?.id) {
+      const { error: updateError } = await supabase
+        .from('public_media_posts')
+        .update({
+          organization_id: organizationId,
+          caption: trimmedCaption || null,
+          published_by_user_id: params.authUserId,
+          status: 'published',
+          published_at: new Date().toISOString(),
+        })
+        .eq('id', existingPostRow.id);
+      if (updateError) {
+        console.log('Public media auto-publish warning (update):', updateError.message);
+      }
+      return;
+    }
+
+    const { error: insertError } = await supabase.from('public_media_posts').insert({
+      project_id: params.projectId,
+      media_id: params.mediaId,
+      organization_id: organizationId,
+      caption: trimmedCaption || null,
+      published_by_user_id: params.authUserId,
+      status: 'published',
+      published_at: new Date().toISOString(),
+    });
+    if (insertError) {
+      console.log('Public media auto-publish warning (insert):', insertError.message);
+    }
+  } catch (error) {
+    console.log('Public media auto-publish warning:', error);
+  }
 }
 
 export async function syncProjectsAndActivityFromSupabase(): Promise<void> {
@@ -1558,6 +1636,13 @@ export async function createMediaInSupabase(
   if (activityError) {
     console.log('Media-added activity sync warning:', activityError.message);
   }
+
+  await maybePublishMediaPostForPublicProject({
+    authUserId: authUser.id,
+    projectId: data.project_id,
+    mediaId: createdRow.id,
+    caption: data.note || null,
+  });
 
   mergeProjectContentSnapshotFromSupabase({
     projectId: data.project_id,
