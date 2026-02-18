@@ -20,9 +20,9 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MediaItem, getMediaByProject, getMediaByFolder } from '../../../lib/db';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
+import { deleteLocalFileIfPresent, ensureShareableLocalUri } from '../../../lib/mediaFileAccess';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
 import SharingQualitySelector from '../../../components/SharingQualitySelector';
@@ -590,11 +590,11 @@ function PhotoGalleryContent() {
       setShowQualitySelector(true);
     } else {
       // For other media types, share directly
-      await shareMedia(mediaItem.uri);
+      await shareMedia(mediaItem.uri, mediaItem.type);
     }
   };
 
-  const shareMedia = async (uri: string) => {
+  const shareMedia = async (uri: string, mediaType: MediaItem['type'] = 'photo') => {
     try {
       console.log('Starting share process for:', uri);
       
@@ -606,28 +606,29 @@ function PhotoGalleryContent() {
         return;
       }
 
-      // Check if file exists
-      const fileInfo = await FileSystem.getInfoAsync(uri);
-      console.log('File info:', fileInfo);
-      
-      if (!fileInfo.exists) {
-        console.log('File does not exist:', uri);
-        Alert.alert('Error', 'Photo file not found. Cannot share.');
-        return;
-      }
-
       console.log('Attempting to share file:', uri);
-      
-      // Ensure the URI is properly formatted
-      const shareUri = uri.startsWith('file://') ? uri : `file://${uri}`;
+      const shareUri = await ensureShareableLocalUri(
+        uri,
+        mediaType === 'photo' ? 'jpg' : mediaType === 'video' ? 'mp4' : 'pdf'
+      );
       console.log('Formatted share URI:', shareUri);
       
       // Share the photo with maximum quality preservation
       await Sharing.shareAsync(shareUri, {
-        mimeType: 'image/jpeg',
-        dialogTitle: 'Share Photo',
+        mimeType:
+          mediaType === 'photo'
+            ? 'image/jpeg'
+            : mediaType === 'video'
+              ? 'video/mp4'
+              : 'application/pdf',
+        dialogTitle: mediaType === 'photo' ? 'Share Photo' : mediaType === 'video' ? 'Share Video' : 'Share Document',
         // Ensure no compression during sharing
-        UTI: 'public.jpeg', // Use JPEG UTI for best quality
+        UTI:
+          mediaType === 'photo'
+            ? 'public.jpeg'
+            : mediaType === 'video'
+              ? 'public.mpeg-4'
+              : 'public.pdf',
       });
       
       console.log('Share completed successfully');
@@ -659,19 +660,8 @@ function PhotoGalleryContent() {
     if (!mediaItem) return;
     
     try {
-      // Delete the physical file from file system
-      const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-      if (fileInfo.exists) {
-        await FileSystem.deleteAsync(mediaItem.uri, { idempotent: true });
-      }
-      
-      // Delete thumbnail if it exists
-      if (mediaItem.thumb_uri) {
-        const thumbInfo = await FileSystem.getInfoAsync(mediaItem.thumb_uri);
-        if (thumbInfo.exists) {
-          await FileSystem.deleteAsync(mediaItem.thumb_uri, { idempotent: true });
-        }
-      }
+      await deleteLocalFileIfPresent(mediaItem.uri);
+      await deleteLocalFileIfPresent(mediaItem.thumb_uri);
       
       // Clean up image variants if it's a photo
       if (mediaItem.type === 'photo' && id) {

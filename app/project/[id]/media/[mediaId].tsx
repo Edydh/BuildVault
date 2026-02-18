@@ -20,9 +20,14 @@ import * as Sharing from 'expo-sharing';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { MediaItem, getMediaById } from '../../../../lib/db';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { cleanupImageVariants } from '../../../../lib/imageOptimization';
+import {
+  deleteLocalFileIfPresent,
+  ensureShareableLocalUri,
+  isRemoteMediaUri,
+  localFileExists,
+} from '../../../../lib/mediaFileAccess';
 import NoteEncouragement from '../../../../components/NoteEncouragement';
 import NotePrompt from '../../../../components/NotePrompt';
 import { shouldShowPrompt, markPromptShown } from '../../../../components/NoteSettings';
@@ -511,9 +516,8 @@ function MediaDetailContent() {
           return;
         }
 
-        // Check if the media file actually exists
-        const fileInfo = await FileSystem.getInfoAsync(mediaData.uri);
-        setFileExists(fileInfo.exists);
+        const exists = isRemoteMediaUri(mediaData.uri) ? true : await localFileExists(mediaData.uri);
+        setFileExists(exists);
 
         setMedia(mediaData);
         setNote(mediaData.note || '');
@@ -547,23 +551,27 @@ function MediaDetailContent() {
         return;
       }
 
-      // Check if the file exists
-      if (!fileExists) {
-        console.log('Media file does not exist:', media.uri);
-        Alert.alert('Error', 'Media file not found. Cannot share.');
-        return;
-      }
-
-      // Ensure the URI is properly formatted
-      const shareUri = media.uri.startsWith('file://') ? media.uri : `file://${media.uri}`;
+      const fallbackExt =
+        media.type === 'photo' ? 'jpg' : media.type === 'video' ? 'mp4' : 'pdf';
+      const shareUri = await ensureShareableLocalUri(media.uri, fallbackExt);
       console.log('Formatted share URI:', shareUri);
 
       // Share the actual file with maximum quality preservation
       await Sharing.shareAsync(shareUri, {
-        mimeType: media.type === 'photo' ? 'image/jpeg' : 'video/mp4',
-        dialogTitle: `Share ${media.type === 'photo' ? 'Photo' : 'Video'}`,
+        mimeType:
+          media.type === 'photo'
+            ? 'image/jpeg'
+            : media.type === 'video'
+              ? 'video/mp4'
+              : 'application/pdf',
+        dialogTitle: `Share ${media.type === 'photo' ? 'Photo' : media.type === 'video' ? 'Video' : 'Document'}`,
         // Ensure no compression during sharing
-        UTI: media.type === 'photo' ? 'public.jpeg' : 'public.mpeg-4',
+        UTI:
+          media.type === 'photo'
+            ? 'public.jpeg'
+            : media.type === 'video'
+              ? 'public.mpeg-4'
+              : 'public.data',
       });
 
       console.log('Media share completed successfully');
@@ -628,19 +636,9 @@ function MediaDetailContent() {
                          media.type === 'video' ? 'video' : 'document';
     
     try {
-      // Delete the physical file from file system
-      const fileInfo = await FileSystem.getInfoAsync(media.uri);
-      if (fileInfo.exists) {
-        await FileSystem.deleteAsync(media.uri, { idempotent: true });
-      }
-      
-      // Delete thumbnail if it exists
-      if (media.thumb_uri) {
-        const thumbInfo = await FileSystem.getInfoAsync(media.thumb_uri);
-        if (thumbInfo.exists) {
-          await FileSystem.deleteAsync(media.thumb_uri, { idempotent: true });
-        }
-      }
+      // Delete local cached files when applicable.
+      await deleteLocalFileIfPresent(media.uri);
+      await deleteLocalFileIfPresent(media.thumb_uri);
       
       // Clean up image variants if it's a photo
       if (media.type === 'photo') {

@@ -24,6 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../../lib/AuthContext';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
+import { deleteLocalFileIfPresent, ensureShareableLocalUri } from '../../../lib/mediaFileAccess';
 import NoteEncouragement from '../../../components/NoteEncouragement';
 import { GlassCard, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
 import { BVCard, BVEmptyState, BVFloatingAction } from '../../../components/ui';
@@ -865,21 +866,19 @@ function ProjectDetailContent() {
       const copiedFiles = [];
       for (const mediaItem of media) {
         try {
-          const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-          if (fileInfo.exists) {
-            const fileExtension = mediaItem.type === 'photo' ? 'jpg' : 
-                                mediaItem.type === 'video' ? 'mp4' : 'pdf';
-            const fileName = `${mediaItem.type}_${mediaItem.created_at}.${fileExtension}`;
-            const destinationPath = projectFolderPath + fileName;
-            
-            await FileSystem.copyAsync({
-              from: mediaItem.uri,
-              to: destinationPath,
-            });
-            
-            copiedFiles.push(destinationPath);
-            console.log(`Copied file: ${fileName}`);
-          }
+          const fileExtension = mediaItem.type === 'photo' ? 'jpg' : 
+                              mediaItem.type === 'video' ? 'mp4' : 'pdf';
+          const localUri = await ensureShareableLocalUri(mediaItem.uri, fileExtension);
+          const fileName = `${mediaItem.type}_${mediaItem.created_at}.${fileExtension}`;
+          const destinationPath = projectFolderPath + fileName;
+          
+          await FileSystem.copyAsync({
+            from: localUri,
+            to: destinationPath,
+          });
+          
+          copiedFiles.push(destinationPath);
+          console.log(`Copied file: ${fileName}`);
         } catch (fileError) {
           console.log(`Could not copy file: ${mediaItem.uri}`, fileError);
         }
@@ -1239,16 +1238,8 @@ function ProjectDetailContent() {
           destructive: true,
           onPress: async () => {
             try {
-              const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-              if (fileInfo.exists) {
-                await FileSystem.deleteAsync(mediaItem.uri, { idempotent: true });
-              }
-              if (mediaItem.thumb_uri) {
-                const thumbInfo = await FileSystem.getInfoAsync(mediaItem.thumb_uri);
-                if (thumbInfo.exists) {
-                  await FileSystem.deleteAsync(mediaItem.thumb_uri, { idempotent: true });
-                }
-              }
+              await deleteLocalFileIfPresent(mediaItem.uri);
+              await deleteLocalFileIfPresent(mediaItem.thumb_uri);
               if (mediaItem.type === 'photo' && id) {
                 await cleanupImageVariants(mediaItem.id, id);
               }
@@ -1952,19 +1943,26 @@ function ProjectDetailContent() {
       // Single file sharing - direct approach
       try {
         const mediaItem = selectedMedia[0];
-        const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-        if (fileInfo.exists) {
-                  await Sharing.shareAsync(mediaItem.uri, {
-          mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
-                   mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
+        const shareUri = await ensureShareableLocalUri(
+          mediaItem.uri,
+          mediaItem.type === 'photo' ? 'jpg' : mediaItem.type === 'video' ? 'mp4' : 'pdf'
+        );
+        await Sharing.shareAsync(shareUri, {
+          mimeType:
+            mediaItem.type === 'photo'
+              ? 'image/jpeg'
+              : mediaItem.type === 'video'
+                ? 'video/mp4'
+                : 'application/pdf',
           dialogTitle: `Share ${mediaItem.type}`,
           // Ensure no compression during sharing
-          UTI: mediaItem.type === 'photo' ? 'public.jpeg' : 
-               mediaItem.type === 'video' ? 'public.mpeg-4' : 'public.pdf',
+          UTI:
+            mediaItem.type === 'photo'
+              ? 'public.jpeg'
+              : mediaItem.type === 'video'
+                ? 'public.mpeg-4'
+                : 'public.pdf',
         });
-        } else {
-          Alert.alert('Error', 'File not found. Please try again.');
-        }
       } catch (error) {
         console.error('Error sharing single file:', error);
         Alert.alert('Error', 'Failed to share file. Please try again.');
@@ -2004,19 +2002,13 @@ function ProjectDetailContent() {
   const shareFilesSequentially = async (mediaItems: MediaItem[]) => {
     try {
       for (let i = 0; i < mediaItems.length; i++) {
-        const mediaItem = mediaItems[i];
-        const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-        
-        if (fileInfo.exists) {
-          // Show progress before sharing each file
-          if (i === 0) {
-            Alert.alert(
-              'Sharing Files',
-              `Ready to share ${mediaItems.length} files via Messages.\n\nFor each file, select the same recipient to send all files to the same conversation.`,
-              [{ text: 'Start', onPress: () => shareNextFile(mediaItems, 0) }]
-            );
-            return; // Exit here, shareNextFile will handle the rest
-          }
+        if (i === 0) {
+          Alert.alert(
+            'Sharing Files',
+            `Ready to share ${mediaItems.length} files via Messages.\n\nFor each file, select the same recipient to send all files to the same conversation.`,
+            [{ text: 'Start', onPress: () => shareNextFile(mediaItems, 0) }]
+          );
+          return; // Exit here, shareNextFile will handle the rest
         }
       }
     } catch (error) {
@@ -2032,47 +2024,47 @@ function ProjectDetailContent() {
     }
 
     const mediaItem = mediaItems[index];
-    const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-    
-    if (fileInfo.exists) {
-      try {
-        await Sharing.shareAsync(mediaItem.uri, {
-          mimeType: mediaItem.type === 'photo' ? 'image/jpeg' : 
-                   mediaItem.type === 'video' ? 'video/mp4' : 'application/pdf',
-          dialogTitle: `Share ${mediaItem.type} (${index + 1} of ${mediaItems.length})`,
-          // Ensure no compression during sharing
-          UTI: mediaItem.type === 'photo' ? 'public.jpeg' : 
-               mediaItem.type === 'video' ? 'public.mpeg-4' : 'public.pdf',
-        });
+    try {
+      const shareUri = await ensureShareableLocalUri(
+        mediaItem.uri,
+        mediaItem.type === 'photo' ? 'jpg' : mediaItem.type === 'video' ? 'mp4' : 'pdf'
+      );
+      await Sharing.shareAsync(shareUri, {
+        mimeType:
+          mediaItem.type === 'photo'
+            ? 'image/jpeg'
+            : mediaItem.type === 'video'
+              ? 'video/mp4'
+              : 'application/pdf',
+        dialogTitle: `Share ${mediaItem.type} (${index + 1} of ${mediaItems.length})`,
+        // Ensure no compression during sharing
+        UTI:
+          mediaItem.type === 'photo'
+            ? 'public.jpeg'
+            : mediaItem.type === 'video'
+              ? 'public.mpeg-4'
+              : 'public.pdf',
+      });
         
-        // After sharing, show option to continue with next file
-        if (index < mediaItems.length - 1) {
-          Alert.alert(
-            'Continue Sharing',
-            `File ${index + 1} of ${mediaItems.length} shared!\n\nReady to share the next file?`,
-            [
-              { 
-                text: 'Share Next', 
-                onPress: () => shareNextFile(mediaItems, index + 1)
-              },
-              { text: 'Done', style: 'cancel' }
-            ]
-          );
-        } else {
-          Alert.alert('Success', `Successfully shared all ${mediaItems.length} files!`);
-        }
-      } catch (error) {
-        console.error('Error sharing file:', error);
-        Alert.alert('Error', `Failed to share file ${index + 1}. Continue with next file?`, [
-          { 
-            text: 'Continue', 
-            onPress: () => shareNextFile(mediaItems, index + 1)
-          },
-          { text: 'Stop', style: 'cancel' }
-        ]);
+      // After sharing, show option to continue with next file
+      if (index < mediaItems.length - 1) {
+        Alert.alert(
+          'Continue Sharing',
+          `File ${index + 1} of ${mediaItems.length} shared!\n\nReady to share the next file?`,
+          [
+            { 
+              text: 'Share Next', 
+              onPress: () => shareNextFile(mediaItems, index + 1)
+            },
+            { text: 'Done', style: 'cancel' }
+          ]
+        );
+      } else {
+        Alert.alert('Success', `Successfully shared all ${mediaItems.length} files!`);
       }
-    } else {
-      Alert.alert('Error', `File ${index + 1} not found. Continue with next file?`, [
+    } catch (error) {
+      console.error('Error sharing file:', error);
+      Alert.alert('Error', `Failed to share file ${index + 1}. Continue with next file?`, [
         { 
           text: 'Continue', 
           onPress: () => shareNextFile(mediaItems, index + 1)
@@ -2105,19 +2097,8 @@ function ProjectDetailContent() {
           onPress: async () => {
             try {
               for (const mediaItem of selectedMedia) {
-                // Delete the physical file from file system
-                const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-                if (fileInfo.exists) {
-                  await FileSystem.deleteAsync(mediaItem.uri, { idempotent: true });
-                }
-                
-                // Delete thumbnail if it exists
-                if (mediaItem.thumb_uri) {
-                  const thumbInfo = await FileSystem.getInfoAsync(mediaItem.thumb_uri);
-                  if (thumbInfo.exists) {
-                    await FileSystem.deleteAsync(mediaItem.thumb_uri, { idempotent: true });
-                  }
-                }
+                await deleteLocalFileIfPresent(mediaItem.uri);
+                await deleteLocalFileIfPresent(mediaItem.thumb_uri);
                 
                 // Delete from database
                 await deleteMediaInSupabase(mediaItem.id);

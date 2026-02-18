@@ -1,4 +1,5 @@
-import type { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   ActivityLogEntry,
   Folder,
@@ -46,6 +47,9 @@ const FOLDER_COLUMNS = 'id, project_id, name, created_at';
 const MEDIA_COLUMNS = 'id, project_id, folder_id, type, uri, thumb_uri, note, metadata, created_at';
 const NOTE_COLUMNS =
   'id, project_id, media_id, author_user_id, title, content, created_at, updated_at';
+const STORAGE_BUCKET = 'buildvault-media';
+const PUBLIC_STORAGE_PATH_SEGMENT = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
+const SIGNED_STORAGE_PATH_SEGMENT = `/storage/v1/object/sign/${STORAGE_BUCKET}/`;
 
 type SupabaseProjectRow = {
   id: string;
@@ -171,6 +175,349 @@ function normalizeBudget(value: number | string | null): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function isRemoteUri(uri: string | null | undefined): boolean {
+  if (!uri) return false;
+  return /^https?:\/\//i.test(uri.trim());
+}
+
+function stripUriParams(uri: string): string {
+  return uri.split('#')[0].split('?')[0];
+}
+
+function fileExtensionFromUri(uri: string, fallback: string): string {
+  const cleaned = stripUriParams(uri).toLowerCase();
+  const match = cleaned.match(/\.([a-z0-9]+)$/i);
+  if (!match) return fallback;
+  return match[1];
+}
+
+function inferContentType(
+  extension: string,
+  mediaType: MediaItem['type'],
+  fallback: string = 'application/octet-stream'
+): string {
+  const ext = extension.toLowerCase();
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    gif: 'image/gif',
+    mp4: 'video/mp4',
+    mov: 'video/quicktime',
+    m4v: 'video/x-m4v',
+    webm: 'video/webm',
+    mkv: 'video/x-matroska',
+    avi: 'video/x-msvideo',
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    csv: 'text/csv',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  };
+  if (map[ext]) return map[ext];
+  if (mediaType === 'photo') return 'image/jpeg';
+  if (mediaType === 'video') return 'video/mp4';
+  if (mediaType === 'doc') return 'application/octet-stream';
+  return fallback;
+}
+
+function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
+  const atobFn = (globalThis as { atob?: (value: string) => string }).atob;
+  if (!atobFn) {
+    throw new Error('Base64 decoder is unavailable in this runtime');
+  }
+  const binary = atobFn(base64.replace(/\s/g, ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+async function readLocalFileAsArrayBuffer(uri: string): Promise<ArrayBuffer> {
+  const localUri = uri.startsWith('file://') ? uri : `file://${uri}`;
+  const info = await FileSystem.getInfoAsync(localUri);
+  if (!info.exists || info.isDirectory) {
+    throw new Error(`Local file not found: ${uri}`);
+  }
+
+  const base64 = await FileSystem.readAsStringAsync(localUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return decodeBase64ToArrayBuffer(base64);
+}
+
+function buildStorageObjectPath(params: {
+  userId: string;
+  projectId: string;
+  mediaId: string;
+  kind: 'media' | 'thumbs';
+  extension: string;
+}): string {
+  const safeExtension = params.extension.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin';
+  return `users/${params.userId}/projects/${params.projectId}/${params.kind}/${params.mediaId}.${safeExtension}`;
+}
+
+async function uploadLocalFileToStorage(params: {
+  localUri: string;
+  objectPath: string;
+  mediaType: MediaItem['type'];
+  extension: string;
+}): Promise<{ objectPath: string; publicUrl: string }> {
+  const payload = await readLocalFileAsArrayBuffer(params.localUri);
+  const contentType = inferContentType(params.extension, params.mediaType);
+
+  const { error: uploadError } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(params.objectPath, payload, {
+      upsert: true,
+      contentType,
+      cacheControl: '31536000',
+    });
+  if (uploadError) {
+    mergeErrors(uploadError, 'Unable to upload media file to storage');
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(params.objectPath);
+
+  if (!publicUrl || !isRemoteUri(publicUrl)) {
+    throw new Error('Unable to generate media public URL');
+  }
+
+  return {
+    objectPath: params.objectPath,
+    publicUrl,
+  };
+}
+
+function parseStorageObjectPathFromUrl(uri: string | null | undefined): string | null {
+  if (!uri || !isRemoteUri(uri)) return null;
+  try {
+    const url = new URL(uri);
+    const pathname = decodeURIComponent(url.pathname);
+    if (pathname.includes(PUBLIC_STORAGE_PATH_SEGMENT)) {
+      return pathname.split(PUBLIC_STORAGE_PATH_SEGMENT)[1] || null;
+    }
+    if (pathname.includes(SIGNED_STORAGE_PATH_SEGMENT)) {
+      return pathname.split(SIGNED_STORAGE_PATH_SEGMENT)[1] || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function withStorageMetadata(
+  baseMetadata: Record<string, unknown>,
+  patch: {
+    bucket?: string;
+    file_path?: string | null;
+    thumb_path?: string | null;
+    source_uri?: string | null;
+    source_thumb_uri?: string | null;
+    synced_at?: string | null;
+  }
+): Record<string, unknown> {
+  const existingStorage =
+    baseMetadata.storage && typeof baseMetadata.storage === 'object' && !Array.isArray(baseMetadata.storage)
+      ? (baseMetadata.storage as Record<string, unknown>)
+      : {};
+
+  return {
+    ...baseMetadata,
+    storage: {
+      ...existingStorage,
+      ...patch,
+    },
+  };
+}
+
+function extractStorageObjectPathsFromMedia(row: {
+  uri?: string | null;
+  thumb_uri?: string | null;
+  metadata?: unknown;
+}): string[] {
+  const metadata = toMetadataPayload(row.metadata);
+  const storage =
+    metadata.storage && typeof metadata.storage === 'object' && !Array.isArray(metadata.storage)
+      ? (metadata.storage as Record<string, unknown>)
+      : {};
+
+  const fromMetadata = [
+    typeof storage.file_path === 'string' ? storage.file_path : null,
+    typeof storage.thumb_path === 'string' ? storage.thumb_path : null,
+  ];
+
+  const fromUrls = [
+    parseStorageObjectPathFromUrl(row.uri || null),
+    parseStorageObjectPathFromUrl(row.thumb_uri || null),
+  ];
+
+  return Array.from(
+    new Set(
+      [...fromMetadata, ...fromUrls]
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => value.length > 0)
+    )
+  );
+}
+
+type SyncedStorageMedia = {
+  uri: string;
+  thumb_uri: string | null;
+  metadata: Record<string, unknown>;
+  uploaded: boolean;
+};
+
+async function uploadMediaAssetsToStorage(params: {
+  authUserId: string;
+  projectId: string;
+  mediaId: string;
+  mediaType: MediaItem['type'];
+  uri: string;
+  thumbUri: string | null;
+  metadata: Record<string, unknown>;
+}): Promise<SyncedStorageMedia> {
+  const nextMetadata = { ...params.metadata };
+  const trimmedUri = params.uri.trim();
+  const trimmedThumb = params.thumbUri?.trim() || null;
+
+  let nextUri = trimmedUri;
+  let nextThumbUri = trimmedThumb;
+  let uploaded = false;
+  let filePath: string | null = null;
+  let thumbPath: string | null = null;
+
+  if (!isRemoteUri(trimmedUri)) {
+    const mediaExtension = fileExtensionFromUri(
+      trimmedUri,
+      params.mediaType === 'photo' ? 'jpg' : params.mediaType === 'video' ? 'mp4' : 'bin'
+    );
+    const mediaObjectPath = buildStorageObjectPath({
+      userId: params.authUserId,
+      projectId: params.projectId,
+      mediaId: params.mediaId,
+      kind: 'media',
+      extension: mediaExtension,
+    });
+    const uploadedMedia = await uploadLocalFileToStorage({
+      localUri: trimmedUri,
+      objectPath: mediaObjectPath,
+      mediaType: params.mediaType,
+      extension: mediaExtension,
+    });
+    nextUri = uploadedMedia.publicUrl;
+    filePath = uploadedMedia.objectPath;
+    uploaded = true;
+  } else {
+    filePath = parseStorageObjectPathFromUrl(trimmedUri);
+  }
+
+  if (trimmedThumb) {
+    if (trimmedThumb === trimmedUri && nextUri) {
+      nextThumbUri = nextUri;
+      thumbPath = filePath;
+    } else if (!isRemoteUri(trimmedThumb)) {
+      const thumbExtension = fileExtensionFromUri(trimmedThumb, 'jpg');
+      const thumbObjectPath = buildStorageObjectPath({
+        userId: params.authUserId,
+        projectId: params.projectId,
+        mediaId: `${params.mediaId}-thumb`,
+        kind: 'thumbs',
+        extension: thumbExtension,
+      });
+      const uploadedThumb = await uploadLocalFileToStorage({
+        localUri: trimmedThumb,
+        objectPath: thumbObjectPath,
+        mediaType: 'photo',
+        extension: thumbExtension,
+      });
+      nextThumbUri = uploadedThumb.publicUrl;
+      thumbPath = uploadedThumb.objectPath;
+      uploaded = true;
+    } else {
+      thumbPath = parseStorageObjectPathFromUrl(trimmedThumb);
+    }
+  } else if (params.mediaType === 'photo') {
+    nextThumbUri = nextUri;
+    thumbPath = filePath;
+  }
+
+  const syncedMetadata = withStorageMetadata(nextMetadata, {
+    bucket: STORAGE_BUCKET,
+    file_path: filePath,
+    thumb_path: thumbPath,
+    source_uri: trimmedUri,
+    source_thumb_uri: trimmedThumb,
+    synced_at: new Date().toISOString(),
+  });
+
+  return {
+    uri: nextUri,
+    thumb_uri: nextThumbUri,
+    metadata: syncedMetadata,
+    uploaded,
+  };
+}
+
+async function backfillProjectMediaStorage(
+  authUserId: string,
+  projectId: string,
+  mediaRows: SupabaseMediaRow[]
+): Promise<SupabaseMediaRow[]> {
+  if (mediaRows.length === 0) return mediaRows;
+
+  const nextRows = [...mediaRows];
+  for (let index = 0; index < nextRows.length; index += 1) {
+    const row = nextRows[index];
+    if (!row?.id || row.project_id !== projectId || isRemoteUri(row.uri)) {
+      continue;
+    }
+
+    try {
+      const synced = await uploadMediaAssetsToStorage({
+        authUserId,
+        projectId,
+        mediaId: row.id,
+        mediaType: row.type === 'video' || row.type === 'doc' ? row.type : 'photo',
+        uri: row.uri,
+        thumbUri: row.thumb_uri,
+        metadata: toMetadataPayload(row.metadata),
+      });
+
+      if (!synced.uploaded) continue;
+
+      const { data: updatedRowRaw, error: updateError } = await supabase
+        .from('media')
+        .update({
+          uri: synced.uri,
+          thumb_uri: synced.thumb_uri,
+          metadata: synced.metadata,
+        })
+        .eq('id', row.id)
+        .select(MEDIA_COLUMNS)
+        .single();
+      if (updateError || !updatedRowRaw) {
+        mergeErrors(updateError, 'Unable to backfill media storage');
+      }
+      nextRows[index] = updatedRowRaw as SupabaseMediaRow;
+    } catch (error) {
+      console.log('Media storage backfill warning:', row.id, error);
+    }
+  }
+
+  return nextRows;
+}
+
 function normalizeProjectRow(row: SupabaseProjectRow) {
   const status: ProjectStatus =
     row.status === 'active' || row.status === 'delayed' || row.status === 'completed'
@@ -265,8 +612,8 @@ function chunkArray<T>(source: T[], size: number): T[][] {
   return chunks;
 }
 
-function mergeErrors(error: PostgrestError | null | undefined, fallback: string): never {
-  throw new Error(error?.message || fallback);
+function mergeErrors(error: { message?: string } | null | undefined, fallback: string): never {
+  throw new Error(typeof error?.message === 'string' && error.message.trim().length > 0 ? error.message : fallback);
 }
 
 async function requireAuthUser(actionLabel: string): Promise<SupabaseUser> {
@@ -361,11 +708,14 @@ export async function syncProjectContentFromSupabase(projectId: string): Promise
     mergeErrors(notesError, 'Failed to load project notes');
   }
 
+  let mediaRows = (mediaRowsRaw || []) as SupabaseMediaRow[];
+  mediaRows = await backfillProjectMediaStorage(authUser.id, projectId, mediaRows);
+
   mergeProjectContentSnapshotFromSupabase(
     {
       projectId,
       folders: ((folderRowsRaw || []) as SupabaseFolderRow[]).map(normalizeFolderRow),
-      media: ((mediaRowsRaw || []) as SupabaseMediaRow[]).map(normalizeMediaRow),
+      media: mediaRows.map(normalizeMediaRow),
     },
     { pruneMissing: true }
   );
@@ -1137,8 +1487,9 @@ export async function createMediaInSupabase(
   const authUser = await requireAuthUser('create media');
   const resolvedFolderId =
     typeof data.folder_id === 'string' && data.folder_id.trim().length > 0 ? data.folder_id.trim() : null;
+  const metadataPayload = toMetadataPayload(data.metadata);
 
-  const { data: createdRow, error } = await supabase
+  const { data: createdRowRaw, error } = await supabase
     .from('media')
     .insert({
       project_id: data.project_id,
@@ -1148,12 +1499,46 @@ export async function createMediaInSupabase(
       uri: data.uri,
       thumb_uri: data.thumb_uri || null,
       note: data.note || null,
-      metadata: toMetadataPayload(data.metadata),
+      metadata: metadataPayload,
     })
     .select(MEDIA_COLUMNS)
     .single();
-  if (error || !createdRow) {
+  if (error || !createdRowRaw) {
     mergeErrors(error, 'Unable to create media');
+  }
+
+  let createdRow = createdRowRaw as SupabaseMediaRow;
+  let storageSynced = false;
+  try {
+    const syncedStorage = await uploadMediaAssetsToStorage({
+      authUserId: authUser.id,
+      projectId: data.project_id,
+      mediaId: createdRow.id,
+      mediaType: data.type,
+      uri: createdRow.uri,
+      thumbUri: createdRow.thumb_uri,
+      metadata: toMetadataPayload(createdRow.metadata),
+    });
+
+    if (syncedStorage.uploaded) {
+      const { data: updatedStorageRow, error: updateStorageError } = await supabase
+        .from('media')
+        .update({
+          uri: syncedStorage.uri,
+          thumb_uri: syncedStorage.thumb_uri,
+          metadata: syncedStorage.metadata,
+        })
+        .eq('id', createdRow.id)
+        .select(MEDIA_COLUMNS)
+        .single();
+      if (updateStorageError || !updatedStorageRow) {
+        mergeErrors(updateStorageError, 'Unable to persist media storage URLs');
+      }
+      createdRow = updatedStorageRow as SupabaseMediaRow;
+      storageSynced = true;
+    }
+  } catch (storageError) {
+    console.log('Media storage upload warning:', storageError);
   }
 
   const actorName = getActorName(authUser);
@@ -1167,6 +1552,7 @@ export async function createMediaInSupabase(
       type: data.type,
       folder_id: resolvedFolderId,
       has_note: !!data.note?.trim(),
+      storage_synced: storageSynced,
     },
   });
   if (activityError) {
@@ -1375,10 +1761,61 @@ export async function updateMediaThumbnailInSupabase(mediaId: string, thumbUri: 
     return;
   }
 
-  await requireAuthUser('update media thumbnail');
+  const authUser = await requireAuthUser('update media thumbnail');
+  const { data: existingRowRaw, error: lookupError } = await supabase
+    .from('media')
+    .select(MEDIA_COLUMNS)
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load media thumbnail details');
+  }
+  if (!existingRowRaw) return;
+
+  const existingRow = existingRowRaw as SupabaseMediaRow;
+  let nextThumbUri = thumbUri || null;
+  let nextMetadata = toMetadataPayload(existingRow.metadata);
+
+  if (nextThumbUri && !isRemoteUri(nextThumbUri)) {
+    try {
+      const extension = fileExtensionFromUri(nextThumbUri, 'jpg');
+      const objectPath = buildStorageObjectPath({
+        userId: authUser.id,
+        projectId: existingRow.project_id,
+        mediaId: `${existingRow.id}-thumb-${Date.now()}`,
+        kind: 'thumbs',
+        extension,
+      });
+      const uploadedThumb = await uploadLocalFileToStorage({
+        localUri: nextThumbUri,
+        objectPath,
+        mediaType: 'photo',
+        extension,
+      });
+      nextThumbUri = uploadedThumb.publicUrl;
+      nextMetadata = withStorageMetadata(nextMetadata, {
+        bucket: STORAGE_BUCKET,
+        thumb_path: uploadedThumb.objectPath,
+        source_thumb_uri: thumbUri || null,
+        synced_at: new Date().toISOString(),
+      });
+    } catch (storageError) {
+      console.log('Thumbnail storage upload warning:', storageError);
+    }
+  } else if (nextThumbUri) {
+    nextMetadata = withStorageMetadata(nextMetadata, {
+      bucket: STORAGE_BUCKET,
+      thumb_path: parseStorageObjectPathFromUrl(nextThumbUri),
+      synced_at: new Date().toISOString(),
+    });
+  }
+
   const { data: updatedRow, error } = await supabase
     .from('media')
-    .update({ thumb_uri: thumbUri || null })
+    .update({
+      thumb_uri: nextThumbUri,
+      metadata: nextMetadata,
+    })
     .eq('id', mediaId)
     .select(MEDIA_COLUMNS)
     .maybeSingle();
@@ -1403,7 +1840,7 @@ export async function deleteMediaInSupabase(mediaId: string): Promise<void> {
   const authUser = await requireAuthUser('delete media');
   const { data: existingRow, error: lookupError } = await supabase
     .from('media')
-    .select('id, project_id, type, folder_id')
+    .select('id, project_id, type, folder_id, uri, thumb_uri, metadata')
     .eq('id', mediaId)
     .maybeSingle();
   if (lookupError) {
@@ -1416,6 +1853,14 @@ export async function deleteMediaInSupabase(mediaId: string): Promise<void> {
   const { error: deleteNotesError } = await supabase.from('notes').delete().eq('media_id', mediaId);
   if (deleteNotesError) {
     mergeErrors(deleteNotesError, 'Unable to delete media notes');
+  }
+
+  const storageObjectPaths = extractStorageObjectPathsFromMedia(existingRow as SupabaseMediaRow);
+  if (storageObjectPaths.length > 0) {
+    const { error: storageDeleteError } = await supabase.storage.from(STORAGE_BUCKET).remove(storageObjectPaths);
+    if (storageDeleteError) {
+      console.log('Storage delete warning:', storageDeleteError.message);
+    }
   }
 
   const { error } = await supabase.from('media').delete().eq('id', mediaId);
