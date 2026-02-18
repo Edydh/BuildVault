@@ -164,6 +164,21 @@ type PublicProfileUpsertInput = Partial<
   }
 >;
 
+export interface ProjectVisibilityFeedSyncSummary {
+  visibility: ProjectVisibility;
+  totalMedia: number;
+  inserted: number;
+  republished: number;
+  updatedPublished: number;
+  unpublished: number;
+  skippedRemoved: number;
+}
+
+export interface SetProjectVisibilityResult {
+  project: Project;
+  sync: ProjectVisibilityFeedSyncSummary;
+}
+
 function isUuid(value: string | null | undefined): boolean {
   if (!value) return false;
   return UUID_REGEX.test(value.trim());
@@ -737,19 +752,47 @@ async function syncPublicMediaPostsForProjectVisibility(params: {
   projectId: string;
   organizationId: string | null;
   visibility: ProjectVisibility;
-}): Promise<void> {
+}): Promise<ProjectVisibilityFeedSyncSummary> {
+  const summary: ProjectVisibilityFeedSyncSummary = {
+    visibility: params.visibility,
+    totalMedia: 0,
+    inserted: 0,
+    republished: 0,
+    updatedPublished: 0,
+    unpublished: 0,
+    skippedRemoved: 0,
+  };
   const nowIso = new Date().toISOString();
 
   if (params.visibility === 'private') {
+    const { data: activeRowsRaw, error: activeLookupError } = await supabase
+      .from('public_media_posts')
+      .select('id')
+      .eq('project_id', params.projectId)
+      .neq('status', 'removed')
+      .neq('status', 'unpublished');
+    if (activeLookupError) {
+      console.log('Public media visibility sync warning (private lookup):', activeLookupError.message);
+      return summary;
+    }
+    const activeRows = (activeRowsRaw || []) as Array<{ id?: string }>;
+    summary.totalMedia = activeRows.length;
+    if (activeRows.length === 0) {
+      return summary;
+    }
+
     const { error } = await supabase
       .from('public_media_posts')
       .update({ status: 'unpublished' })
       .eq('project_id', params.projectId)
-      .neq('status', 'removed');
+      .neq('status', 'removed')
+      .neq('status', 'unpublished');
     if (error) {
       console.log('Public media visibility sync warning (unpublish):', error.message);
+      return summary;
     }
-    return;
+    summary.unpublished = activeRows.length;
+    return summary;
   }
 
   const { data: mediaRowsRaw, error: mediaError } = await supabase
@@ -758,11 +801,12 @@ async function syncPublicMediaPostsForProjectVisibility(params: {
     .eq('project_id', params.projectId);
   if (mediaError) {
     console.log('Public media visibility sync warning (media lookup):', mediaError.message);
-    return;
+    return summary;
   }
 
   const mediaRows = (mediaRowsRaw || []) as SupabaseProjectMediaCaptionRow[];
-  if (mediaRows.length === 0) return;
+  summary.totalMedia = mediaRows.length;
+  if (mediaRows.length === 0) return summary;
 
   const { data: postRowsRaw, error: postError } = await supabase
     .from('public_media_posts')
@@ -770,7 +814,7 @@ async function syncPublicMediaPostsForProjectVisibility(params: {
     .eq('project_id', params.projectId);
   if (postError) {
     console.log('Public media visibility sync warning (post lookup):', postError.message);
-    return;
+    return summary;
   }
 
   const postsByMediaId = new Map<string, SupabasePublicMediaPostLookupRow>();
@@ -784,6 +828,7 @@ async function syncPublicMediaPostsForProjectVisibility(params: {
   const rowsToUpdate: Array<{
     id: string;
     caption: string | null;
+    wasPublished: boolean;
   }> = [];
 
   for (const mediaRow of mediaRows) {
@@ -793,6 +838,7 @@ async function syncPublicMediaPostsForProjectVisibility(params: {
     const existingPost = postsByMediaId.get(mediaId);
 
     if (existingPost?.status === 'removed') {
+      summary.skippedRemoved += 1;
       continue;
     }
 
@@ -800,6 +846,7 @@ async function syncPublicMediaPostsForProjectVisibility(params: {
       rowsToUpdate.push({
         id: existingPost.id,
         caption: existingPost.caption?.trim() || derivedCaption,
+        wasPublished: existingPost.status === 'published',
       });
       continue;
     }
@@ -828,6 +875,12 @@ async function syncPublicMediaPostsForProjectVisibility(params: {
       .eq('id', row.id);
     if (error) {
       console.log('Public media visibility sync warning (update):', error.message);
+      continue;
+    }
+    if (row.wasPublished) {
+      summary.updatedPublished += 1;
+    } else {
+      summary.republished += 1;
     }
   }
 
@@ -835,8 +888,12 @@ async function syncPublicMediaPostsForProjectVisibility(params: {
     const { error } = await supabase.from('public_media_posts').insert(chunk);
     if (error) {
       console.log('Public media visibility sync warning (insert):', error.message);
+      continue;
     }
+    summary.inserted += chunk.length;
   }
+
+  return summary;
 }
 
 async function maybePublishMediaPostForPublicProject(params: {
@@ -1537,9 +1594,20 @@ export async function setProjectVisibilityInSupabase(
   projectId: string,
   visibility: ProjectVisibility,
   options?: { slug?: string | null }
-): Promise<Project> {
+): Promise<SetProjectVisibilityResult> {
   if (!isUuid(projectId)) {
-    return setProjectVisibility(projectId, visibility, options);
+    return {
+      project: setProjectVisibility(projectId, visibility, options),
+      sync: {
+        visibility,
+        totalMedia: 0,
+        inserted: 0,
+        republished: 0,
+        updatedPublished: 0,
+        unpublished: 0,
+        skippedRemoved: 0,
+      },
+    };
   }
 
   const authUser = await requireAuthUser('set project visibility');
@@ -1601,7 +1669,7 @@ export async function setProjectVisibilityInSupabase(
     }
   }
 
-  await syncPublicMediaPostsForProjectVisibility({
+  const sync = await syncPublicMediaPostsForProjectVisibility({
     authUserId: authUser.id,
     projectId,
     organizationId: existingProject.organization_id ?? null,
@@ -1615,7 +1683,10 @@ export async function setProjectVisibilityInSupabase(
   if (!localProject) {
     throw new Error('Project visibility updated remotely but not available locally yet');
   }
-  return localProject;
+  return {
+    project: localProject,
+    sync,
+  };
 }
 
 export async function deleteProjectInSupabase(projectId: string): Promise<void> {

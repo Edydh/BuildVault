@@ -21,6 +21,7 @@ import {
   getProjectPublicProfile,
 } from '../../../lib/db';
 import {
+  ProjectVisibilityFeedSyncSummary,
   setProjectVisibilityInSupabase,
   upsertProjectPublicProfileInSupabase,
 } from '../../../lib/supabaseProjectsSync';
@@ -69,6 +70,64 @@ function buildPublicUrl(slugValue: string): string {
   return `buildvault://public/${encodeURIComponent(normalizedSlug)}`;
 }
 
+type SyncBanner = {
+  tone: 'success' | 'neutral';
+  title: string;
+  detail: string;
+};
+
+function pluralize(count: number, singular: string, plural?: string): string {
+  return count === 1 ? singular : (plural ?? `${singular}s`);
+}
+
+function buildSyncBanner(sync: ProjectVisibilityFeedSyncSummary): SyncBanner {
+  if (sync.visibility === 'private') {
+    if (sync.unpublished > 0) {
+      return {
+        tone: 'success',
+        title: `${sync.unpublished} ${pluralize(sync.unpublished, 'media post')} hidden from Feed`,
+        detail: `${sync.totalMedia} ${pluralize(sync.totalMedia, 'published item')} were checked.`,
+      };
+    }
+    return {
+      tone: 'neutral',
+      title: 'No published media to hide',
+      detail: 'Feed visibility is already in sync for this project.',
+    };
+  }
+
+  const activatedCount = sync.inserted + sync.republished;
+  if (activatedCount > 0) {
+    const parts: string[] = [];
+    if (sync.inserted > 0) {
+      parts.push(`${sync.inserted} new`);
+    }
+    if (sync.republished > 0) {
+      parts.push(`${sync.republished} republished`);
+    }
+    if (sync.updatedPublished > 0) {
+      parts.push(`${sync.updatedPublished} refreshed`);
+    }
+    if (sync.skippedRemoved > 0) {
+      parts.push(`${sync.skippedRemoved} removed skipped`);
+    }
+
+    return {
+      tone: 'success',
+      title: `${activatedCount} ${pluralize(activatedCount, 'media post')} synced to Feed`,
+      detail: `${sync.totalMedia} scanned${parts.length > 0 ? ` (${parts.join(' • ')})` : ''}.`,
+    };
+  }
+
+  return {
+    tone: 'neutral',
+    title: 'Feed already up to date',
+    detail: `${sync.totalMedia} ${pluralize(sync.totalMedia, 'media item')} scanned${
+      sync.skippedRemoved > 0 ? ` (${sync.skippedRemoved} removed skipped)` : ''
+    }.`,
+  };
+}
+
 export default function ProjectPublicSettingsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -91,6 +150,7 @@ export default function ProjectPublicSettingsScreen() {
   const [highlightsText, setHighlightsText] = useState('');
   const [heroComment, setHeroComment] = useState('');
   const [heroMediaId, setHeroMediaId] = useState<string | null>(null);
+  const [syncBanner, setSyncBanner] = useState<SyncBanner | null>(null);
   const visibilityDraftRef = useRef(false);
 
   const applyVisibilityDraft = (value: boolean) => {
@@ -156,6 +216,7 @@ export default function ProjectPublicSettingsScreen() {
       setWebsiteUrl(publicProfile?.website_url || '');
       setHighlightsText(parseProfileHighlights(publicProfile));
       setHeroComment(publicProfile?.hero_comment || '');
+      setSyncBanner(null);
 
       const existingHero = publicProfile?.hero_media_id || null;
       const fallbackHero = media.find((item) => item.type === 'photo' || item.type === 'video')?.id ?? null;
@@ -204,12 +265,14 @@ export default function ProjectPublicSettingsScreen() {
         highlights: parseHighlights(highlightsText),
       });
 
-      const updated = await setProjectVisibilityInSupabase(id, shouldPublish ? 'public' : 'private', {
+      const visibilityResult = await setProjectVisibilityInSupabase(id, shouldPublish ? 'public' : 'private', {
         slug: shouldPublish ? normalizedSlug : undefined,
       });
+      const updated = visibilityResult.project;
 
       setProject(updated);
       applyVisibilityDraft(updated.visibility === 'public');
+      setSyncBanner(buildSyncBanner(visibilityResult.sync));
       if (updated.public_slug) {
         setSlug(updated.public_slug);
       }
@@ -253,11 +316,13 @@ export default function ProjectPublicSettingsScreen() {
         website_url: websiteUrl.trim() || null,
         highlights: parseHighlights(highlightsText),
       });
-      const updated = await setProjectVisibilityInSupabase(id, 'public', {
+      const visibilityResult = await setProjectVisibilityInSupabase(id, 'public', {
         slug: normalizedSlug,
       });
+      const updated = visibilityResult.project;
       setProject(updated);
       applyVisibilityDraft(true);
+      setSyncBanner(buildSyncBanner(visibilityResult.sync));
       if (updated.public_slug) {
         setSlug(updated.public_slug);
       }
@@ -276,9 +341,11 @@ export default function ProjectPublicSettingsScreen() {
     if (!id || !project) return;
     try {
       setSaving(true);
-      const updated = await setProjectVisibilityInSupabase(id, 'private');
+      const visibilityResult = await setProjectVisibilityInSupabase(id, 'private');
+      const updated = visibilityResult.project;
       setProject(updated);
       applyVisibilityDraft(false);
+      setSyncBanner(buildSyncBanner(visibilityResult.sync));
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       Alert.alert('Unpublished', 'Project is now private.');
     } catch (error) {
@@ -434,6 +501,32 @@ export default function ProjectPublicSettingsScreen() {
             )}
           </View>
         </BVCard>
+
+        {syncBanner ? (
+          <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons
+                name={syncBanner.tone === 'success' ? 'checkmark-circle' : 'information-circle'}
+                size={18}
+                color={syncBanner.tone === 'success' ? bvColors.semantic.success : bvColors.text.secondary}
+              />
+              <Text
+                style={{
+                  color: bvColors.text.primary,
+                  fontSize: 14,
+                  fontWeight: '700',
+                  marginLeft: 8,
+                  flex: 1,
+                }}
+              >
+                {syncBanner.title}
+              </Text>
+            </View>
+            <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 8 }}>
+              {syncBanner.detail}
+            </Text>
+          </BVCard>
+        ) : null}
 
         <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 14 }}>
           <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '700' }}>
