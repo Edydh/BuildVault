@@ -757,12 +757,35 @@ function mergeErrors(error: { message?: string } | null | undefined, fallback: s
   throw new Error(typeof error?.message === 'string' && error.message.trim().length > 0 ? error.message : fallback);
 }
 
+function isRecoverableAuthSessionError(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('auth session missing') ||
+    normalized.includes('invalid refresh token') ||
+    normalized.includes('refresh token not found')
+  );
+}
+
 async function requireAuthUser(actionLabel: string): Promise<SupabaseUser> {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) {
     throw new Error(error?.message || `Must be signed in to ${actionLabel}`);
   }
   return data.user;
+}
+
+async function requireAuthUserForSyncOrNull(actionLabel: string): Promise<SupabaseUser | null> {
+  try {
+    return await requireAuthUser(actionLabel);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    if (isRecoverableAuthSessionError(message)) {
+      console.log(`Supabase ${actionLabel} skipped: ${message}`);
+      return null;
+    }
+    throw error;
+  }
 }
 
 function getActorName(authUser: SupabaseUser): string | null {
@@ -1048,7 +1071,8 @@ async function maybePublishMediaPostForPublicProject(params: {
 }
 
 export async function syncProjectsAndActivityFromSupabase(): Promise<void> {
-  const authUser = await requireAuthUser('sync projects and activity');
+  const authUser = await requireAuthUserForSyncOrNull('sync projects and activity');
+  if (!authUser) return;
 
   const { data: ownedProjectRowsRaw, error: ownedProjectsError } = await supabase
     .from('projects')
@@ -1178,7 +1202,8 @@ export async function syncProjectsAndActivityFromSupabase(): Promise<void> {
 export async function syncProjectContentFromSupabase(projectId: string): Promise<void> {
   if (!isUuid(projectId)) return;
 
-  const authUser = await requireAuthUser('sync project content');
+  const authUser = await requireAuthUserForSyncOrNull('sync project content');
+  if (!authUser) return;
 
   const { data: folderRowsRaw, error: foldersError } = await supabase
     .from('folders')
@@ -1234,14 +1259,16 @@ export async function syncProjectContentFromSupabase(projectId: string): Promise
 export async function syncProjectMembersFromSupabase(projectId: string): Promise<void> {
   if (!isUuid(projectId)) return;
 
-  const authUser = await requireAuthUser('sync project members');
+  const authUser = await requireAuthUserForSyncOrNull('sync project members');
+  if (!authUser) return;
   await syncProjectMembersSnapshotFromSupabase(projectId, authUser.id);
 }
 
 export async function syncProjectNotesFromSupabase(projectId: string): Promise<void> {
   if (!isUuid(projectId)) return;
 
-  const authUser = await requireAuthUser('sync project notes');
+  const authUser = await requireAuthUserForSyncOrNull('sync project notes');
+  if (!authUser) return;
   const { data: noteRowsRaw, error: notesError } = await supabase
     .from('notes')
     .select(NOTE_COLUMNS)

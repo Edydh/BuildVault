@@ -139,6 +139,16 @@ function mergeErrors(error: PostgrestError | null | undefined, fallback: string)
   throw new Error(error?.message || fallback);
 }
 
+function isRecoverableAuthSessionError(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('auth session missing') ||
+    normalized.includes('invalid refresh token') ||
+    normalized.includes('refresh token not found')
+  );
+}
+
 async function requireAuthUser(actionLabel: string): Promise<SupabaseUser> {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) {
@@ -148,7 +158,17 @@ async function requireAuthUser(actionLabel: string): Promise<SupabaseUser> {
 }
 
 export async function syncOrganizationDataFromSupabase(): Promise<void> {
-  const authUser = await requireAuthUser('sync organization data');
+  let authUser: SupabaseUser;
+  try {
+    authUser = await requireAuthUser('sync organization data');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    if (isRecoverableAuthSessionError(message)) {
+      console.log(`Supabase sync organization data skipped: ${message}`);
+      return;
+    }
+    throw error;
+  }
 
   const normalizedEmail = normalizeEmail(authUser.email);
 

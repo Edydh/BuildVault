@@ -1347,6 +1347,48 @@ function getCurrentScopedUserEmail(userId: string): string | null {
   return normalizeEmail(row.email);
 }
 
+function ensureLocalUserReferenceFromAuthId(
+  authUserId: string,
+  options?: { fallbackEmail?: string | null; fallbackName?: string | null }
+): string | null {
+  const normalizedAuthUserId = authUserId.trim();
+  if (!normalizedAuthUserId) return null;
+
+  const existingByAuth = getUserByAuthUserId(normalizedAuthUserId);
+  if (existingByAuth?.id) {
+    return existingByAuth.id;
+  }
+
+  const existingById = getUserById(normalizedAuthUserId);
+  if (existingById?.id) {
+    return existingById.id;
+  }
+
+  const fallbackEmail = normalizeEmail(options?.fallbackEmail ?? null) || `${normalizedAuthUserId}@remote.buildvault.local`;
+  const fallbackName =
+    typeof options?.fallbackName === 'string' && options.fallbackName.trim().length > 0
+      ? options.fallbackName.trim()
+      : 'BuildVault Member';
+  const now = Date.now();
+
+  try {
+    db.runSync(
+      `INSERT INTO users
+        (id, auth_user_id, email, name, provider, provider_id, avatar, created_at, last_login_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      [normalizedAuthUserId, normalizedAuthUserId, fallbackEmail, fallbackName, 'google', `remote:${normalizedAuthUserId}`, now, now]
+    );
+  } catch (error) {
+    const message = extractErrorMessage(error);
+    if (!message.includes('UNIQUE constraint failed')) {
+      console.log('Synthetic user bridge warning:', error);
+    }
+  }
+
+  const resolved = getUserByAuthUserId(normalizedAuthUserId) ?? getUserById(normalizedAuthUserId);
+  return resolved?.id ?? null;
+}
+
 function assertProjectPublishAccess(projectId: string, userId: string): Record<string, unknown> {
   const project = db.getFirstSync('SELECT * FROM projects WHERE id = ? LIMIT 1', [projectId]) as Record<string, unknown> | null;
   if (!project) {
@@ -2093,7 +2135,10 @@ export function mergeOrganizationSnapshotFromSupabase(data: {
     const scopedUser = getUserById(scopedUserId);
     const scopedAuthUserId = scopedUser?.authUserId?.trim() || data.currentAuthUserId.trim();
 
-    const normalizeUserId = (remoteUserId?: string | null): string | null => {
+    const normalizeUserId = (
+      remoteUserId?: string | null,
+      options?: { fallbackEmail?: string | null; fallbackName?: string | null }
+    ): string | null => {
       if (!remoteUserId) return null;
       const trimmed = remoteUserId.trim();
       if (!trimmed) return null;
@@ -2101,7 +2146,10 @@ export function mergeOrganizationSnapshotFromSupabase(data: {
         return scopedUserId;
       }
       const localUser = getUserByAuthUserId(trimmed);
-      return localUser?.id ?? trimmed;
+      if (localUser?.id) {
+        return localUser.id;
+      }
+      return ensureLocalUserReferenceFromAuthId(trimmed, options);
     };
 
     for (const organization of data.organizations) {
@@ -2110,7 +2158,7 @@ export function mergeOrganizationSnapshotFromSupabase(data: {
       const name = organization.name.trim();
       if (!name) continue;
       const slug = normalizeOrganizationSlug(organization.slug ?? null);
-      const ownerUserId = normalizeUserId(organization.owner_user_id) ?? scopedUserId;
+      const ownerUserId = normalizeUserId(organization.owner_user_id, { fallbackName: 'Organization Owner' }) ?? scopedUserId;
       const createdAt = organization.created_at || Date.now();
       const updatedAt = organization.updated_at || createdAt;
 
@@ -2130,11 +2178,14 @@ export function mergeOrganizationSnapshotFromSupabase(data: {
       const id = member.id.trim();
       const organizationId = member.organization_id.trim();
       if (!id || !organizationId) continue;
-      const userId = normalizeUserId(member.user_id ?? null);
+      const userId = normalizeUserId(member.user_id ?? null, {
+        fallbackEmail: member.invited_email ?? null,
+        fallbackName: 'Organization Member',
+      });
       const invitedEmail = normalizeEmail(member.invited_email ?? null);
       const role = isOrganizationMemberRole(member.role) ? member.role : 'member';
       const status = isOrganizationMemberStatus(member.status) ? member.status : 'invited';
-      const invitedBy = normalizeUserId(member.invited_by ?? null);
+      const invitedBy = normalizeUserId(member.invited_by ?? null, { fallbackName: 'Organization Admin' });
       const createdAt = member.created_at || Date.now();
       const updatedAt = member.updated_at || createdAt;
       const acceptedAt = member.accepted_at ?? (status === 'active' ? updatedAt : null);
@@ -2531,7 +2582,10 @@ export function mergeProjectMembersSnapshotFromSupabase(
     ) as { id?: string } | null;
     if (!projectRow?.id) return;
 
-    const normalizeUserId = (remoteUserId?: string | null): string | null => {
+    const normalizeUserId = (
+      remoteUserId?: string | null,
+      options?: { fallbackEmail?: string | null; fallbackName?: string | null }
+    ): string | null => {
       if (!remoteUserId) return null;
       const trimmed = remoteUserId.trim();
       if (!trimmed) return null;
@@ -2539,7 +2593,10 @@ export function mergeProjectMembersSnapshotFromSupabase(
         return scopedUserId;
       }
       const localUser = getUserByAuthUserId(trimmed);
-      return localUser?.id ?? trimmed;
+      if (localUser?.id) {
+        return localUser.id;
+      }
+      return ensureLocalUserReferenceFromAuthId(trimmed, options);
     };
 
     for (const member of data.members) {
@@ -2548,13 +2605,16 @@ export function mergeProjectMembersSnapshotFromSupabase(
       if (!id || !remoteProjectId) continue;
       if (remoteProjectId !== projectId) continue;
 
-      const userId = normalizeUserId(member.user_id ?? null);
+      const userId = normalizeUserId(member.user_id ?? null, {
+        fallbackEmail: member.user_email_snapshot ?? member.invited_email ?? null,
+        fallbackName: member.user_name_snapshot ?? 'Project Member',
+      });
       const invitedEmail = normalizeEmail(member.invited_email ?? null);
       if (!userId && !invitedEmail) continue;
 
       const role = isProjectMemberRole(member.role) ? member.role : 'worker';
       const status = isProjectMemberStatus(member.status) ? member.status : 'invited';
-      const invitedBy = normalizeUserId(member.invited_by ?? null);
+      const invitedBy = normalizeUserId(member.invited_by ?? null, { fallbackName: 'Project Manager' });
       const userNameSnapshot = member.user_name_snapshot?.trim() || null;
       const userEmailSnapshot = normalizeEmail(member.user_email_snapshot ?? null) || invitedEmail;
       const createdAt = member.created_at || Date.now();
