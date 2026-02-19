@@ -1050,18 +1050,106 @@ async function maybePublishMediaPostForPublicProject(params: {
 export async function syncProjectsAndActivityFromSupabase(): Promise<void> {
   const authUser = await requireAuthUser('sync projects and activity');
 
-  const { data: projectRowsRaw, error: projectsError } = await supabase
+  const { data: ownedProjectRowsRaw, error: ownedProjectsError } = await supabase
     .from('projects')
     .select(PROJECT_COLUMNS)
     .eq('owner_user_id', authUser.id)
     .order('updated_at', { ascending: false });
 
-  if (projectsError) {
-    mergeErrors(projectsError, 'Failed to load projects');
+  if (ownedProjectsError) {
+    mergeErrors(ownedProjectsError, 'Failed to load owned projects');
   }
 
-  const projectRows = (projectRowsRaw || []) as SupabaseProjectRow[];
+  const { data: assignedProjectMembershipRowsRaw, error: assignedMembershipError } = await supabase
+    .from('project_members')
+    .select('project_id')
+    .eq('user_id', authUser.id)
+    .eq('status', 'active');
+
+  if (assignedMembershipError) {
+    mergeErrors(assignedMembershipError, 'Failed to load assigned project memberships');
+  }
+
+  const assignedProjectIds = Array.from(
+    new Set(
+      ((assignedProjectMembershipRowsRaw || []) as Array<{ project_id?: string | null }>)
+        .map((row) => (typeof row.project_id === 'string' ? row.project_id.trim() : ''))
+        .filter((value) => value.length > 0)
+    )
+  );
+
+  const assignedProjectRows: SupabaseProjectRow[] = [];
+  if (assignedProjectIds.length > 0) {
+    const idChunks = chunkArray(assignedProjectIds, 100);
+    for (const chunk of idChunks) {
+      const { data: assignedRowsRaw, error: assignedProjectsError } = await supabase
+        .from('projects')
+        .select(PROJECT_COLUMNS)
+        .in('id', chunk);
+
+      if (assignedProjectsError) {
+        mergeErrors(assignedProjectsError, 'Failed to load assigned projects');
+      }
+      assignedProjectRows.push(...((assignedRowsRaw || []) as SupabaseProjectRow[]));
+    }
+  }
+
+  const mergedProjectsById = new Map<string, SupabaseProjectRow>();
+  for (const row of ((ownedProjectRowsRaw || []) as SupabaseProjectRow[])) {
+    if (typeof row.id === 'string' && row.id.trim().length > 0) {
+      mergedProjectsById.set(row.id, row);
+    }
+  }
+  for (const row of assignedProjectRows) {
+    if (typeof row.id === 'string' && row.id.trim().length > 0) {
+      mergedProjectsById.set(row.id, row);
+    }
+  }
+
+  const projectRows = Array.from(mergedProjectsById.values()).sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  );
   const projectIds = projectRows.map((project) => project.id).filter(Boolean);
+
+  if (projectIds.length > 0) {
+    const memberRows: SupabaseProjectMemberRow[] = [];
+    const chunks = chunkArray(projectIds, 100);
+    for (const chunk of chunks) {
+      const { data: rowsRaw, error } = await supabase
+        .from('project_members')
+        .select(PROJECT_MEMBER_COLUMNS)
+        .in('project_id', chunk)
+        .order('created_at', { ascending: true });
+      if (error) {
+        mergeErrors(error, 'Failed to load project members');
+      }
+      memberRows.push(...((rowsRaw || []) as SupabaseProjectMemberRow[]));
+    }
+
+    const membersByProjectId = new Map<string, SupabaseProjectMemberRow[]>();
+    for (const row of memberRows) {
+      const projectId = typeof row.project_id === 'string' ? row.project_id.trim() : '';
+      if (!projectId) continue;
+      const bucket = membersByProjectId.get(projectId);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        membersByProjectId.set(projectId, [row]);
+      }
+    }
+
+    for (const projectId of projectIds) {
+      const projectMemberRows = membersByProjectId.get(projectId) || [];
+      mergeProjectMembersSnapshotFromSupabase(
+        {
+          currentAuthUserId: authUser.id,
+          projectId,
+          members: projectMemberRows.map(normalizeProjectMemberRow),
+        },
+        { pruneMissing: true }
+      );
+    }
+  }
 
   const activityRows: SupabaseActivityRow[] = [];
   if (projectIds.length > 0) {

@@ -414,13 +414,50 @@ function getScopedUserIdOrThrow(): string {
   return userId;
 }
 
+function hasActiveProjectMembership(projectId: string, userId: string): boolean {
+  const membership = db.getFirstSync(
+    `SELECT id
+     FROM project_members
+     WHERE project_id = ?
+       AND user_id = ?
+       AND status = 'active'
+     LIMIT 1`,
+    [projectId, userId]
+  ) as { id?: string } | null;
+  return !!membership?.id;
+}
+
+function getProjectAccessPredicate(alias: string): string {
+  return `(
+    ${alias}.user_id = ?
+    OR EXISTS (
+      SELECT 1
+      FROM project_members pm
+      WHERE pm.project_id = ${alias}.id
+        AND pm.user_id = ?
+        AND pm.status = 'active'
+    )
+  )`;
+}
+
 function assertProjectAccess(projectId: string, userId: string): void {
-  const row = db.getFirstSync('SELECT id FROM projects WHERE id = ? AND user_id = ? LIMIT 1', [projectId, userId]) as
-    | { id?: string }
+  const row = db.getFirstSync('SELECT id, user_id FROM projects WHERE id = ? LIMIT 1', [projectId]) as
+    | { id?: string; user_id?: string }
     | null;
   if (!row?.id) {
     throw new Error('Project not found for current user');
   }
+
+  const ownerUserId = typeof row.user_id === 'string' ? row.user_id.trim() : '';
+  if (ownerUserId === userId) {
+    return;
+  }
+
+  if (hasActiveProjectMembership(projectId, userId)) {
+    return;
+  }
+
+  throw new Error('Project not found for current user');
 }
 
 function adoptLegacyRowsForActiveUser(userId: string) {
@@ -1848,30 +1885,31 @@ export function migrate() {
 export function getProjects(search?: string): Project[] {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
+    const projectAccessPredicate = getProjectAccessPredicate('p');
     const query = search
       ? `SELECT p.*, (
           SELECT MAX(a.created_at)
           FROM activity_log a
           WHERE a.project_id = p.id
-            AND a.user_id = p.user_id
             AND a.action_type NOT IN ('project_created', 'project_updated')
         ) AS last_activity_at
         FROM projects p
-        WHERE p.user_id = ?
+        WHERE ${projectAccessPredicate}
           AND (p.name LIKE ? OR COALESCE(p.client, '') LIKE ? OR COALESCE(p.location, '') LIKE ?)
         ORDER BY p.updated_at DESC, p.created_at DESC`
       : `SELECT p.*, (
           SELECT MAX(a.created_at)
           FROM activity_log a
           WHERE a.project_id = p.id
-            AND a.user_id = p.user_id
             AND a.action_type NOT IN ('project_created', 'project_updated')
         ) AS last_activity_at
         FROM projects p
-        WHERE p.user_id = ?
+        WHERE ${projectAccessPredicate}
         ORDER BY p.updated_at DESC, p.created_at DESC`;
 
-    const params = search ? [userId, `%${search}%`, `%${search}%`, `%${search}%`] : [userId];
+    const params = search
+      ? [userId, userId, `%${search}%`, `%${search}%`, `%${search}%`]
+      : [userId, userId];
     const result = db.getAllSync(query, params) as Array<Record<string, unknown>>;
     return result.map(mapProjectRow);
   }, 'Get projects');
@@ -2661,17 +2699,18 @@ export function deleteProject(id: string) {
 export function getProjectById(id: string): Project | null {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
+    const projectAccessPredicate = getProjectAccessPredicate('p');
     const result = db.getFirstSync(
       `SELECT p.*, (
         SELECT MAX(a.created_at)
         FROM activity_log a
         WHERE a.project_id = p.id
-          AND a.user_id = p.user_id
           AND a.action_type NOT IN ('project_created', 'project_updated')
       ) AS last_activity_at
       FROM projects p
-      WHERE p.id = ? AND p.user_id = ?`,
-      [id, userId]
+      WHERE p.id = ?
+        AND ${projectAccessPredicate}`,
+      [id, userId, userId]
     ) as Record<string, unknown> | null;
     return result ? mapProjectRow(result) : null;
   }, 'Get project by ID');
@@ -2680,17 +2719,18 @@ export function getProjectById(id: string): Project | null {
 export function computeProjectProgress(projectId: string): ProjectProgressComputation | null {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
+    const projectAccessPredicate = getProjectAccessPredicate('p');
     const row = db.getFirstSync(
       `SELECT p.*, (
         SELECT MAX(a.created_at)
         FROM activity_log a
         WHERE a.project_id = p.id
-          AND a.user_id = p.user_id
           AND a.action_type NOT IN ('project_created', 'project_updated')
       ) AS last_activity_at
       FROM projects p
-      WHERE p.id = ? AND p.user_id = ?`,
-      [projectId, userId]
+      WHERE p.id = ?
+        AND ${projectAccessPredicate}`,
+      [projectId, userId, userId]
     ) as Record<string, unknown> | null;
 
     if (!row) {
@@ -2702,7 +2742,7 @@ export function computeProjectProgress(projectId: string): ProjectProgressComput
       endDate: toNullableNumber(row.end_date),
       legacyProgress: clampProgress(row.progress),
       lastActivityAt: toNullableNumber(row.last_activity_at),
-      scopedUserId: userId,
+      scopedUserId: undefined,
       statusOverride: normalizeProjectStatusOverride(row.status_override),
     });
   }, 'Compute project progress');
@@ -3222,20 +3262,20 @@ export function getProjectsByOrganization(organizationId: string): Project[] {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
     assertOrganizationAccess(organizationId, userId);
+    const projectAccessPredicate = getProjectAccessPredicate('p');
 
     const rows = db.getAllSync(
       `SELECT p.*, (
         SELECT MAX(a.created_at)
         FROM activity_log a
         WHERE a.project_id = p.id
-          AND a.user_id = p.user_id
           AND a.action_type NOT IN ('project_created', 'project_updated')
       ) AS last_activity_at
       FROM projects p
-      WHERE p.user_id = ?
-        AND p.organization_id = ?
+      WHERE p.organization_id = ?
+        AND ${projectAccessPredicate}
       ORDER BY p.updated_at DESC, p.created_at DESC`,
-      [userId, organizationId]
+      [organizationId, userId, userId]
     ) as Array<Record<string, unknown>>;
 
     return rows.map(mapProjectRow);
@@ -4827,8 +4867,8 @@ export function getActivityByProject(projectId: string, limit = 20): ActivityLog
     assertProjectAccess(projectId, userId);
     const safeLimit = Math.max(1, Math.min(100, Math.floor(limit || 20)));
     const rows = db.getAllSync(
-      `SELECT * FROM activity_log WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ${safeLimit}`,
-      [projectId, userId]
+      `SELECT * FROM activity_log WHERE project_id = ? ORDER BY created_at DESC LIMIT ${safeLimit}`,
+      [projectId]
     ) as Array<Record<string, unknown>>;
     return rows.map(mapActivityRow);
   }, 'Get activity by project');
