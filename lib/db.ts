@@ -2759,7 +2759,10 @@ export function createOrganization(data: {
 
 export function getOrganizationsForCurrentUser(): Organization[] {
   return withErrorHandlingSync(() => {
-    const userId = getScopedUserIdOrThrow();
+    const userId = getActiveUserScope()?.trim();
+    if (!userId) {
+      return [];
+    }
     const rows = db.getAllSync(
       `SELECT o.*
        FROM organizations o
@@ -3091,7 +3094,10 @@ export function inviteOrganizationMember(data: {
 
 export function getPendingOrganizationInvitesForCurrentUser(): OrganizationInvite[] {
   return withErrorHandlingSync(() => {
-    const userId = getScopedUserIdOrThrow();
+    const userId = getActiveUserScope()?.trim();
+    if (!userId) {
+      return [];
+    }
     const userEmail = getCurrentScopedUserEmail(userId);
     if (!userEmail) {
       return [];

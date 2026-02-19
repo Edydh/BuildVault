@@ -14,6 +14,7 @@ import {
   OrganizationInvite,
   OrganizationMember,
   OrganizationMemberRole,
+  getActiveUserScope,
   getOrganizationMembers,
   getOrganizationsForCurrentUser,
   getPendingOrganizationInvitesForCurrentUser,
@@ -77,6 +78,15 @@ export default function OrganizationScreen() {
   const [processedInviteLinkId, setProcessedInviteLinkId] = useState<string | null>(null);
 
   const hydrateFromLocal = useCallback((preferredOrgId?: string | null) => {
+    const scopedUserId = getActiveUserScope();
+    if (!scopedUserId) {
+      setOrganizations([]);
+      setInvites([]);
+      setSelectedOrgId(null);
+      setMembers([]);
+      return;
+    }
+
     const nextOrganizations = getOrganizationsForCurrentUser();
     const nextInvites = getPendingOrganizationInvitesForCurrentUser();
 
@@ -98,8 +108,26 @@ export default function OrganizationScreen() {
     preferredOrgId?: string | null,
     options?: { skipRemoteSync?: boolean }
   ) => {
+    if (!user) {
+      setOrganizations([]);
+      setInvites([]);
+      setSelectedOrgId(null);
+      setMembers([]);
+      setLoading(false);
+      return;
+    }
+
+    if (!getActiveUserScope()) {
+      setOrganizations([]);
+      setInvites([]);
+      setSelectedOrgId(null);
+      setMembers([]);
+      setLoading(false);
+      return;
+    }
+
     try {
-      if (!options?.skipRemoteSync && user) {
+      if (!options?.skipRemoteSync) {
         setLoading(true);
         await syncOrganizationDataFromSupabase();
       }
@@ -110,6 +138,15 @@ export default function OrganizationScreen() {
       setLoading(false);
     }
   }, [hydrateFromLocal, user]);
+
+  const handleBackPress = useCallback(() => {
+    const maybeRouter = router as unknown as { canGoBack?: () => boolean; back: () => void; replace: (href: string) => void };
+    if (typeof maybeRouter.canGoBack === 'function' && maybeRouter.canGoBack()) {
+      maybeRouter.back();
+      return;
+    }
+    maybeRouter.replace('/(tabs)');
+  }, [router]);
 
   useFocusEffect(
     useCallback(() => {
@@ -361,7 +398,7 @@ export default function OrganizationScreen() {
       <BVHeader
         title="Organization"
         subtitle="Create organizations and manage members"
-        onBack={() => router.back()}
+        onBack={handleBackPress}
       />
 
       <ScrollView
