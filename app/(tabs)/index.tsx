@@ -504,8 +504,7 @@ export default function ProjectsList() {
           ? error.message
           : 'Failed to create project';
       const message =
-        rawMessage.includes('row-level security policy for table "projects"') &&
-        !rawMessage.includes('(debug ')
+        rawMessage.includes('row-level security policy for table "projects"')
           ? 'You do not have permission to create projects in this workspace. Switch to Personal workspace or ask an organization owner/admin to grant access.'
           : rawMessage;
       Alert.alert('Create failed', message);

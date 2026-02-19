@@ -967,8 +967,18 @@ function ProjectDetailContent() {
   };
 
   const parseActivityAssigneeName = (metadata: Record<string, unknown> | null): string | null => {
-    if (!metadata || typeof metadata.assignee_name !== 'string') return null;
-    const value = metadata.assignee_name.trim();
+    if (!metadata) return null;
+    if (typeof metadata.assignee_name === 'string' && metadata.assignee_name.trim().length > 0) {
+      return metadata.assignee_name.trim();
+    }
+    if (typeof metadata.assignee_email === 'string' && metadata.assignee_email.trim().length > 0) {
+      return metadata.assignee_email.trim();
+    }
+    if (typeof metadata.assignee_user_id === 'string' && metadata.assignee_user_id.trim().length > 0) {
+      return `User ${metadata.assignee_user_id.trim().slice(0, 8)}`;
+    }
+    if (typeof metadata.assignee_member_id !== 'string') return null;
+    const value = metadata.assignee_member_id.trim();
     return value.length > 0 ? value : null;
   };
 
@@ -1134,6 +1144,10 @@ function ProjectDetailContent() {
       ? assignableMembers.find((member) => member.id === manualActivityAssigneeId) || null
       : null;
     const assigneeName = assignee ? getProjectMemberDisplayName(assignee) : null;
+    const assigneeEmail = assignee
+      ? assignee.user_email_snapshot?.trim() || assignee.invited_email?.trim() || null
+      : null;
+    const assigneeUserId = assignee?.user_id ?? null;
 
     const metadata: Record<string, unknown> = {
       description,
@@ -1143,6 +1157,8 @@ function ProjectDetailContent() {
       activity_label: resolvedTypeLabel,
       assignee_member_id: assignee?.id ?? null,
       assignee_name: assigneeName,
+      assignee_email: assigneeEmail,
+      assignee_user_id: assigneeUserId,
       manual_entry: true,
     };
 
