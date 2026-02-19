@@ -5,6 +5,9 @@ import {
   Folder,
   MediaItem,
   Note,
+  ProjectMember,
+  ProjectMemberRole,
+  ProjectMemberStatus,
   Project,
   ProjectPublicProfile,
   ProjectStatus,
@@ -21,8 +24,10 @@ import {
   getActivityByProject,
   getFoldersByProject,
   getMediaById,
+  getProjectMembers,
   getProjectById,
   getProjectPublicProfile,
+  mergeProjectMembersSnapshotFromSupabase,
   mergeProjectContentSnapshotFromSupabase,
   mergeProjectNotesSnapshotFromSupabase,
   mergeProjectPublicProfileSnapshotFromSupabase,
@@ -30,6 +35,7 @@ import {
   moveMediaToFolder,
   setProjectCompletionState,
   setProjectVisibility,
+  upsertProjectMember,
   upsertProjectPublicProfile,
   updateActivity,
   updateFolderName,
@@ -52,6 +58,8 @@ const FOLDER_COLUMNS = 'id, project_id, name, created_at';
 const MEDIA_COLUMNS = 'id, project_id, folder_id, type, uri, thumb_uri, note, metadata, created_at';
 const NOTE_COLUMNS =
   'id, project_id, media_id, author_user_id, title, content, created_at, updated_at';
+const PROJECT_MEMBER_COLUMNS =
+  'id, project_id, user_id, invited_email, role, status, invited_by, user_name_snapshot, user_email_snapshot, created_at, updated_at, accepted_at';
 const PROJECT_PUBLIC_PROFILE_COLUMNS =
   'project_id, public_title, summary, city, region, category, hero_media_id, hero_comment, contact_email, contact_phone, website_url, highlights_json, created_at, updated_at';
 const STORAGE_BUCKET = 'buildvault-media';
@@ -118,6 +126,21 @@ type SupabaseNoteRow = {
   content: string;
   created_at: string;
   updated_at: string;
+};
+
+type SupabaseProjectMemberRow = {
+  id: string;
+  project_id: string;
+  user_id: string | null;
+  invited_email: string | null;
+  role: string | null;
+  status: string | null;
+  invited_by: string | null;
+  user_name_snapshot: string | null;
+  user_email_snapshot: string | null;
+  created_at: string;
+  updated_at: string;
+  accepted_at: string | null;
 };
 
 type SupabaseProjectPublicProfileRow = {
@@ -670,6 +693,39 @@ function normalizeNoteRow(row: SupabaseNoteRow) {
   };
 }
 
+function normalizeProjectMemberRole(value: string | null | undefined): ProjectMemberRole {
+  if (value === 'owner' || value === 'manager' || value === 'worker' || value === 'client') {
+    return value;
+  }
+  return 'worker';
+}
+
+function normalizeProjectMemberStatus(value: string | null | undefined): ProjectMemberStatus {
+  if (value === 'active' || value === 'invited' || value === 'removed') {
+    return value;
+  }
+  return 'invited';
+}
+
+function normalizeProjectMemberRow(row: SupabaseProjectMemberRow) {
+  const status = normalizeProjectMemberStatus(row.status);
+  const acceptedAt = row.accepted_at ? toMillis(row.accepted_at) : status === 'active' ? toMillis(row.updated_at) : null;
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    user_id: row.user_id,
+    invited_email: row.invited_email,
+    role: normalizeProjectMemberRole(row.role),
+    status,
+    invited_by: row.invited_by,
+    user_name_snapshot: row.user_name_snapshot,
+    user_email_snapshot: row.user_email_snapshot,
+    created_at: toMillis(row.created_at),
+    updated_at: toMillis(row.updated_at),
+    accepted_at: acceptedAt,
+  };
+}
+
 function normalizeProjectPublicProfileRow(row: SupabaseProjectPublicProfileRow) {
   return {
     project_id: row.project_id,
@@ -744,6 +800,29 @@ async function syncProjectPublicProfileSnapshotFromSupabase(projectId: string): 
   mergeProjectPublicProfileSnapshotFromSupabase(
     normalizedProjectId,
     normalizeProjectPublicProfileRow(profileRowRaw as SupabaseProjectPublicProfileRow)
+  );
+}
+
+async function syncProjectMembersSnapshotFromSupabase(
+  projectId: string,
+  currentAuthUserId: string
+): Promise<void> {
+  const { data: memberRowsRaw, error: membersError } = await supabase
+    .from('project_members')
+    .select(PROJECT_MEMBER_COLUMNS)
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true });
+  if (membersError) {
+    mergeErrors(membersError, 'Failed to load project members');
+  }
+
+  mergeProjectMembersSnapshotFromSupabase(
+    {
+      currentAuthUserId,
+      projectId,
+      members: ((memberRowsRaw || []) as SupabaseProjectMemberRow[]).map(normalizeProjectMemberRow),
+    },
+    { pruneMissing: true }
   );
 }
 
@@ -1040,6 +1119,8 @@ export async function syncProjectContentFromSupabase(projectId: string): Promise
     mergeErrors(notesError, 'Failed to load project notes');
   }
 
+  await syncProjectMembersSnapshotFromSupabase(projectId, authUser.id);
+
   let mediaRows = (mediaRowsRaw || []) as SupabaseMediaRow[];
   mediaRows = await backfillProjectMediaStorage(authUser.id, projectId, mediaRows);
 
@@ -1060,6 +1141,13 @@ export async function syncProjectContentFromSupabase(projectId: string): Promise
     },
     { pruneMissing: true }
   );
+}
+
+export async function syncProjectMembersFromSupabase(projectId: string): Promise<void> {
+  if (!isUuid(projectId)) return;
+
+  const authUser = await requireAuthUser('sync project members');
+  await syncProjectMembersSnapshotFromSupabase(projectId, authUser.id);
 }
 
 export async function syncProjectNotesFromSupabase(projectId: string): Promise<void> {
@@ -1389,24 +1477,17 @@ export async function createProjectInSupabase(data: {
   const startDate = data.start_date ?? now;
 
   const payload = {
-    owner_user_id: authUser.id,
-    organization_id: data.organization_id ?? null,
-    name: data.name.trim(),
-    client: data.client?.trim() || null,
-    location: data.location?.trim() || null,
-    status: 'neutral',
-    progress: 0,
-    start_date: toIsoMillis(startDate),
-    end_date: toIsoMillis(data.end_date ?? null),
-    budget: data.budget ?? null,
-    visibility: 'private',
+    p_name: data.name.trim(),
+    p_client: data.client?.trim() || null,
+    p_location: data.location?.trim() || null,
+    p_organization_id: data.organization_id ?? null,
+    p_start_date: toIsoMillis(startDate),
+    p_end_date: toIsoMillis(data.end_date ?? null),
+    p_budget: data.budget ?? null,
   };
 
-  const { data: createdRow, error } = await supabase
-    .from('projects')
-    .insert(payload)
-    .select(PROJECT_COLUMNS)
-    .single();
+  const { data: rpcResult, error } = await supabase.rpc('create_project', payload);
+  const createdRow = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
 
   if (error || !createdRow) {
     mergeErrors(error, 'Unable to create project');
@@ -1419,7 +1500,7 @@ export async function createProjectInSupabase(data: {
     reference_id: createdRow.id,
     actor_user_id: authUser.id,
     actor_name_snapshot: actorName,
-    metadata: { name: payload.name, progress: 0 },
+    metadata: { name: payload.p_name, progress: 0 },
   });
   if (activityError) {
     console.log('Project-created activity sync warning:', activityError.message);
@@ -1750,6 +1831,144 @@ export async function setProjectCompletionStateInSupabase(
 
   await syncProjectsAndActivityFromSupabase();
   return getProjectById(projectId);
+}
+
+export async function addProjectMemberFromOrganizationInSupabase(data: {
+  projectId: string;
+  organizationMemberUserId: string;
+  role?: Exclude<ProjectMemberRole, 'owner'>;
+  invitedBy?: string | null;
+  invitedEmail?: string | null;
+  userNameSnapshot?: string | null;
+  userEmailSnapshot?: string | null;
+}): Promise<ProjectMember> {
+  const projectId = data.projectId.trim();
+  const organizationMemberUserId = data.organizationMemberUserId.trim();
+  if (!projectId || !organizationMemberUserId) {
+    throw new Error('Project id and member user id are required');
+  }
+
+  const role: ProjectMemberRole =
+    data.role === 'manager' || data.role === 'client' || data.role === 'worker' ? data.role : 'worker';
+  const invitedBy = typeof data.invitedBy === 'string' ? data.invitedBy.trim() || null : null;
+  const invitedEmail =
+    typeof data.invitedEmail === 'string' ? data.invitedEmail.trim().toLowerCase() || null : null;
+  const userNameSnapshot =
+    typeof data.userNameSnapshot === 'string' ? data.userNameSnapshot.trim() || null : null;
+  const userEmailSnapshot =
+    typeof data.userEmailSnapshot === 'string'
+      ? data.userEmailSnapshot.trim().toLowerCase() || null
+      : invitedEmail;
+
+  if (!isUuid(projectId) || !isUuid(organizationMemberUserId)) {
+    return upsertProjectMember({
+      projectId,
+      userId: organizationMemberUserId,
+      role,
+      status: 'active',
+      invitedBy,
+    });
+  }
+
+  const authUser = await requireAuthUser('add project member');
+  const invitedByAuthUserId = isUuid(invitedBy) ? invitedBy : authUser.id;
+
+  const { data: projectLookupRow, error: projectLookupError } = await supabase
+    .from('projects')
+    .select('id, organization_id')
+    .eq('id', projectId)
+    .maybeSingle();
+  if (projectLookupError) {
+    mergeErrors(projectLookupError, 'Unable to load project');
+  }
+  if (!projectLookupRow?.id) {
+    throw new Error('Project not found');
+  }
+
+  const organizationId =
+    typeof projectLookupRow.organization_id === 'string' ? projectLookupRow.organization_id.trim() : '';
+  if (organizationId) {
+    const { data: organizationMemberLookup, error: organizationMemberLookupError } = await supabase
+      .from('organization_members')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('user_id', organizationMemberUserId)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (organizationMemberLookupError) {
+      mergeErrors(organizationMemberLookupError, 'Unable to validate organization member');
+    }
+    if (!organizationMemberLookup?.id) {
+      throw new Error('Selected teammate is not active in this organization');
+    }
+  }
+
+  const { data: existingMemberRowsRaw, error: existingMemberError } = await supabase
+    .from('project_members')
+    .select(PROJECT_MEMBER_COLUMNS)
+    .eq('project_id', projectId)
+    .eq('user_id', organizationMemberUserId)
+    .order('created_at', { ascending: true })
+    .limit(1);
+  if (existingMemberError) {
+    mergeErrors(existingMemberError, 'Unable to load project member');
+  }
+
+  const nowIso = new Date().toISOString();
+  const existingMemberRow = (existingMemberRowsRaw?.[0] ?? null) as SupabaseProjectMemberRow | null;
+  let persistedMemberRow: SupabaseProjectMemberRow | null = null;
+
+  if (existingMemberRow?.id) {
+    const { data: updatedRowRaw, error: updateError } = await supabase
+      .from('project_members')
+      .update({
+        role,
+        status: 'active',
+        invited_by: invitedByAuthUserId,
+        invited_email: invitedEmail ?? existingMemberRow.invited_email ?? null,
+        user_name_snapshot: userNameSnapshot ?? existingMemberRow.user_name_snapshot ?? null,
+        user_email_snapshot:
+          userEmailSnapshot ?? existingMemberRow.user_email_snapshot ?? existingMemberRow.invited_email ?? null,
+        accepted_at: existingMemberRow.accepted_at || nowIso,
+      })
+      .eq('id', existingMemberRow.id)
+      .select(PROJECT_MEMBER_COLUMNS)
+      .single();
+    if (updateError || !updatedRowRaw) {
+      mergeErrors(updateError, 'Unable to update project member');
+    }
+    persistedMemberRow = updatedRowRaw as SupabaseProjectMemberRow;
+  } else {
+    const { data: insertedRowRaw, error: insertError } = await supabase
+      .from('project_members')
+      .insert({
+        project_id: projectId,
+        user_id: organizationMemberUserId,
+        invited_email: invitedEmail,
+        role,
+        status: 'active',
+        invited_by: invitedByAuthUserId,
+        user_name_snapshot: userNameSnapshot,
+        user_email_snapshot: userEmailSnapshot,
+        accepted_at: nowIso,
+      })
+      .select(PROJECT_MEMBER_COLUMNS)
+      .single();
+    if (insertError || !insertedRowRaw) {
+      mergeErrors(insertError, 'Unable to add project member');
+    }
+    persistedMemberRow = insertedRowRaw as SupabaseProjectMemberRow;
+  }
+
+  await syncProjectMembersSnapshotFromSupabase(projectId, authUser.id);
+  const localMembers = getProjectMembers(projectId, { includeRemoved: true });
+  const localMember =
+    localMembers.find((member) => member.id === persistedMemberRow.id) ||
+    localMembers.find((member) => member.user_id === organizationMemberUserId && member.status !== 'removed');
+  if (!localMember) {
+    throw new Error('Project member was added remotely but not available locally yet');
+  }
+  return localMember;
 }
 
 export async function createActivityInSupabase(

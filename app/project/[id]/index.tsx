@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectProgressComputation, getProjectById, Project, Folder, getFoldersByProject, getMediaByFolder, getMediaByProject, getMediaById, getMediaFiltered, getActivityByProject, getProjectMembers, getOrganizationMembers, upsertProjectMember, computeProjectProgress } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectProgressComputation, getProjectById, Project, Folder, getFoldersByProject, getMediaByFolder, getMediaByProject, getMediaById, getMediaFiltered, getActivityByProject, getProjectMembers, getOrganizationMembers, computeProjectProgress } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -34,6 +34,7 @@ import {
   createActivityInSupabase,
   createFolderInSupabase,
   createMediaInSupabase,
+  addProjectMemberFromOrganizationInSupabase,
   deleteActivityInSupabase,
   deleteFolderInSupabase,
   deleteMediaInSupabase,
@@ -1168,17 +1169,18 @@ function ProjectDetailContent() {
     }
   };
 
-  const handleAssignOrganizationMember = (member: OrganizationMember) => {
+  const handleAssignOrganizationMember = async (member: OrganizationMember) => {
     if (!id || !member.user_id) return;
 
     try {
       setIsAddingOrganizationAssignee(member.id);
-      const promoted = upsertProjectMember({
+      const promoted = await addProjectMemberFromOrganizationInSupabase({
         projectId: id,
-        userId: member.user_id,
+        organizationMemberUserId: member.user_id,
         role: 'worker',
-        status: 'active',
-        invitedBy: user?.id ?? null,
+        invitedBy: user?.authUserId ?? user?.id ?? null,
+        invitedEmail: member.invited_email ?? null,
+        userEmailSnapshot: member.invited_email ?? null,
       });
       setManualActivityAssigneeId(promoted.id);
       loadData();

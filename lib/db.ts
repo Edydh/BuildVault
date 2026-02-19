@@ -189,6 +189,21 @@ type RemoteNoteSyncRow = {
   updated_at: number;
 };
 
+type RemoteProjectMemberSyncRow = {
+  id: string;
+  project_id: string;
+  user_id?: string | null;
+  invited_email?: string | null;
+  role: ProjectMemberRole;
+  status: ProjectMemberStatus;
+  invited_by?: string | null;
+  user_name_snapshot?: string | null;
+  user_email_snapshot?: string | null;
+  created_at: number;
+  updated_at: number;
+  accepted_at?: number | null;
+};
+
 type RemoteProjectPublicProfileSyncRow = {
   project_id: string;
   public_title?: string | null;
@@ -2206,35 +2221,6 @@ export function mergeProjectsAndActivitySnapshotFromSupabase(data: {
         ]
       );
 
-      // Keep local assignment UX consistent until project_members sync is fully remote-wired.
-      const ownerUser = getUserById(ownerUserId);
-      const ownerMemberId = `${id}-owner-${ownerUserId}`;
-      db.runSync(
-        `INSERT INTO project_members
-          (id, project_id, user_id, invited_email, role, status, invited_by, user_name_snapshot, user_email_snapshot, created_at, updated_at, accepted_at)
-         VALUES (?, ?, ?, ?, 'owner', 'active', ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(project_id, user_id) DO UPDATE SET
-           role = 'owner',
-           status = 'active',
-           invited_email = excluded.invited_email,
-           invited_by = excluded.invited_by,
-           user_name_snapshot = excluded.user_name_snapshot,
-           user_email_snapshot = excluded.user_email_snapshot,
-           updated_at = excluded.updated_at,
-           accepted_at = COALESCE(project_members.accepted_at, excluded.accepted_at)`,
-        [
-          ownerMemberId,
-          id,
-          ownerUserId,
-          ownerUser?.email || null,
-          ownerUserId,
-          ownerUser?.name || null,
-          ownerUser?.email || null,
-          createdAt,
-          updatedAt,
-          createdAt,
-        ]
-      );
     }
 
     for (const activity of data.activities) {
@@ -2481,6 +2467,134 @@ export function mergeProjectNotesSnapshotFromSupabase(
       db.runSync('DELETE FROM notes WHERE id = ? AND user_id = ?', [id, scopedUserId]);
     }
   }, 'Merge project notes snapshot from Supabase');
+}
+
+export function mergeProjectMembersSnapshotFromSupabase(
+  data: {
+    currentAuthUserId: string;
+    projectId: string;
+    members: RemoteProjectMemberSyncRow[];
+  },
+  options?: { pruneMissing?: boolean }
+): void {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    const scopedUser = getUserById(scopedUserId);
+    const scopedAuthUserId = scopedUser?.authUserId?.trim() || data.currentAuthUserId.trim();
+    const projectId = data.projectId.trim();
+    if (!projectId) return;
+
+    const projectRow = db.getFirstSync(
+      `SELECT id
+       FROM projects
+       WHERE id = ?
+       LIMIT 1`,
+      [projectId]
+    ) as { id?: string } | null;
+    if (!projectRow?.id) return;
+
+    const normalizeUserId = (remoteUserId?: string | null): string | null => {
+      if (!remoteUserId) return null;
+      const trimmed = remoteUserId.trim();
+      if (!trimmed) return null;
+      if (trimmed === scopedAuthUserId) {
+        return scopedUserId;
+      }
+      const localUser = getUserByAuthUserId(trimmed);
+      return localUser?.id ?? trimmed;
+    };
+
+    for (const member of data.members) {
+      const id = member.id.trim();
+      const remoteProjectId = member.project_id.trim();
+      if (!id || !remoteProjectId) continue;
+      if (remoteProjectId !== projectId) continue;
+
+      const userId = normalizeUserId(member.user_id ?? null);
+      const invitedEmail = normalizeEmail(member.invited_email ?? null);
+      if (!userId && !invitedEmail) continue;
+
+      const role = isProjectMemberRole(member.role) ? member.role : 'worker';
+      const status = isProjectMemberStatus(member.status) ? member.status : 'invited';
+      const invitedBy = normalizeUserId(member.invited_by ?? null);
+      const userNameSnapshot = member.user_name_snapshot?.trim() || null;
+      const userEmailSnapshot = normalizeEmail(member.user_email_snapshot ?? null) || invitedEmail;
+      const createdAt = member.created_at || Date.now();
+      const updatedAt = member.updated_at || createdAt;
+      const acceptedAt = member.accepted_at ?? (status === 'active' ? updatedAt : null);
+
+      if (userId) {
+        const conflictingUserMembership = db.getFirstSync(
+          `SELECT id
+           FROM project_members
+           WHERE project_id = ?
+             AND user_id = ?
+             AND id <> ?
+           LIMIT 1`,
+          [projectId, userId, id]
+        ) as Record<string, unknown> | null;
+        if (conflictingUserMembership && typeof conflictingUserMembership.id === 'string') {
+          db.runSync('DELETE FROM project_members WHERE id = ?', [conflictingUserMembership.id]);
+        }
+      }
+
+      db.runSync(
+        `INSERT INTO project_members
+          (id, project_id, user_id, invited_email, role, status, invited_by, user_name_snapshot, user_email_snapshot, created_at, updated_at, accepted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           project_id = excluded.project_id,
+           user_id = excluded.user_id,
+           invited_email = excluded.invited_email,
+           role = excluded.role,
+           status = excluded.status,
+           invited_by = excluded.invited_by,
+           user_name_snapshot = excluded.user_name_snapshot,
+           user_email_snapshot = excluded.user_email_snapshot,
+           created_at = excluded.created_at,
+           updated_at = excluded.updated_at,
+           accepted_at = excluded.accepted_at`,
+        [
+          id,
+          projectId,
+          userId,
+          invitedEmail,
+          role,
+          status,
+          invitedBy,
+          userNameSnapshot,
+          userEmailSnapshot,
+          createdAt,
+          updatedAt,
+          acceptedAt,
+        ]
+      );
+    }
+
+    if (options?.pruneMissing) {
+      const remoteMemberIds = new Set(
+        data.members
+          .map((member) => member.id.trim())
+          .filter((value) => value.length > 0)
+      );
+
+      const localMemberIds = db.getAllSync(
+        `SELECT id
+         FROM project_members
+         WHERE project_id = ?`,
+        [projectId]
+      ) as Array<Record<string, unknown>>;
+
+      for (const row of localMemberIds) {
+        const id = typeof row.id === 'string' ? row.id.trim() : '';
+        if (!id || !isUuid(id)) continue;
+        if (remoteMemberIds.has(id)) continue;
+        db.runSync('DELETE FROM project_members WHERE id = ?', [id]);
+      }
+    }
+
+    deduplicateMembershipRows();
+  }, 'Merge project members snapshot from Supabase');
 }
 
 export function mergeProjectPublicProfileSnapshotFromSupabase(
@@ -3781,12 +3895,26 @@ function applyLatestNoteOverlayToMedia(items: MediaItem[], scopedUserId: string)
 export function getMediaByProject(projectId: string, type?: MediaItem['type']): MediaItem[] {
   return withErrorHandlingSync(() => {
     const userId = getScopedUserIdOrThrow();
-    assertProjectAccess(projectId, userId);
+    const normalizedProjectId = typeof projectId === 'string' ? projectId.trim() : '';
+    if (!normalizedProjectId) {
+      return [];
+    }
+
+    // Deletions/syncs can temporarily leave stale project IDs in UI state.
+    // Returning an empty set keeps project cards resilient during those transitions.
+    const projectRow = db.getFirstSync(
+      'SELECT id FROM projects WHERE id = ? AND user_id = ? LIMIT 1',
+      [normalizedProjectId, userId]
+    ) as { id?: string } | null;
+    if (!projectRow?.id) {
+      return [];
+    }
+
     const query = type
       ? `SELECT * FROM media WHERE project_id = ? AND user_id = ? AND type = ? ORDER BY created_at DESC`
       : `SELECT * FROM media WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC`;
 
-    const params = type ? [projectId, userId, type] : [projectId, userId];
+    const params = type ? [normalizedProjectId, userId, type] : [normalizedProjectId, userId];
     const result = db.getAllSync(query, params) as MediaItem[];
     return applyLatestNoteOverlayToMedia(result, userId);
   }, 'Get media by project');

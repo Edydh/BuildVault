@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
+  Alert,
   View,
   Text,
   TouchableOpacity,
@@ -24,7 +25,7 @@ import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { GlassCard, GlassTextInput, GlassButton, GlassModal, GlassActionSheet } from '../../components/glass';
+import { GlassCard, GlassTextInput, GlassModal, GlassActionSheet } from '../../components/glass';
 import Animated from 'react-native-reanimated';
 import { useScrollContext } from '../../components/glass/ScrollContext';
 import EditProjectModal from '../../components/EditProjectModal';
@@ -118,6 +119,9 @@ const DEFAULT_CREATE_FORM: CreateProjectForm = {
   endDate: '',
 };
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const parseDateInput = (value: string): DateParseResult => {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -186,6 +190,7 @@ export default function ProjectsList() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceSelection>({ type: 'personal' });
   const [showCreate, setShowCreate] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [form, setForm] = useState<CreateProjectForm>(DEFAULT_CREATE_FORM);
@@ -434,41 +439,45 @@ export default function ProjectsList() {
   };
 
   const handleCreateProject = async () => {
+    if (isCreating) return;
+
     if (!form.name.trim()) {
-      setSheetMessage('Project name is required');
-      setShowErrorSheet(true);
+      Alert.alert('Missing info', 'Project name is required');
       return;
     }
 
     const parsedStartDate = parseDateInput(form.startDate);
     if (parsedStartDate === 'invalid') {
-      setSheetMessage('Start Date must be valid (YYYY-MM-DD)');
-      setShowErrorSheet(true);
+      Alert.alert('Invalid date', 'Start Date must be valid (YYYY-MM-DD)');
       return;
     }
 
     const parsedEndDate = parseDateInput(form.endDate);
     if (parsedEndDate === 'invalid') {
-      setSheetMessage('End Date must be valid (YYYY-MM-DD)');
-      setShowErrorSheet(true);
+      Alert.alert('Invalid date', 'End Date must be valid (YYYY-MM-DD)');
       return;
     }
 
     if (typeof parsedStartDate === 'number' && typeof parsedEndDate === 'number' && parsedEndDate < parsedStartDate) {
-      setSheetMessage('End Date cannot be before Start Date');
-      setShowErrorSheet(true);
+      Alert.alert('Invalid range', 'End Date cannot be before Start Date');
       return;
     }
 
     const parsedBudget = parseBudgetInput(form.budget);
     if (parsedBudget === 'invalid') {
-      setSheetMessage('Budget must be a positive number');
-      setShowErrorSheet(true);
+      Alert.alert('Invalid budget', 'Budget must be a positive number');
       return;
     }
 
+    setIsCreating(true);
     try {
-      const organizationId = form.organizationId?.trim() ? form.organizationId : null;
+      const rawOrganizationId = form.organizationId?.trim() || null;
+      const organizationId =
+        rawOrganizationId && UUID_REGEX.test(rawOrganizationId) ? rawOrganizationId : null;
+      if (rawOrganizationId && !organizationId) {
+        Alert.alert('Invalid workspace', 'Selected workspace is invalid. Switch workspace and try again.');
+        return;
+      }
       const project = await createProjectInSupabase({
         name: form.name.trim(),
         client: form.client.trim() || undefined,
@@ -489,9 +498,19 @@ export default function ProjectsList() {
         organizationId: workspace.type === 'organization' ? workspace.organizationId : null,
       }));
       await loadProjects();
-    } catch {
-      setSheetMessage('Failed to create project');
-      setShowErrorSheet(true);
+    } catch (error) {
+      const rawMessage =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : 'Failed to create project';
+      const message =
+        rawMessage.includes('row-level security policy for table "projects"') &&
+        !rawMessage.includes('(debug ')
+          ? 'You do not have permission to create projects in this workspace. Switch to Personal workspace or ask an organization owner/admin to grant access.'
+          : rawMessage;
+      Alert.alert('Create failed', message);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -742,6 +761,10 @@ export default function ProjectsList() {
       ? organizationNameById.get(workspace.organizationId) || 'Organization'
       : 'Personal Workspace';
 
+  const closeCreateModal = () => {
+    setShowCreate(false);
+  };
+
   const openCreateModal = () => {
     setForm((prev) => ({
       ...DEFAULT_CREATE_FORM,
@@ -898,7 +921,7 @@ export default function ProjectsList() {
         alwaysBounceVertical={true}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={() => (
-          <View style={{ marginBottom: 20 }}>
+	              <View style={{ marginBottom: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600' }}>Storage Snapshot</Text>
               <Text style={{ color: '#64748B', fontSize: 12 }}>
@@ -919,8 +942,8 @@ export default function ProjectsList() {
                   style={{ marginRight: index === statCards.length - 1 ? 0 : 12 }}
                 />
               ))}
-            </ScrollView>
-          </View>
+		                </ScrollView>
+		              </View>
         )}
         ListEmptyComponent={() => (
           <BVEmptyState
@@ -942,11 +965,11 @@ export default function ProjectsList() {
         onPress={openCreateModal}
       />
 
-      <GlassModal visible={showCreate} onRequestClose={() => setShowCreate(false)}>
+      <GlassModal visible={showCreate} onRequestClose={closeCreateModal}>
         <ScrollView 
           style={{ maxHeight: '100%' }}
           contentContainerStyle={{ padding: 24 }}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
                   <Text style={{
@@ -1083,21 +1106,40 @@ export default function ProjectsList() {
               />
 
               <View style={{ flexDirection: 'row', gap: 16 }}>
-                <GlassButton
-                  variant="secondary"
-                  size="large"
-                  title="Cancel"
-                  onPress={() => setShowCreate(false)}
-                  style={{ flex: 1 }}
-                />
-                <GlassButton
-                  variant="primary"
-                  size="large"
-                  title="Create"
+                <TouchableOpacity
+                  onPress={closeCreateModal}
+                  style={{
+                    flex: 1,
+                    height: 62,
+                    borderRadius: 22,
+                    borderWidth: 1,
+                    borderColor: 'rgba(148,163,184,0.32)',
+                    backgroundColor: 'rgba(148,163,184,0.14)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: '#E2E8F0', fontSize: 22, fontWeight: '700' }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   onPress={handleCreateProject}
-                  disabled={!form.name.trim()}
-                  style={{ flex: 1 }}
-                />
+                  disabled={!form.name.trim() || isCreating}
+                  style={{
+                    flex: 1,
+                    height: 62,
+                    borderRadius: 22,
+                    borderWidth: 1,
+                    borderColor: form.name.trim() && !isCreating ? 'rgba(255,122,26,0.42)' : 'rgba(148,163,184,0.22)',
+                    backgroundColor: form.name.trim() && !isCreating ? 'rgba(255,122,26,0.16)' : 'rgba(148,163,184,0.1)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: form.name.trim() && !isCreating ? 1 : 0.6,
+                  }}
+                >
+                  <Text style={{ color: '#FF7A1A', fontSize: 22, fontWeight: '700' }}>
+                    {isCreating ? 'Creating...' : 'Create'}
+                  </Text>
+                </TouchableOpacity>
               </View>
         </ScrollView>
       </GlassModal>
