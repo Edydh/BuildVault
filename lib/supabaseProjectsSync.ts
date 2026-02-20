@@ -2539,6 +2539,14 @@ export async function createMediaInSupabase(
   const resolvedFolderId =
     typeof data.folder_id === 'string' && data.folder_id.trim().length > 0 ? data.folder_id.trim() : null;
   const metadataPayload = toMetadataPayload(data.metadata);
+  const documentKind =
+    typeof metadataPayload.document_kind === 'string'
+      ? metadataPayload.document_kind.trim().toLowerCase() || null
+      : null;
+  const captureKind =
+    typeof metadataPayload.capture_kind === 'string'
+      ? metadataPayload.capture_kind.trim().toLowerCase() || null
+      : null;
 
   const { data: createdRowRaw, error } = await supabase
     .from('media')
@@ -2604,6 +2612,8 @@ export async function createMediaInSupabase(
       folder_id: resolvedFolderId,
       has_note: !!data.note?.trim(),
       storage_synced: storageSynced,
+      document_kind: documentKind,
+      capture_kind: captureKind,
     },
   });
   if (activityError) {

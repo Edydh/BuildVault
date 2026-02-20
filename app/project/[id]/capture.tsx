@@ -15,9 +15,15 @@ import { createMediaInSupabase } from '../../../lib/supabaseProjectsSync';
 import { saveMediaToProject } from '../../../lib/files';
 
 export default function CaptureScreen() {
-  const { id, mode, folderId } = useLocalSearchParams<{ id: string; mode: string; folderId?: string }>();
+  const { id, mode, folderId, captureKind } = useLocalSearchParams<{
+    id: string;
+    mode: string;
+    folderId?: string;
+    captureKind?: string;
+  }>();
   const router = useRouter();
   const cameraRef = useRef<CameraView>(null);
+  const isReceiptCapture = mode === 'photo' && captureKind === 'receipt';
   
   // All hooks must be called unconditionally at the top
   const [facing, setFacing] = useState<'front' | 'back'>('back');
@@ -203,19 +209,33 @@ export default function CaptureScreen() {
         thumb_uri: thumbUri,
         type: 'photo',
         folder_id: folderId || null, // Associate with folder if provided
+        note: isReceiptCapture ? 'Receipt captured' : null,
+        metadata: isReceiptCapture
+          ? {
+              capture_kind: 'receipt',
+              document_kind: 'receipt',
+              captured_at: Date.now(),
+            }
+          : {
+              capture_kind: 'camera',
+            },
       });
 
       Alert.alert(
-        'Photo Saved', 
-        folderId 
-          ? 'Your photo has been saved to the selected folder.' 
-          : 'Your photo has been saved to the project.'
+        isReceiptCapture ? 'Receipt Saved' : 'Photo Saved',
+        folderId
+          ? isReceiptCapture
+            ? 'Your receipt has been saved to the selected folder.'
+            : 'Your photo has been saved to the selected folder.'
+          : isReceiptCapture
+            ? 'Your receipt has been saved to the project.'
+            : 'Your photo has been saved to the project.'
       );
     } catch (error) {
       console.error('Error taking picture:', error);
-      Alert.alert('Error', 'Failed to capture photo');
+      Alert.alert('Error', isReceiptCapture ? 'Failed to capture receipt' : 'Failed to capture photo');
     }
-  }, [id, folderId]);
+  }, [id, folderId, isReceiptCapture]);
 
   const toggleFlash = useCallback(() => {
     setFlash(current => {
@@ -336,7 +356,7 @@ export default function CaptureScreen() {
         </TouchableOpacity>
 
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '600' }}>
-          {mode === 'photo' ? 'Take Photo' : 'Record Video'}
+          {mode === 'photo' ? (isReceiptCapture ? 'Capture Receipt' : 'Take Photo') : 'Record Video'}
         </Text>
       </View>
 

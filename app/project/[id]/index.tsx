@@ -754,11 +754,21 @@ function ProjectDetailContent() {
           },
         },
         {
+          text: 'Capture Receipt',
+          onPress: () => {
+            router.push(`/project/${id}/capture?mode=photo&captureKind=receipt&folderId=${currentFolder || ''}`);
+          },
+        },
+        {
           text: 'Upload Document',
           onPress: () => handleDocumentUpload(),
         },
       ]
     );
+  };
+
+  const handleCaptureReceipt = () => {
+    router.push(`/project/${id}/capture?mode=photo&captureKind=receipt&folderId=${currentFolder || ''}`);
   };
 
   const handleDocumentUpload = async () => {
@@ -1504,6 +1514,10 @@ function ProjectDetailContent() {
     const metadataDescription = typeof metadata?.description === 'string'
       ? metadata.description.trim()
       : '';
+    const metadataDocumentKind =
+      typeof metadata?.document_kind === 'string'
+        ? metadata.document_kind.trim().toLowerCase()
+        : '';
     const metadataActivityLabel = parseActivityTypeLabel(metadata);
     const metadataIsManualEntry = isManualEntryActivity(entry.action_type, metadata);
     const metadataAmount = typeof metadata?.amount === 'number'
@@ -1561,6 +1575,16 @@ function ProjectDetailContent() {
           expandable: false,
         };
       case 'media_added':
+        if (metadataDocumentKind === 'receipt') {
+          return {
+            title: 'Receipt Captured',
+            description: 'A receipt photo was added to this project.',
+            icon: 'receipt-outline',
+            iconBg: bvColors.semantic.warning,
+            iconColor: bvColors.neutral[0],
+            expandable: false,
+          };
+        }
         return {
           title: type === 'photo' ? 'Site Progress Photos' : type ? `${type.charAt(0).toUpperCase()} Added` : 'Media Added',
           description: type === 'photo'
@@ -2946,6 +2970,7 @@ function ProjectDetailContent() {
     enabled: boolean;
   }> = [
     { id: 'capture', icon: 'camera-outline', label: 'Capture', onPress: handleCaptureMedia, enabled: true },
+    { id: 'receipt', icon: 'receipt-outline', label: 'Receipt', onPress: handleCaptureReceipt, enabled: true },
     { id: 'upload', icon: 'cloud-upload-outline', label: 'Upload', onPress: handleDocumentUpload, enabled: true },
     { id: 'notes', icon: 'document-text-outline', label: 'Notes', onPress: handleOpenNotesScreen, enabled: true },
     { id: 'public', icon: 'globe-outline', label: 'Public', onPress: handleOpenPublicSettings, enabled: true },

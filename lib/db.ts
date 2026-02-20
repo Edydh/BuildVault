@@ -4059,11 +4059,37 @@ export function createMedia(data: Omit<MediaItem, 'id' | 'created_at'>): MediaIt
       ]
     );
 
+    const parsedMetadata =
+      typeof data.metadata === 'string'
+        ? (() => {
+            try {
+              const parsed = JSON.parse(data.metadata);
+              return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+                ? (parsed as Record<string, unknown>)
+                : {};
+            } catch {
+              return {};
+            }
+          })()
+        : data.metadata && typeof data.metadata === 'object'
+          ? (data.metadata as Record<string, unknown>)
+          : {};
+    const documentKind =
+      typeof parsedMetadata.document_kind === 'string'
+        ? parsedMetadata.document_kind.trim().toLowerCase() || null
+        : null;
+    const captureKind =
+      typeof parsedMetadata.capture_kind === 'string'
+        ? parsedMetadata.capture_kind.trim().toLowerCase() || null
+        : null;
+
     touchProject(data.project_id, created_at, userId);
     logActivityInternal(data.project_id, 'media_added', id, {
       type: data.type,
       folder_id: data.folder_id || null,
       has_note: !!data.note?.trim(),
+      document_kind: documentKind,
+      capture_kind: captureKind,
     }, created_at);
 
     return { id, ...data, created_at };

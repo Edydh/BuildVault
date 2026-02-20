@@ -1106,6 +1106,30 @@ function MediaDetailContent() {
         </View>
       </TouchableWithoutFeedback>
 
+      {/* Always-available back action (header can fade while scrolling) */}
+      {!isFullScreen && (
+        <TouchableOpacity
+          onPress={() => router.back()}
+          activeOpacity={0.8}
+          style={{
+            position: 'absolute',
+            top: insets.top + 10,
+            left: 16,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: 'rgba(15, 23, 42, 0.78)',
+            borderWidth: 1,
+            borderColor: 'rgba(148, 163, 184, 0.35)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+          }}
+        >
+          <Ionicons name="chevron-back" size={24} color="#F8FAFC" />
+        </TouchableOpacity>
+      )}
+
       {/* Bottom Controls with KeyboardAvoidingView */}
       <KeyboardAvoidingView 
         style={{
