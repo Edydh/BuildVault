@@ -97,6 +97,9 @@ const SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES = new Set<string>([
   'note_updated',
   'note_removed',
 ]);
+const ACTIVITY_QUERY_LIMIT = 100;
+const ACTIVITY_INITIAL_VISIBLE_COUNT = 12;
+const ACTIVITY_VISIBLE_INCREMENT = 12;
 
 function isActivityStatus(value: string): value is ActivityStatus {
   return ACTIVITY_STATUS_VALUES.has(value as ActivityStatus);
@@ -178,6 +181,7 @@ function ProjectDetailContent() {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [projectMedia, setProjectMedia] = useState<MediaItem[]>([]);
   const [recentActivity, setRecentActivity] = useState<ActivityLogEntry[]>([]);
+  const [visibleActivityCount, setVisibleActivityCount] = useState<number>(ACTIVITY_INITIAL_VISIBLE_COUNT);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -529,7 +533,7 @@ function ProjectDetailContent() {
       setProjectMedia(getMediaByProject(id));
 
       // Recent activity feed (always scoped to full project, not folder)
-      const activityItems = getActivityByProject(id, 12);
+      const activityItems = getActivityByProject(id, ACTIVITY_QUERY_LIMIT);
       setRecentActivity(activityItems);
 
       // Team members (for activity assignment)
@@ -699,6 +703,10 @@ function ProjectDetailContent() {
     mediaFilters.dateFrom,
     mediaFilters.dateTo,
   ]);
+
+  useEffect(() => {
+    setVisibleActivityCount(ACTIVITY_INITIAL_VISIBLE_COUNT);
+  }, [id]);
 
   // Load view mode preference when component mounts
   useEffect(() => {
@@ -2959,7 +2967,7 @@ function ProjectDetailContent() {
       .map((item) => (item.type === 'video' ? item.thumb_uri || item.uri : item.uri))
       .filter((uri): uri is string => !!uri);
 
-    return recentActivity.slice(0, 8).map((entry, index) => {
+    return recentActivity.map((entry, index) => {
       const presentation = mapActivityPresentation(entry);
       const canExpand = presentation.expandable && projectPreviewUris.length > 0 && index === 0;
       const metadata = parseActivityMetadata(entry.metadata);
@@ -3025,6 +3033,17 @@ function ProjectDetailContent() {
       };
     });
   }, [recentActivity, projectMedia, id, canManageManualActivities, currentAuthUserId, currentLocalUserId, currentUserEmail]);
+
+  const visibleRecentActivityFeed = React.useMemo(
+    () => recentActivityFeed.slice(0, visibleActivityCount),
+    [recentActivityFeed, visibleActivityCount]
+  );
+
+  const hasMoreRecentActivity = visibleActivityCount < recentActivityFeed.length;
+  const canCollapseRecentActivity =
+    recentActivityFeed.length > ACTIVITY_INITIAL_VISIBLE_COUNT &&
+    visibleActivityCount > ACTIVITY_INITIAL_VISIBLE_COUNT;
+  const remainingRecentActivityCount = Math.max(recentActivityFeed.length - visibleActivityCount, 0);
 
   const activityAttachmentOptions = React.useMemo(() => {
     return projectMedia.slice(0, 24);
@@ -3447,7 +3466,7 @@ function ProjectDetailContent() {
                 Recent Activity
               </Text>
 
-              {recentActivityFeed.length === 0 ? (
+              {visibleRecentActivityFeed.length === 0 ? (
                 <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 16 }}>
                   <Text style={{ color: bvColors.text.primary, fontSize: 16, fontWeight: '600' }}>
                     No activity yet
@@ -3469,7 +3488,7 @@ function ProjectDetailContent() {
                     }}
                   />
 
-                  {recentActivityFeed.map((entry) => (
+                  {visibleRecentActivityFeed.map((entry) => (
                     <View key={entry.id} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 }}>
                       <View
                         style={{
@@ -3727,6 +3746,37 @@ function ProjectDetailContent() {
                       </View>
                     </View>
                   ))}
+
+                  {(hasMoreRecentActivity || canCollapseRecentActivity) ? (
+                    <View style={{ paddingLeft: 58, paddingTop: 4 }}>
+                      {hasMoreRecentActivity ? (
+                        <TouchableOpacity
+                          onPress={() =>
+                            setVisibleActivityCount((prev) =>
+                              Math.min(prev + ACTIVITY_VISIBLE_INCREMENT, recentActivityFeed.length)
+                            )
+                          }
+                          style={{ alignSelf: 'flex-start', marginBottom: canCollapseRecentActivity ? 10 : 0 }}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={{ color: bvColors.brand.primaryLight, fontSize: 13, fontWeight: '700' }}>
+                            Show more activity{remainingRecentActivityCount > 0 ? ` (${remainingRecentActivityCount} left)` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {canCollapseRecentActivity ? (
+                        <TouchableOpacity
+                          onPress={() => setVisibleActivityCount(ACTIVITY_INITIAL_VISIBLE_COUNT)}
+                          style={{ alignSelf: 'flex-start' }}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={{ color: bvColors.text.muted, fontSize: 12, fontWeight: '600' }}>
+                            Show less
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               )}
 
