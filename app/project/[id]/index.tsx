@@ -2988,19 +2988,63 @@ function ProjectDetailContent() {
     id: string;
     icon: IoniconName;
     label: string;
+    iconColor: string;
     onPress: () => void;
     enabled: boolean;
   }> = [
-    { id: 'capture', icon: 'camera-outline', label: 'Capture', onPress: handleCaptureMedia, enabled: true },
-    { id: 'receipt', icon: 'receipt-outline', label: 'Receipt', onPress: handleCaptureReceipt, enabled: true },
-    { id: 'upload', icon: 'cloud-upload-outline', label: 'Upload', onPress: handleDocumentUpload, enabled: true },
-    { id: 'notes', icon: 'document-text-outline', label: 'Notes', onPress: handleOpenNotesScreen, enabled: true },
-    { id: 'public', icon: 'globe-outline', label: 'Public', onPress: handleOpenPublicSettings, enabled: true },
-    { id: 'activity', icon: 'add-circle-outline', label: 'Activity', onPress: handleOpenActivityModal, enabled: true },
+    {
+      id: 'capture',
+      icon: 'camera-outline',
+      label: 'Capture',
+      iconColor: bvColors.brand.primaryLight,
+      onPress: handleCaptureMedia,
+      enabled: true,
+    },
+    {
+      id: 'receipt',
+      icon: 'receipt-outline',
+      label: 'Receipt',
+      iconColor: bvColors.brand.accent,
+      onPress: handleCaptureReceipt,
+      enabled: true,
+    },
+    {
+      id: 'upload',
+      icon: 'cloud-upload-outline',
+      label: 'Upload',
+      iconColor: bvColors.semantic.success,
+      onPress: handleDocumentUpload,
+      enabled: true,
+    },
+    {
+      id: 'notes',
+      icon: 'document-text-outline',
+      label: 'Notes',
+      iconColor: bvColors.semantic.warning,
+      onPress: handleOpenNotesScreen,
+      enabled: true,
+    },
+    {
+      id: 'public',
+      icon: 'globe-outline',
+      label: 'Public',
+      iconColor: bvColors.interactive.selected,
+      onPress: handleOpenPublicSettings,
+      enabled: true,
+    },
+    {
+      id: 'activity',
+      icon: 'add-circle-outline',
+      label: 'Activity',
+      iconColor: bvColors.text.secondary,
+      onPress: handleOpenActivityModal,
+      enabled: true,
+    },
     {
       id: 'completion',
       icon: project?.status === 'completed' ? 'refresh-outline' : 'checkmark-done-outline',
       label: project?.status === 'completed' ? 'Reopen' : 'Complete',
+      iconColor: project?.status === 'completed' ? bvColors.semantic.warning : bvColors.semantic.success,
       onPress: handleToggleProjectCompletion,
       enabled: true,
     },
@@ -3484,7 +3528,7 @@ function ProjectDetailContent() {
                       <Ionicons
                         name={action.icon}
                         size={22}
-                        color={action.enabled ? bvColors.brand.primaryLight : bvColors.text.tertiary}
+                        color={action.enabled ? action.iconColor : bvColors.text.tertiary}
                       />
                       <Text style={{ color: bvColors.text.primary, fontSize: 12, fontWeight: '600', marginTop: 8, textAlign: 'center' }}>
                         {action.label}
