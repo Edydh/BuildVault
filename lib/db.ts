@@ -634,7 +634,8 @@ function getActivityContribution(projectId: string, scopedUserId?: string | null
     points += actionCount * weight;
   }
 
-  return Math.min(MAX_ACTIVITY_CONTRIBUTION, Math.round(points / 3));
+  const contribution = points > 0 ? Math.max(1, Math.ceil(points / 3)) : 0;
+  return Math.min(MAX_ACTIVITY_CONTRIBUTION, contribution);
 }
 
 function getLastMeaningfulActivity(projectId: string, scopedUserId?: string | null): number | null {

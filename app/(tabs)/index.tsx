@@ -84,6 +84,11 @@ const formatBytes = (bytes: number): string => {
 
 const formatCount = (value: number): string => value.toLocaleString();
 
+const isRemoteUri = (uri: string | null | undefined): boolean => {
+  if (!uri) return false;
+  return /^https?:\/\//i.test(uri.trim());
+};
+
 interface StatCardConfig {
   key: string;
   label: string;
@@ -324,6 +329,9 @@ export default function ProjectsList() {
         sizePromises.push(
           (async () => {
             try {
+              if (isRemoteUri(item.uri)) {
+                return;
+              }
               const info = await FileSystem.getInfoAsync(item.uri);
               if (info.exists && !info.isDirectory) {
                 const size = info.size ?? 0;

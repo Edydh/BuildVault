@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectProgressComputation, getProjectById, Project, Folder, getFoldersByProject, getMediaByFolder, getMediaByProject, getMediaById, getMediaFiltered, getActivityByProject, getProjectMembers, getOrganizationMembers, computeProjectProgress } from '../../../lib/db';
+import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectMemberRole, ProjectProgressComputation, getProjectById, Project, Folder, getFoldersByProject, getMediaByFolder, getMediaByProject, getMediaById, getMediaFiltered, getActivityByProject, getProjectMembers, getOrganizationMembers, computeProjectProgress } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -24,7 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../../lib/AuthContext';
 import LazyImage from '../../../components/LazyImage';
 import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImageVariants, cleanupImageVariants } from '../../../lib/imageOptimization';
-import { deleteLocalFileIfPresent, ensureShareableLocalUri } from '../../../lib/mediaFileAccess';
+import { deleteLocalFileIfPresent, ensureShareableLocalUri, isRemoteMediaUri } from '../../../lib/mediaFileAccess';
 import NoteEncouragement from '../../../components/NoteEncouragement';
 import { GlassCard, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
 import { BVCard, BVEmptyState, BVFloatingAction } from '../../../components/ui';
@@ -50,7 +50,7 @@ import {
 import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle } from 'react-native-reanimated';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
-type ActivityStatus = 'assigned' | 'in_progress' | 'completed';
+type ActivityStatus = 'assigned' | 'in_progress' | 'completed' | 'rejected';
 type ActivityTypeOption = {
   value: string;
   label: string;
@@ -67,6 +67,7 @@ const ACTIVITY_STATUS_OPTIONS: Array<{
   { value: 'assigned', label: 'Assigned', color: bvColors.semantic.warning },
   { value: 'in_progress', label: 'In Progress', color: bvColors.brand.primaryLight },
   { value: 'completed', label: 'Completed', color: bvColors.semantic.success },
+  { value: 'rejected', label: 'Rejected', color: bvColors.semantic.danger },
 ];
 const ACTIVITY_STATUS_VALUES = new Set<ActivityStatus>(ACTIVITY_STATUS_OPTIONS.map((option) => option.value));
 const ACTIVITY_TYPE_STORAGE_PREFIX = '@buildvault/activity-types:';
@@ -110,6 +111,7 @@ function normalizeActivityStatus(value: unknown): ActivityStatus {
 function formatActivityStatusLabel(status: ActivityStatus): string {
   if (status === 'in_progress') return 'in progress';
   if (status === 'completed') return 'completed';
+  if (status === 'rejected') return 'rejected';
   return 'assigned';
 }
 
@@ -442,6 +444,45 @@ function ProjectDetailContent() {
     );
   }, [organizationMembers, assignableMembers]);
 
+  const currentLocalUserId = React.useMemo(() => {
+    const candidate = user?.id?.trim() || '';
+    return candidate.length > 0 ? candidate : null;
+  }, [user?.id]);
+
+  const currentAuthUserId = React.useMemo(() => {
+    const candidate = user?.authUserId?.trim() || '';
+    return candidate.length > 0 ? candidate : null;
+  }, [user?.authUserId]);
+
+  const currentUserEmail = React.useMemo(() => {
+    const candidate = user?.email?.trim().toLowerCase() || '';
+    return candidate.length > 0 ? candidate : null;
+  }, [user?.email]);
+
+  const currentProjectRole = React.useMemo<ProjectMemberRole | null>(() => {
+    if (!currentAuthUserId && !currentLocalUserId && !currentUserEmail) return null;
+    const membership = projectMembers.find(
+      (member) =>
+        member.status === 'active' &&
+        (
+          (typeof member.user_id === 'string' &&
+            (member.user_id.trim() === currentAuthUserId || member.user_id.trim() === currentLocalUserId)) ||
+          (typeof member.user_email_snapshot === 'string' &&
+            member.user_email_snapshot.trim().toLowerCase() === currentUserEmail) ||
+          (typeof member.invited_email === 'string' &&
+            member.invited_email.trim().toLowerCase() === currentUserEmail)
+        )
+    );
+    return membership?.role ?? null;
+  }, [projectMembers, currentAuthUserId, currentLocalUserId, currentUserEmail]);
+
+  const canManageManualActivities = React.useMemo(() => {
+    if (currentProjectRole === 'owner' || currentProjectRole === 'manager') return true;
+    // Legacy personal projects may not yet have explicit membership rows.
+    if (!project?.organization_id && projectMembers.length === 0) return true;
+    return false;
+  }, [currentProjectRole, project?.organization_id, projectMembers.length]);
+
   const projectStatusLabel = React.useMemo(() => {
     if (!project?.status) return 'neutral';
     return project.status.replace(/_/g, ' ');
@@ -508,10 +549,11 @@ function ProjectDetailContent() {
       setProjectProgressComputation(progress);
       
       // Check for videos that need thumbnail regeneration
-      const videosNeedingThumbnails = mediaItems.filter(item => 
-        item.type === 'video' && 
-        item.thumb_uri && 
-        !isImageThumbnailUri(item.thumb_uri)
+      const videosNeedingThumbnails = mediaItems.filter(item =>
+        item.type === 'video' &&
+        item.thumb_uri &&
+        !isImageThumbnailUri(item.thumb_uri) &&
+        !isRemoteMediaUri(item.uri)
       );
       
       if (videosNeedingThumbnails.length > 0) {
@@ -966,6 +1008,18 @@ function ProjectDetailContent() {
     return value.length > 0 ? value : null;
   };
 
+  const parseActivityAssigneeUserId = (metadata: Record<string, unknown> | null): string | null => {
+    if (!metadata || typeof metadata.assignee_user_id !== 'string') return null;
+    const value = metadata.assignee_user_id.trim();
+    return value.length > 0 ? value : null;
+  };
+
+  const parseActivityAssigneeEmail = (metadata: Record<string, unknown> | null): string | null => {
+    if (!metadata || typeof metadata.assignee_email !== 'string') return null;
+    const value = metadata.assignee_email.trim().toLowerCase();
+    return value.length > 0 ? value : null;
+  };
+
   const parseActivityAssigneeName = (metadata: Record<string, unknown> | null): string | null => {
     if (!metadata) return null;
     if (typeof metadata.assignee_name === 'string' && metadata.assignee_name.trim().length > 0) {
@@ -1071,30 +1125,88 @@ function ProjectDetailContent() {
     });
   };
 
+  const handleAssigneeActivityResponse = (
+    entry: { id: string; metadataRaw: string | null; status: ActivityStatus | null },
+    decision: 'accept' | 'reject'
+  ) => {
+    const metadata = parseActivityMetadata(entry.metadataRaw);
+    if (!metadata) return;
+    const currentStatus = parseActivityStatus(metadata);
+    const nextStatus: ActivityStatus = decision === 'accept' ? 'in_progress' : 'rejected';
+    if (currentStatus === nextStatus) return;
+
+    const nextMetadata: Record<string, unknown> = {
+      ...metadata,
+      status: nextStatus,
+      status_updated_at: Date.now(),
+      status_updated_by: currentAuthUserId ?? user?.id ?? null,
+      status_updated_by_name: user?.name?.trim() || null,
+    };
+
+    void (async () => {
+      try {
+        await updateActivityInSupabase(entry.id, { metadata: nextMetadata });
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        loadData();
+      } catch (error) {
+        console.error('Error updating activity status:', error);
+        Alert.alert('Error', 'Could not update activity status. Please try again.');
+      }
+    })();
+  };
+
   const handleActivityCardPress = (entry: {
     id: string;
     actionType: string;
     metadataRaw: string | null;
     referenceId: string | null;
     canManage: boolean;
+    canEditAsAssignee: boolean;
+    canRespondAsAssignee: boolean;
+    status: ActivityStatus | null;
   }) => {
-    if (!entry.canManage) return;
+    if (!entry.canManage && !entry.canEditAsAssignee && !entry.canRespondAsAssignee) return;
+
+    const actions: Array<{ label: string; onPress: () => void; destructive?: boolean }> = [];
+
+    if (entry.canRespondAsAssignee && entry.status) {
+      if (entry.status === 'assigned') {
+        actions.push({
+          label: 'Accept Activity',
+          onPress: () => handleAssigneeActivityResponse(entry, 'accept'),
+        });
+      }
+      if (entry.status === 'assigned' || entry.status === 'in_progress') {
+        actions.push({
+          label: 'Reject Activity',
+          destructive: true,
+          onPress: () => handleAssigneeActivityResponse(entry, 'reject'),
+        });
+      }
+    }
+
+    if (entry.canManage || entry.canEditAsAssignee) {
+      actions.push({
+        label: 'Edit Activity',
+        onPress: () => handleEditActivityPress(entry),
+      });
+    }
+
+    if (entry.canManage) {
+      actions.push({
+        label: 'Delete Activity',
+        destructive: true,
+        onPress: () => handleDeleteActivityPress(entry),
+      });
+    }
+
+    if (actions.length === 0) return;
 
     setActionSheet({
       visible: true,
       title: 'Activity Options',
       message: 'Manage this timeline entry.',
-      actions: [
-        {
-          label: 'Edit Activity',
-          onPress: () => handleEditActivityPress(entry),
-        },
-        {
-          label: 'Delete Activity',
-          destructive: true,
-          onPress: () => handleDeleteActivityPress(entry),
-        },
-      ],
+      actions,
     });
   };
 
@@ -2246,17 +2358,31 @@ function ProjectDetailContent() {
             let currentThumb = item.thumb_uri || null;
 
             if (currentThumb) {
-              const info = await FileSystem.getInfoAsync(currentThumb);
-              if (!info.exists || !isImageThumbnailUri(currentThumb)) {
-                currentThumb = null;
+              if (isRemoteMediaUri(currentThumb)) {
+                if (!isImageThumbnailUri(currentThumb)) {
+                  currentThumb = null;
+                }
+              } else {
+                const info = await FileSystem.getInfoAsync(currentThumb);
+                if (!info.exists || !isImageThumbnailUri(currentThumb)) {
+                  currentThumb = null;
+                }
               }
             }
 
             if (!currentThumb) {
+              if (isRemoteMediaUri(item.uri)) {
+                if (active) {
+                  setVideoThumbnail(null);
+                }
+                return;
+              }
+
               // First check if the video file exists and is readable
               const fileInfo = await FileSystem.getInfoAsync(item.uri);
               if (!fileInfo.exists || fileInfo.isDirectory || (fileInfo.size || 0) === 0) {
                 console.warn(`Skipping thumbnail generation for video ${item.id}: file not accessible`);
+                currentThumb = null;
                 if (active) {
                   setVideoThumbnail(null);
                 }
@@ -2837,7 +2963,7 @@ function ProjectDetailContent() {
       const presentation = mapActivityPresentation(entry);
       const canExpand = presentation.expandable && projectPreviewUris.length > 0 && index === 0;
       const metadata = parseActivityMetadata(entry.metadata);
-      const canManage = isManualEntryActivity(entry.action_type, metadata);
+      const isManualEntry = isManualEntryActivity(entry.action_type, metadata);
       const noteScope = parseActivityNoteScope(metadata);
       const canOpenProjectNotes =
         noteScope === 'project' &&
@@ -2862,7 +2988,20 @@ function ProjectDetailContent() {
         ? entry.actor_name_snapshot.trim()
         : null;
       const assigneeName = parseActivityAssigneeName(metadata);
-      const status = canManage ? parseActivityStatus(metadata) : null;
+      const status = isManualEntry ? parseActivityStatus(metadata) : null;
+      const assigneeUserId = parseActivityAssigneeUserId(metadata);
+      const assigneeEmail = parseActivityAssigneeEmail(metadata);
+      const isAssignedToCurrentUser = !!(
+        isManualEntry &&
+        (
+          (currentAuthUserId && assigneeUserId && assigneeUserId === currentAuthUserId) ||
+          (currentLocalUserId && assigneeUserId && assigneeUserId === currentLocalUserId) ||
+          (currentUserEmail && assigneeEmail && assigneeEmail === currentUserEmail)
+        )
+      );
+      const canManage = isManualEntry && canManageManualActivities;
+      const canEditAsAssignee = isManualEntry && isAssignedToCurrentUser;
+      const canRespondAsAssignee = !!(status && (status === 'assigned' || status === 'in_progress') && isAssignedToCurrentUser);
       return {
         id: entry.id,
         actionType: entry.action_type,
@@ -2873,6 +3012,8 @@ function ProjectDetailContent() {
         linkedPreviewUri,
         linkedMediaType,
         canManage,
+        canEditAsAssignee,
+        canRespondAsAssignee,
         canOpenProjectNotes,
         timestampLabel: formatRelativeTime(entry.created_at),
         actorName,
@@ -2883,7 +3024,7 @@ function ProjectDetailContent() {
         ...presentation,
       };
     });
-  }, [recentActivity, projectMedia, id]);
+  }, [recentActivity, projectMedia, id, canManageManualActivities, currentAuthUserId, currentLocalUserId, currentUserEmail]);
 
   const activityAttachmentOptions = React.useMemo(() => {
     return projectMedia.slice(0, 24);
@@ -3362,11 +3503,11 @@ function ProjectDetailContent() {
                                 ? () => handleMissingLinkedMedia()
                                 : entry.canOpenProjectNotes
                                   ? () => openProjectNotesFromActivity()
-                                  : entry.canManage
+                                  : (entry.canManage || entry.canEditAsAssignee || entry.canRespondAsAssignee)
                                     ? () => handleActivityCardPress(entry)
                                     : undefined
                           }
-                          onLongPress={entry.canManage ? () => handleActivityCardPress(entry) : undefined}
+                          onLongPress={entry.canManage || entry.canEditAsAssignee || entry.canRespondAsAssignee ? () => handleActivityCardPress(entry) : undefined}
                         >
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                             <View style={{ flex: 1 }}>
@@ -3439,7 +3580,7 @@ function ProjectDetailContent() {
                               >
                                 <Ionicons name="chevron-up" size={18} color={bvColors.text.secondary} />
                               </View>
-                            ) : entry.canManage ? (
+                            ) : entry.canManage || entry.canEditAsAssignee || entry.canRespondAsAssignee ? (
                               <View
                                 style={{
                                   width: 32,

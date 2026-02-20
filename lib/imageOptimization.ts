@@ -53,6 +53,28 @@ export async function generateImageVariants(
   options: CompressionOptions = DEFAULT_COMPRESSION
 ): Promise<ImageVariants> {
   try {
+    const normalizedOriginalUri = originalUri.startsWith('file://') ? originalUri : `file://${originalUri}`;
+    const isRemote = /^https?:\/\//i.test(originalUri.trim());
+    if (!isRemote) {
+      const sourceInfo = await FileSystem.getInfoAsync(normalizedOriginalUri);
+      if (!sourceInfo.exists || sourceInfo.isDirectory) {
+        return {
+          original: originalUri,
+          full: originalUri,
+          preview: originalUri,
+          thumbnail: originalUri,
+        };
+      }
+    } else {
+      // Remote media is already optimized by storage/CDN; skip local variant generation.
+      return {
+        original: originalUri,
+        full: originalUri,
+        preview: originalUri,
+        thumbnail: originalUri,
+      };
+    }
+
     // Create project media directory if it doesn't exist
     const projectDir = `${FileSystem.documentDirectory}projects/${projectId}/media/`;
     await FileSystem.makeDirectoryAsync(projectDir, { intermediates: true });
@@ -70,7 +92,7 @@ export async function generateImageVariants(
 
     // Generate thumbnail
     await ImageManipulator.manipulateAsync(
-      originalUri,
+      normalizedOriginalUri,
       [
         {
           resize: {
@@ -88,7 +110,7 @@ export async function generateImageVariants(
 
     // Generate preview
     await ImageManipulator.manipulateAsync(
-      originalUri,
+      normalizedOriginalUri,
       [
         {
           resize: {
@@ -106,7 +128,7 @@ export async function generateImageVariants(
 
     // Generate full quality (for sharing)
     await ImageManipulator.manipulateAsync(
-      originalUri,
+      normalizedOriginalUri,
       [
         {
           resize: {

@@ -456,6 +456,7 @@ function PhotoGalleryContent() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [media, setMedia] = useState<MediaItem[]>([]);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(resolvedInitialIndex);
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [note, setNote] = useState('');
@@ -521,6 +522,7 @@ function PhotoGalleryContent() {
     if (!id) return;
 
     const loadMedia = async () => {
+      setIsLoadingMedia(true);
       try {
         await syncProjectContentFromSupabase(id);
         const sourceMedia = normalizedFolderId === undefined
@@ -551,6 +553,8 @@ function PhotoGalleryContent() {
       } catch (error) {
         console.error('Error loading media:', error);
         Alert.alert('Error', 'Failed to load photos');
+      } finally {
+        setIsLoadingMedia(false);
       }
     };
 
@@ -827,6 +831,17 @@ function PhotoGalleryContent() {
       </View>
     );
   };
+
+  if (isLoadingMedia) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0B0F14', justifyContent: 'center', alignItems: 'center' }}>
+        <Ionicons name="images" size={48} color="#64748B" style={{ marginBottom: 16 }} />
+        <Text style={{ color: '#94A3B8', fontSize: 16, textAlign: 'center' }}>
+          Loading photos...
+        </Text>
+      </View>
+    );
+  }
 
   if (media.length === 0) {
     return (

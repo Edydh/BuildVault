@@ -1,5 +1,6 @@
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import * as FileSystem from 'expo-file-system/legacy';
+import Constants from 'expo-constants';
 import {
   ActivityLogEntry,
   Folder,
@@ -55,7 +56,8 @@ const PROJECT_COLUMNS =
 const ACTIVITY_COLUMNS =
   'id, project_id, action_type, reference_id, actor_user_id, actor_name_snapshot, metadata, created_at';
 const FOLDER_COLUMNS = 'id, project_id, name, created_at';
-const MEDIA_COLUMNS = 'id, project_id, folder_id, type, uri, thumb_uri, note, metadata, created_at';
+const MEDIA_COLUMNS =
+  'id, project_id, folder_id, uploaded_by_user_id, type, uri, thumb_uri, note, metadata, created_at';
 const NOTE_COLUMNS =
   'id, project_id, media_id, author_user_id, title, content, created_at, updated_at';
 const PROJECT_MEMBER_COLUMNS =
@@ -65,6 +67,13 @@ const PROJECT_PUBLIC_PROFILE_COLUMNS =
 const STORAGE_BUCKET = 'buildvault-media';
 const PUBLIC_STORAGE_PATH_SEGMENT = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
 const SIGNED_STORAGE_PATH_SEGMENT = `/storage/v1/object/sign/${STORAGE_BUCKET}/`;
+const MAX_BASE64_UPLOAD_FALLBACK_BYTES = 24 * 1024 * 1024;
+const SUPABASE_STORAGE_URL =
+  (Constants.expoConfig?.extra?.supabaseUrl as string | undefined) || process.env.SUPABASE_URL || '';
+const SUPABASE_STORAGE_ANON_KEY =
+  (Constants.expoConfig?.extra?.supabaseAnonKey as string | undefined) ||
+  process.env.SUPABASE_ANON_KEY ||
+  '';
 
 type SupabaseProjectRow = {
   id: string;
@@ -109,6 +118,7 @@ type SupabaseMediaRow = {
   id: string;
   project_id: string;
   folder_id: string | null;
+  uploaded_by_user_id: string | null;
   type: MediaItem['type'];
   uri: string;
   thumb_uri: string | null;
@@ -269,6 +279,29 @@ function isRemoteUri(uri: string | null | undefined): boolean {
   return /^https?:\/\//i.test(uri.trim());
 }
 
+function toLocalFileUri(uri: string): string {
+  return uri.startsWith('file://') ? uri : `file://${uri}`;
+}
+
+async function localFileExists(uri: string): Promise<boolean> {
+  try {
+    const info = await FileSystem.getInfoAsync(toLocalFileUri(uri));
+    return !!info.exists && !info.isDirectory;
+  } catch {
+    return false;
+  }
+}
+
+function getStoragePublicUrl(bucket: string, objectPath: string): string | null {
+  const normalizedBucket = bucket.trim();
+  const normalizedPath = objectPath.trim();
+  if (!normalizedBucket || !normalizedPath) return null;
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(normalizedBucket).getPublicUrl(normalizedPath);
+  return isRemoteUri(publicUrl) ? publicUrl : null;
+}
+
 function stripUriParams(uri: string): string {
   return uri.split('#')[0].split('?')[0];
 }
@@ -354,24 +387,88 @@ function buildStorageObjectPath(params: {
   return `users/${params.userId}/projects/${params.projectId}/${params.kind}/${params.mediaId}.${safeExtension}`;
 }
 
+function encodeStoragePath(path: string): string {
+  return path
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+async function uploadLocalFileToStorageViaHttp(params: {
+  localUri: string;
+  objectPath: string;
+  contentType: string;
+}): Promise<void> {
+  if (!SUPABASE_STORAGE_URL || !SUPABASE_STORAGE_ANON_KEY) {
+    throw new Error('Supabase storage upload configuration is missing');
+  }
+
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+  if (sessionError || !session?.access_token) {
+    mergeErrors(sessionError, 'Unable to resolve auth session for storage upload');
+  }
+
+  const localUri = toLocalFileUri(params.localUri);
+  const uploadUrl = `${SUPABASE_STORAGE_URL.replace(/\/$/, '')}/storage/v1/object/${STORAGE_BUCKET}/${encodeStoragePath(
+    params.objectPath
+  )}`;
+  const result = await FileSystem.uploadAsync(uploadUrl, localUri, {
+    httpMethod: 'POST',
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: SUPABASE_STORAGE_ANON_KEY,
+      'x-upsert': 'true',
+      'content-type': params.contentType,
+      'cache-control': '31536000',
+    },
+  });
+
+  if (result.status < 200 || result.status >= 300) {
+    const responseBody = typeof result.body === 'string' ? result.body.slice(0, 300) : '';
+    throw new Error(`Storage HTTP upload failed (${result.status})${responseBody ? `: ${responseBody}` : ''}`);
+  }
+}
+
 async function uploadLocalFileToStorage(params: {
   localUri: string;
   objectPath: string;
   mediaType: MediaItem['type'];
   extension: string;
 }): Promise<{ objectPath: string; publicUrl: string }> {
-  const payload = await readLocalFileAsArrayBuffer(params.localUri);
-  const contentType = inferContentType(params.extension, params.mediaType);
+  const localUri = toLocalFileUri(params.localUri);
+  const info = await FileSystem.getInfoAsync(localUri);
+  if (!info.exists || info.isDirectory) {
+    throw new Error(`Local file not found: ${params.localUri}`);
+  }
 
-  const { error: uploadError } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(params.objectPath, payload, {
-      upsert: true,
+  const contentType = inferContentType(params.extension, params.mediaType);
+  try {
+    await uploadLocalFileToStorageViaHttp({
+      localUri,
+      objectPath: params.objectPath,
       contentType,
-      cacheControl: '31536000',
     });
-  if (uploadError) {
-    mergeErrors(uploadError, 'Unable to upload media file to storage');
+  } catch (httpUploadError) {
+    // Fallback to SDK upload for smaller files only.
+    if ((info.size || 0) > MAX_BASE64_UPLOAD_FALLBACK_BYTES) {
+      throw httpUploadError;
+    }
+
+    const payload = await readLocalFileAsArrayBuffer(localUri);
+    const { error: uploadError } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(params.objectPath, payload, {
+        upsert: true,
+        contentType,
+        cacheControl: '31536000',
+      });
+    if (uploadError) {
+      mergeErrors(uploadError, 'Unable to upload media file to storage');
+    }
   }
 
   const {
@@ -572,6 +669,15 @@ async function backfillProjectMediaStorage(
       continue;
     }
 
+    // Backfill only rows created by the current user; cross-device local paths are not portable.
+    if (!row.uploaded_by_user_id || row.uploaded_by_user_id !== authUserId) {
+      continue;
+    }
+
+    if (!(await localFileExists(row.uri))) {
+      continue;
+    }
+
     try {
       const synced = await uploadMediaAssetsToStorage({
         authUserId,
@@ -600,6 +706,10 @@ async function backfillProjectMediaStorage(
       }
       nextRows[index] = updatedRowRaw as SupabaseMediaRow;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      if (message.toLowerCase().includes('local file not found')) {
+        continue;
+      }
       console.log('Media storage backfill warning:', row.id, error);
     }
   }
@@ -667,15 +777,82 @@ function normalizeFolderRow(row: SupabaseFolderRow) {
 
 function normalizeMediaRow(row: SupabaseMediaRow) {
   const type: MediaItem['type'] = row.type === 'video' || row.type === 'doc' ? row.type : 'photo';
+  const metadata = toMetadataPayload(row.metadata);
+  const storage =
+    metadata.storage && typeof metadata.storage === 'object' && !Array.isArray(metadata.storage)
+      ? (metadata.storage as Record<string, unknown>)
+      : {};
+  const storageBucket =
+    typeof storage.bucket === 'string' && storage.bucket.trim().length > 0
+      ? storage.bucket.trim()
+      : STORAGE_BUCKET;
+
+  let resolvedUri = row.uri;
+  if (!isRemoteUri(resolvedUri) && typeof storage.file_path === 'string') {
+    const storageUri = getStoragePublicUrl(storageBucket, storage.file_path);
+    if (storageUri) {
+      resolvedUri = storageUri;
+    }
+  }
+  if (
+    !isRemoteUri(resolvedUri) &&
+    (!storage.file_path || typeof storage.file_path !== 'string') &&
+    typeof row.uploaded_by_user_id === 'string' &&
+    row.uploaded_by_user_id.trim().length > 0
+  ) {
+    const guessedPath = buildStorageObjectPath({
+      userId: row.uploaded_by_user_id.trim(),
+      projectId: row.project_id,
+      mediaId: row.id,
+      kind: 'media',
+      extension: fileExtensionFromUri(row.uri, type === 'photo' ? 'jpg' : type === 'video' ? 'mp4' : 'bin'),
+    });
+    const guessedUri = getStoragePublicUrl(storageBucket, guessedPath);
+    if (guessedUri) {
+      resolvedUri = guessedUri;
+    }
+  }
+
+  let resolvedThumbUri = row.thumb_uri;
+  if (resolvedThumbUri && !isRemoteUri(resolvedThumbUri) && typeof storage.thumb_path === 'string') {
+    const storageThumbUri = getStoragePublicUrl(storageBucket, storage.thumb_path);
+    if (storageThumbUri) {
+      resolvedThumbUri = storageThumbUri;
+    }
+  }
+  if (
+    resolvedThumbUri &&
+    !isRemoteUri(resolvedThumbUri) &&
+    (!storage.thumb_path || typeof storage.thumb_path !== 'string') &&
+    typeof row.uploaded_by_user_id === 'string' &&
+    row.uploaded_by_user_id.trim().length > 0
+  ) {
+    const guessedThumbPath = buildStorageObjectPath({
+      userId: row.uploaded_by_user_id.trim(),
+      projectId: row.project_id,
+      mediaId: `${row.id}-thumb`,
+      kind: 'thumbs',
+      extension: fileExtensionFromUri(row.thumb_uri || row.uri, 'jpg'),
+    });
+    const guessedThumbUri = getStoragePublicUrl(storageBucket, guessedThumbPath);
+    if (guessedThumbUri) {
+      resolvedThumbUri = guessedThumbUri;
+    }
+  }
+
+  if (type === 'photo' && (!resolvedThumbUri || resolvedThumbUri.trim().length === 0)) {
+    resolvedThumbUri = resolvedUri;
+  }
+
   return {
     id: row.id,
     project_id: row.project_id,
     folder_id: row.folder_id,
     type,
-    uri: row.uri,
-    thumb_uri: row.thumb_uri,
+    uri: resolvedUri,
+    thumb_uri: resolvedThumbUri,
     note: row.note,
-    metadata: normalizeMetadata(row.metadata),
+    metadata: normalizeMetadata(metadata),
     created_at: toMillis(row.created_at),
   };
 }
