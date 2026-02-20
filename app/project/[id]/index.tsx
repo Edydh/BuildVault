@@ -1145,12 +1145,13 @@ function ProjectDetailContent() {
 
   const handleAssigneeActivityResponse = (
     entry: { id: string; metadataRaw: string | null; status: ActivityStatus | null },
-    decision: 'accept' | 'reject'
+    decision: 'accept' | 'complete' | 'reject'
   ) => {
     const metadata = parseActivityMetadata(entry.metadataRaw);
     if (!metadata) return;
     const currentStatus = parseActivityStatus(metadata);
-    const nextStatus: ActivityStatus = decision === 'accept' ? 'in_progress' : 'rejected';
+    const nextStatus: ActivityStatus =
+      decision === 'accept' ? 'in_progress' : decision === 'complete' ? 'completed' : 'rejected';
     if (currentStatus === nextStatus) return;
 
     const nextMetadata: Record<string, unknown> = {
@@ -1192,6 +1193,12 @@ function ProjectDetailContent() {
         actions.push({
           label: 'Accept Activity',
           onPress: () => handleAssigneeActivityResponse(entry, 'accept'),
+        });
+      }
+      if (entry.status === 'assigned' || entry.status === 'in_progress') {
+        actions.push({
+          label: 'Mark Completed',
+          onPress: () => handleAssigneeActivityResponse(entry, 'complete'),
         });
       }
       if (entry.status === 'assigned' || entry.status === 'in_progress') {
@@ -1270,14 +1277,29 @@ function ProjectDetailContent() {
       amount = parsedAmount;
     }
 
+    const existingMetadata = activityModalMode === 'edit' && editingActivityId
+      ? parseActivityMetadata(
+          recentActivity.find((activity) => activity.id === editingActivityId)?.metadata ?? null
+        )
+      : null;
     const assignee = manualActivityAssigneeId
       ? assignableMembers.find((member) => member.id === manualActivityAssigneeId) || null
       : null;
-    const assigneeName = assignee ? getProjectMemberDisplayName(assignee) : null;
-    const assigneeEmail = assignee
+    const fallbackAssigneeMemberId = !assignee ? parseActivityAssigneeId(existingMetadata) : null;
+    const fallbackAssigneeName = !assignee ? parseActivityAssigneeName(existingMetadata) : null;
+    const fallbackAssigneeEmail = !assignee ? parseActivityAssigneeEmail(existingMetadata) : null;
+    const fallbackAssigneeUserId = !assignee ? parseActivityAssigneeUserId(existingMetadata) : null;
+    const assigneeMemberId = assignee?.id ?? fallbackAssigneeMemberId ?? null;
+    const assigneeName = assignee
+      ? getProjectMemberDisplayName(assignee)
+      : fallbackAssigneeName;
+    const selectedAssigneeEmail = assignee
       ? assignee.user_email_snapshot?.trim() || assignee.invited_email?.trim() || null
       : null;
-    const assigneeUserId = assignee?.user_id ?? null;
+    const assigneeEmail = selectedAssigneeEmail
+      ? selectedAssigneeEmail.toLowerCase()
+      : fallbackAssigneeEmail;
+    const assigneeUserId = assignee?.user_id ?? fallbackAssigneeUserId ?? null;
 
     const metadata: Record<string, unknown> = {
       description,
@@ -1285,7 +1307,7 @@ function ProjectDetailContent() {
       status: manualActivityStatus,
       activity_type_id: resolvedTypeId,
       activity_label: resolvedTypeLabel,
-      assignee_member_id: assignee?.id ?? null,
+      assignee_member_id: assigneeMemberId,
       assignee_name: assigneeName,
       assignee_email: assigneeEmail,
       assignee_user_id: assigneeUserId,
@@ -3022,14 +3044,26 @@ function ProjectDetailContent() {
         : null;
       const assigneeName = parseActivityAssigneeName(metadata);
       const status = isManualEntry ? parseActivityStatus(metadata) : null;
+      const assigneeMemberId = parseActivityAssigneeId(metadata);
       const assigneeUserId = parseActivityAssigneeUserId(metadata);
       const assigneeEmail = parseActivityAssigneeEmail(metadata);
+      const assigneeMember = assigneeMemberId
+        ? projectMembers.find((member) => member.id === assigneeMemberId) || null
+        : null;
+      const assigneeMemberUserId = assigneeMember?.user_id?.trim() || null;
+      const assigneeMemberEmail = assigneeMember?.user_email_snapshot?.trim().toLowerCase() || null;
+      const assigneeMemberInviteEmail = assigneeMember?.invited_email?.trim().toLowerCase() || null;
       const isAssignedToCurrentUser = !!(
         isManualEntry &&
         (
           (currentAuthUserId && assigneeUserId && assigneeUserId === currentAuthUserId) ||
           (currentLocalUserId && assigneeUserId && assigneeUserId === currentLocalUserId) ||
-          (currentUserEmail && assigneeEmail && assigneeEmail === currentUserEmail)
+          (currentUserEmail && assigneeEmail && assigneeEmail === currentUserEmail) ||
+          (currentAuthUserId && assigneeMemberUserId && assigneeMemberUserId === currentAuthUserId) ||
+          (currentLocalUserId && assigneeMemberUserId && assigneeMemberUserId === currentLocalUserId) ||
+          (currentUserEmail &&
+            ((assigneeMemberEmail && assigneeMemberEmail === currentUserEmail) ||
+              (assigneeMemberInviteEmail && assigneeMemberInviteEmail === currentUserEmail)))
         )
       );
       const canManage = isManualEntry && canManageManualActivities;
@@ -3057,7 +3091,16 @@ function ProjectDetailContent() {
         ...presentation,
       };
     });
-  }, [recentActivity, projectMedia, id, canManageManualActivities, currentAuthUserId, currentLocalUserId, currentUserEmail]);
+  }, [
+    recentActivity,
+    projectMedia,
+    id,
+    canManageManualActivities,
+    currentAuthUserId,
+    currentLocalUserId,
+    currentUserEmail,
+    projectMembers,
+  ]);
 
   const visibleRecentActivityFeed = React.useMemo(
     () => recentActivityFeed.slice(0, visibleActivityCount),
