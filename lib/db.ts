@@ -4006,16 +4006,7 @@ export function getMediaByProject(projectId: string, type?: MediaItem['type']): 
     if (!normalizedProjectId) {
       return [];
     }
-
-    // Deletions/syncs can temporarily leave stale project IDs in UI state.
-    // Returning an empty set keeps project cards resilient during those transitions.
-    const projectRow = db.getFirstSync(
-      'SELECT id FROM projects WHERE id = ? AND user_id = ? LIMIT 1',
-      [normalizedProjectId, userId]
-    ) as { id?: string } | null;
-    if (!projectRow?.id) {
-      return [];
-    }
+    assertProjectAccess(normalizedProjectId, userId);
 
     const query = type
       ? `SELECT * FROM media WHERE project_id = ? AND user_id = ? AND type = ? ORDER BY created_at DESC`
