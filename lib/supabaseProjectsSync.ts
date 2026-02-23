@@ -1,4 +1,5 @@
 import type { User as SupabaseUser } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import Constants from 'expo-constants';
 import {
@@ -70,7 +71,11 @@ const PROJECT_PUBLIC_PROFILE_COLUMNS =
 const STORAGE_BUCKET = 'buildvault-media';
 const PUBLIC_STORAGE_PATH_SEGMENT = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
 const SIGNED_STORAGE_PATH_SEGMENT = `/storage/v1/object/sign/${STORAGE_BUCKET}/`;
-const MAX_BASE64_UPLOAD_FALLBACK_BYTES = 24 * 1024 * 1024;
+const MAX_BASE64_UPLOAD_FALLBACK_BYTES = 8 * 1024 * 1024;
+const STORAGE_UPLOAD_RETRY_QUEUE_KEY = '@buildvault/storage-upload-retry/v1';
+const STORAGE_UPLOAD_RETRY_BASE_DELAY_MS = 15 * 1000;
+const STORAGE_UPLOAD_RETRY_MAX_DELAY_MS = 30 * 60 * 1000;
+const STORAGE_UPLOAD_RETRY_MAX_ATTEMPTS = 12;
 const SUPABASE_STORAGE_URL =
   (Constants.expoConfig?.extra?.supabaseUrl as string | undefined) || process.env.SUPABASE_URL || '';
 const SUPABASE_STORAGE_ANON_KEY =
@@ -186,6 +191,20 @@ type SupabaseProjectMediaCaptionRow = {
   note: string | null;
 };
 
+type StorageUploadRetryEntry = {
+  mediaId: string;
+  projectId: string;
+  mediaType: MediaItem['type'];
+  attempts: number;
+  nextRetryAt: number;
+  lastError: string;
+  updatedAt: number;
+};
+
+type StorageUploadRetryQueue = Record<string, StorageUploadRetryEntry>;
+
+let storageUploadRetryQueueCache: StorageUploadRetryQueue | null = null;
+
 type SupabasePublicMediaPostLookupRow = {
   id: string;
   media_id: string;
@@ -293,6 +312,121 @@ async function localFileExists(uri: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function toSafeTimestamp(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return value > 0 ? value : fallback;
+}
+
+function normalizeStorageUploadRetryQueue(raw: unknown): StorageUploadRetryQueue {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+
+  const now = Date.now();
+  const normalized: StorageUploadRetryQueue = {};
+  for (const [mediaId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const record = value as Partial<StorageUploadRetryEntry>;
+    if (typeof mediaId !== 'string' || !mediaId.trim()) continue;
+    const projectId = typeof record.projectId === 'string' ? record.projectId.trim() : '';
+    if (!projectId) continue;
+    const mediaType: MediaItem['type'] =
+      record.mediaType === 'video' || record.mediaType === 'doc' ? record.mediaType : 'photo';
+    const attempts =
+      typeof record.attempts === 'number' && Number.isFinite(record.attempts) && record.attempts > 0
+        ? Math.floor(record.attempts)
+        : 1;
+
+    normalized[mediaId] = {
+      mediaId,
+      projectId,
+      mediaType,
+      attempts,
+      nextRetryAt: toSafeTimestamp(record.nextRetryAt, now),
+      lastError: typeof record.lastError === 'string' ? record.lastError : 'upload_failed',
+      updatedAt: toSafeTimestamp(record.updatedAt, now),
+    };
+  }
+
+  return normalized;
+}
+
+async function getStorageUploadRetryQueue(): Promise<StorageUploadRetryQueue> {
+  if (storageUploadRetryQueueCache) {
+    return { ...storageUploadRetryQueueCache };
+  }
+
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_UPLOAD_RETRY_QUEUE_KEY);
+    if (!raw) {
+      storageUploadRetryQueueCache = {};
+      return {};
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    const normalized = normalizeStorageUploadRetryQueue(parsed);
+    storageUploadRetryQueueCache = normalized;
+    return { ...normalized };
+  } catch {
+    storageUploadRetryQueueCache = {};
+    return {};
+  }
+}
+
+async function setStorageUploadRetryQueue(queue: StorageUploadRetryQueue): Promise<void> {
+  storageUploadRetryQueueCache = { ...queue };
+  await AsyncStorage.setItem(STORAGE_UPLOAD_RETRY_QUEUE_KEY, JSON.stringify(storageUploadRetryQueueCache));
+}
+
+function computeStorageUploadRetryDelayMs(attempts: number): number {
+  const sanitizedAttempts = Math.max(1, Math.floor(attempts));
+  const exponential = STORAGE_UPLOAD_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, sanitizedAttempts - 1);
+  return Math.min(STORAGE_UPLOAD_RETRY_MAX_DELAY_MS, exponential);
+}
+
+function shouldDeferStorageUploadRetry(entry: StorageUploadRetryEntry | undefined, now: number): boolean {
+  return !!entry && entry.nextRetryAt > now;
+}
+
+function buildStorageUploadRetryEntry(params: {
+  mediaId: string;
+  projectId: string;
+  mediaType: MediaItem['type'];
+  previous: StorageUploadRetryEntry | undefined;
+  errorMessage: string;
+}): StorageUploadRetryEntry {
+  const now = Date.now();
+  const attempts = Math.min(
+    STORAGE_UPLOAD_RETRY_MAX_ATTEMPTS,
+    Math.max(1, (params.previous?.attempts || 0) + 1)
+  );
+  const delayMs = computeStorageUploadRetryDelayMs(attempts);
+
+  return {
+    mediaId: params.mediaId,
+    projectId: params.projectId,
+    mediaType: params.mediaType,
+    attempts,
+    nextRetryAt: now + delayMs,
+    lastError: params.errorMessage.slice(0, 280),
+    updatedAt: now,
+  };
+}
+
+function getRetryQueueEntryDelaySeconds(entry: StorageUploadRetryEntry): number {
+  return Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000));
+}
+
+function isStoragePayloadTooLargeError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('payload too large') ||
+    normalized.includes('statuscode":"413') ||
+    normalized.includes('statuscode:413') ||
+    normalized.includes('http upload failed (413)') ||
+    normalized.includes('exceeded the maximum allowed size')
+  );
 }
 
 function getStoragePublicUrl(bucket: string, objectPath: string): string | null {
@@ -432,6 +566,17 @@ async function uploadLocalFileToStorageViaHttp(params: {
 
   if (result.status < 200 || result.status >= 300) {
     const responseBody = typeof result.body === 'string' ? result.body.slice(0, 300) : '';
+    if (
+      result.status === 413 ||
+      (responseBody && isStoragePayloadTooLargeError(responseBody)) ||
+      isStoragePayloadTooLargeError(`status=${result.status} ${responseBody}`)
+    ) {
+      throw new Error(
+        `Storage payload too large (413)${
+          responseBody ? `: ${responseBody}` : ': object exceeded maximum allowed size'
+        }`
+      );
+    }
     throw new Error(`Storage HTTP upload failed (${result.status})${responseBody ? `: ${responseBody}` : ''}`);
   }
 }
@@ -447,6 +592,7 @@ async function uploadLocalFileToStorage(params: {
   if (!info.exists || info.isDirectory) {
     throw new Error(`Local file not found: ${params.localUri}`);
   }
+  const fileSizeBytes = typeof info.size === 'number' && Number.isFinite(info.size) ? info.size : null;
 
   const contentType = inferContentType(params.extension, params.mediaType);
   try {
@@ -456,8 +602,13 @@ async function uploadLocalFileToStorage(params: {
       contentType,
     });
   } catch (httpUploadError) {
-    // Fallback to SDK upload for smaller files only.
-    if ((info.size || 0) > MAX_BASE64_UPLOAD_FALLBACK_BYTES) {
+    // Avoid risky base64 fallback for large/unknown files and all videos.
+    const allowBase64Fallback =
+      params.mediaType === 'photo' &&
+      fileSizeBytes !== null &&
+      fileSizeBytes > 0 &&
+      fileSizeBytes <= MAX_BASE64_UPLOAD_FALLBACK_BYTES;
+    if (!allowBase64Fallback) {
       throw httpUploadError;
     }
 
@@ -514,6 +665,14 @@ function withStorageMetadata(
     source_uri?: string | null;
     source_thumb_uri?: string | null;
     synced_at?: string | null;
+    upload_pending?: boolean | null;
+    upload_attempts?: number | null;
+    upload_next_retry_at?: string | null;
+    upload_last_error?: string | null;
+    upload_last_error_at?: string | null;
+    upload_blocked?: boolean | null;
+    upload_block_reason?: string | null;
+    upload_blocked_at?: string | null;
   }
 ): Record<string, unknown> {
   const existingStorage =
@@ -648,6 +807,14 @@ async function uploadMediaAssetsToStorage(params: {
     source_uri: trimmedUri,
     source_thumb_uri: trimmedThumb,
     synced_at: new Date().toISOString(),
+    upload_pending: false,
+    upload_attempts: null,
+    upload_next_retry_at: null,
+    upload_last_error: null,
+    upload_last_error_at: null,
+    upload_blocked: false,
+    upload_block_reason: null,
+    upload_blocked_at: null,
   });
 
   return {
@@ -665,10 +832,20 @@ async function backfillProjectMediaStorage(
 ): Promise<SupabaseMediaRow[]> {
   if (mediaRows.length === 0) return mediaRows;
 
+  const retryQueue = await getStorageUploadRetryQueue();
+  let retryQueueDirty = false;
   const nextRows = [...mediaRows];
   for (let index = 0; index < nextRows.length; index += 1) {
     const row = nextRows[index];
-    if (!row?.id || row.project_id !== projectId || isRemoteUri(row.uri)) {
+    if (!row?.id || row.project_id !== projectId) {
+      continue;
+    }
+
+    if (isRemoteUri(row.uri)) {
+      if (retryQueue[row.id]) {
+        delete retryQueue[row.id];
+        retryQueueDirty = true;
+      }
       continue;
     }
 
@@ -677,7 +854,31 @@ async function backfillProjectMediaStorage(
       continue;
     }
 
+    const retryEntry = retryQueue[row.id];
+    if (shouldDeferStorageUploadRetry(retryEntry, Date.now())) {
+      continue;
+    }
+
+    const rowMetadata = toMetadataPayload(row.metadata);
+    const rowStorageMeta =
+      rowMetadata.storage && typeof rowMetadata.storage === 'object' && !Array.isArray(rowMetadata.storage)
+        ? (rowMetadata.storage as Record<string, unknown>)
+        : {};
+    const blockedReason =
+      typeof rowStorageMeta.upload_block_reason === 'string' ? rowStorageMeta.upload_block_reason : null;
+    if (blockedReason === 'payload_too_large') {
+      if (retryEntry) {
+        delete retryQueue[row.id];
+        retryQueueDirty = true;
+      }
+      continue;
+    }
+
     if (!(await localFileExists(row.uri))) {
+      if (retryEntry) {
+        delete retryQueue[row.id];
+        retryQueueDirty = true;
+      }
       continue;
     }
 
@@ -708,13 +909,74 @@ async function backfillProjectMediaStorage(
         mergeErrors(updateError, 'Unable to backfill media storage');
       }
       nextRows[index] = updatedRowRaw as SupabaseMediaRow;
+      if (retryEntry) {
+        delete retryQueue[row.id];
+        retryQueueDirty = true;
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error ?? '');
       if (message.toLowerCase().includes('local file not found')) {
+        if (retryEntry) {
+          delete retryQueue[row.id];
+          retryQueueDirty = true;
+        }
         continue;
       }
-      console.log('Media storage backfill warning:', row.id, error);
+
+      if (isStoragePayloadTooLargeError(message)) {
+        const blockedMetadata = withStorageMetadata(toMetadataPayload(row.metadata), {
+          upload_pending: false,
+          upload_attempts: null,
+          upload_next_retry_at: null,
+          upload_last_error: message.slice(0, 280),
+          upload_last_error_at: new Date().toISOString(),
+          upload_blocked: true,
+          upload_block_reason: 'payload_too_large',
+          upload_blocked_at: new Date().toISOString(),
+        });
+        try {
+          const { data: blockedRowRaw, error: blockedUpdateError } = await supabase
+            .from('media')
+            .update({ metadata: blockedMetadata })
+            .eq('id', row.id)
+            .select(MEDIA_COLUMNS)
+            .single();
+          if (!blockedUpdateError && blockedRowRaw) {
+            nextRows[index] = blockedRowRaw as SupabaseMediaRow;
+          }
+        } catch {
+          // Non-blocking: keep the local flow resilient.
+        }
+
+        if (retryEntry) {
+          delete retryQueue[row.id];
+          retryQueueDirty = true;
+        }
+        console.log('Media storage backfill blocked (payload too large):', row.id);
+        continue;
+      }
+
+      const nextRetry = buildStorageUploadRetryEntry({
+        mediaId: row.id,
+        projectId,
+        mediaType: row.type === 'video' || row.type === 'doc' ? row.type : 'photo',
+        previous: retryEntry,
+        errorMessage: message || 'storage_backfill_failed',
+      });
+      retryQueue[row.id] = nextRetry;
+      retryQueueDirty = true;
+
+      console.log(
+        'Media storage backfill warning:',
+        row.id,
+        error,
+        `(retry in ${getRetryQueueEntryDelaySeconds(nextRetry)}s, attempt ${nextRetry.attempts})`
+      );
     }
+  }
+
+  if (retryQueueDirty) {
+    await setStorageUploadRetryQueue(retryQueue);
   }
 
   return nextRows;
@@ -2635,6 +2897,8 @@ export async function createMediaInSupabase(
 
   let createdRow = createdRowRaw as SupabaseMediaRow;
   let storageSynced = false;
+  const retryQueue = await getStorageUploadRetryQueue();
+  let retryQueueDirty = false;
   try {
     const syncedStorage = await uploadMediaAssetsToStorage({
       authUserId: authUser.id,
@@ -2663,8 +2927,88 @@ export async function createMediaInSupabase(
       createdRow = updatedStorageRow as SupabaseMediaRow;
       storageSynced = true;
     }
+
+    if (retryQueue[createdRow.id]) {
+      delete retryQueue[createdRow.id];
+      retryQueueDirty = true;
+    }
   } catch (storageError) {
-    console.log('Media storage upload warning:', storageError);
+    const message = storageError instanceof Error ? storageError.message : String(storageError ?? '');
+    if (isStoragePayloadTooLargeError(message)) {
+      if (retryQueue[createdRow.id]) {
+        delete retryQueue[createdRow.id];
+        retryQueueDirty = true;
+      }
+
+      const blockedMetadata = withStorageMetadata(toMetadataPayload(createdRow.metadata), {
+        upload_pending: false,
+        upload_attempts: null,
+        upload_next_retry_at: null,
+        upload_last_error: message.slice(0, 280),
+        upload_last_error_at: new Date().toISOString(),
+        upload_blocked: true,
+        upload_block_reason: 'payload_too_large',
+        upload_blocked_at: new Date().toISOString(),
+      });
+      try {
+        const { data: blockedRowRaw, error: blockedUpdateError } = await supabase
+          .from('media')
+          .update({ metadata: blockedMetadata })
+          .eq('id', createdRow.id)
+          .select(MEDIA_COLUMNS)
+          .single();
+        if (!blockedUpdateError && blockedRowRaw) {
+          createdRow = blockedRowRaw as SupabaseMediaRow;
+        }
+      } catch {
+        // Non-blocking; user still keeps local media.
+      }
+
+      console.log('Media storage upload blocked (payload too large):', storageError);
+    } else {
+      const retryEntry = buildStorageUploadRetryEntry({
+        mediaId: createdRow.id,
+        projectId: data.project_id,
+        mediaType: data.type,
+        previous: retryQueue[createdRow.id],
+        errorMessage: message || 'storage_upload_failed',
+      });
+      retryQueue[createdRow.id] = retryEntry;
+      retryQueueDirty = true;
+
+      const pendingMetadata = withStorageMetadata(toMetadataPayload(createdRow.metadata), {
+        upload_pending: true,
+        upload_attempts: retryEntry.attempts,
+        upload_next_retry_at: new Date(retryEntry.nextRetryAt).toISOString(),
+        upload_last_error: retryEntry.lastError,
+        upload_last_error_at: new Date(retryEntry.updatedAt).toISOString(),
+        upload_blocked: false,
+        upload_block_reason: null,
+        upload_blocked_at: null,
+      });
+      try {
+        const { data: queuedRowRaw, error: queueUpdateError } = await supabase
+          .from('media')
+          .update({ metadata: pendingMetadata })
+          .eq('id', createdRow.id)
+          .select(MEDIA_COLUMNS)
+          .single();
+        if (!queueUpdateError && queuedRowRaw) {
+          createdRow = queuedRowRaw as SupabaseMediaRow;
+        }
+      } catch {
+        // Keep local flow resilient; queue still persists on device.
+      }
+
+      console.log(
+        'Media storage upload warning:',
+        storageError,
+        `(queued retry in ${getRetryQueueEntryDelaySeconds(retryEntry)}s, attempt ${retryEntry.attempts})`
+      );
+    }
+  }
+  if (retryQueueDirty) {
+    await setStorageUploadRetryQueue(retryQueue);
   }
 
   const actorName = getActorName(authUser);
@@ -3001,6 +3345,12 @@ export async function deleteMediaInSupabase(mediaId: string): Promise<void> {
   const { error } = await supabase.from('media').delete().eq('id', mediaId);
   if (error) {
     mergeErrors(error, 'Unable to delete media');
+  }
+
+  const retryQueue = await getStorageUploadRetryQueue();
+  if (retryQueue[mediaId]) {
+    delete retryQueue[mediaId];
+    await setStorageUploadRetryQueue(retryQueue);
   }
 
   const actorName = getActorName(authUser);

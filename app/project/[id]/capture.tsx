@@ -5,6 +5,7 @@ import {
   Alert,
   Animated,
   TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -50,6 +51,7 @@ export default function CaptureScreen() {
       codec: string;
       bitrate: number;
       fps: number;
+      maxFileSize?: number;
     }) => Promise<{ uri: string }>;
     stopRecording: () => void;
   };
@@ -123,14 +125,16 @@ export default function CaptureScreen() {
       // Wait a bit to ensure camera is ready
       await new Promise(resolve => setTimeout(resolve, 500));
 
+      const isAndroid = Platform.OS === 'android';
       const video = await recorder.recordAsync({
-        maxDuration: 30, // 30 seconds max
-        quality: '1080p',
+        maxDuration: isAndroid ? 20 : 30,
+        quality: isAndroid ? '480p' : '1080p',
         mute: false,
         mirror: facing === 'front',
-        codec: 'avc1', // Use avc1 codec which works better
-        bitrate: 8000000, // 8 Mbps bitrate
-        fps: 30,
+        codec: 'avc1',
+        bitrate: isAndroid ? 1800000 : 8000000,
+        fps: isAndroid ? 24 : 30,
+        maxFileSize: isAndroid ? 20 * 1024 * 1024 : undefined,
       });
 
       console.log('Video recorded:', video);

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -222,10 +222,32 @@ function ZoomableImage({ uri }: { uri: string }) {
 
 // VideoPlayer component using expo-video
 function VideoPlayer({ uri }: { uri: string }) {
+  const [shouldAttachView, setShouldAttachView] = useState(false);
+
+  useEffect(() => {
+    // Force one render tick between source changes to avoid Android binding a released player.
+    setShouldAttachView(false);
+    const timer = setTimeout(() => setShouldAttachView(true), 0);
+    return () => clearTimeout(timer);
+  }, [uri]);
+
   const player = useVideoPlayer(uri, currentPlayer => {
     currentPlayer.loop = false;
     currentPlayer.pause();
   });
+
+  if (!shouldAttachView) {
+    return (
+      <View
+        style={{
+          width: Dimensions.get('window').width - 16,
+          height: Dimensions.get('window').height * 0.7,
+          borderRadius: 12,
+          backgroundColor: '#050B14',
+        }}
+      />
+    );
+  }
 
   return (
     <VideoView
@@ -239,6 +261,7 @@ function VideoPlayer({ uri }: { uri: string }) {
       }}
       nativeControls={true}
       contentFit="contain"
+      surfaceType={Platform.OS === 'android' ? 'textureView' : undefined}
     />
   );
 }
@@ -899,7 +922,7 @@ function MediaDetailContent() {
             )}
           </View>
         ) : media.type === 'video' && fileExists && !media.uri.includes('placeholder') && isScreenFocused ? (
-          <VideoPlayer uri={media.uri} />
+          <VideoPlayer key={`${media.id}:${media.uri}:${isScreenFocused ? '1' : '0'}`} uri={media.uri} />
         ) : media.type === 'video' && media.uri.includes('placeholder') ? (
           <View style={{ height: Dimensions.get('window').height * 0.7, width: Dimensions.get('window').width - 16, backgroundColor: '#000', borderRadius: 12, overflow: 'hidden' }}>
             {/* Video Preview Area */}
