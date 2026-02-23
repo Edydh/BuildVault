@@ -53,6 +53,7 @@ import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle 
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 type ActivityStatus = 'assigned' | 'in_progress' | 'completed' | 'rejected';
+type AttachmentFilter = 'all' | MediaItem['type'];
 type ActivityTypeOption = {
   value: string;
   label: string;
@@ -292,6 +293,9 @@ function ProjectDetailContent() {
   const [manualActivityDescription, setManualActivityDescription] = useState('');
   const [manualActivityAmount, setManualActivityAmount] = useState('');
   const [manualActivityReferenceId, setManualActivityReferenceId] = useState<string | null>(null);
+  const [showAttachmentPickerModal, setShowAttachmentPickerModal] = useState(false);
+  const [attachmentFilter, setAttachmentFilter] = useState<AttachmentFilter>('all');
+  const [attachmentSearch, setAttachmentSearch] = useState('');
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -1009,6 +1013,9 @@ function ProjectDetailContent() {
     setManualActivityDescription('');
     setManualActivityAmount('');
     setManualActivityReferenceId(null);
+    setAttachmentFilter('all');
+    setAttachmentSearch('');
+    setShowAttachmentPickerModal(false);
     setShowActivityModal(true);
   };
 
@@ -1023,6 +1030,31 @@ function ProjectDetailContent() {
     setManualActivityDescription('');
     setManualActivityAmount('');
     setManualActivityReferenceId(null);
+    setAttachmentFilter('all');
+    setAttachmentSearch('');
+    setShowAttachmentPickerModal(false);
+  };
+
+  const handleOpenAttachmentPicker = () => {
+    setAttachmentFilter('all');
+    setAttachmentSearch('');
+    // Avoid modal stacking issues on iOS/Android by showing only one modal at a time.
+    setShowActivityModal(false);
+    setShowAttachmentPickerModal(true);
+  };
+
+  const handleCloseAttachmentPicker = (options?: { restoreActivityModal?: boolean }) => {
+    setShowAttachmentPickerModal(false);
+    setAttachmentFilter('all');
+    setAttachmentSearch('');
+    if (options?.restoreActivityModal !== false) {
+      setShowActivityModal(true);
+    }
+  };
+
+  const handleSelectActivityAttachment = (mediaId: string) => {
+    setManualActivityReferenceId(mediaId);
+    handleCloseAttachmentPicker();
   };
 
   const parseActivityAmount = (metadata: Record<string, unknown> | null): string => {
@@ -3344,9 +3376,45 @@ function ProjectDetailContent() {
     visibleActivityCount > ACTIVITY_INITIAL_VISIBLE_COUNT;
   const remainingRecentActivityCount = Math.max(recentActivityFeed.length - visibleActivityCount, 0);
 
-  const activityAttachmentOptions = React.useMemo(() => {
-    return projectMedia.slice(0, 24);
+  const selectedActivityAttachment = React.useMemo(() => {
+    if (!manualActivityReferenceId) return null;
+    const localAttachment = projectMedia.find((item) => item.id === manualActivityReferenceId);
+    if (localAttachment) return localAttachment;
+    const fallbackAttachment = getMediaById(manualActivityReferenceId);
+    if (!fallbackAttachment || fallbackAttachment.project_id !== id) return null;
+    return fallbackAttachment;
+  }, [manualActivityReferenceId, projectMedia, id]);
+
+  const activityAttachmentCounts = React.useMemo(() => {
+    let photo = 0;
+    let video = 0;
+    let doc = 0;
+    for (const item of projectMedia) {
+      if (item.type === 'photo') photo += 1;
+      if (item.type === 'video') video += 1;
+      if (item.type === 'doc') doc += 1;
+    }
+    return {
+      all: projectMedia.length,
+      photo,
+      video,
+      doc,
+    };
   }, [projectMedia]);
+
+  const activityAttachmentOptions = React.useMemo(() => {
+    const query = attachmentSearch.trim().toLowerCase();
+    return [...projectMedia]
+      .sort((a, b) => b.created_at - a.created_at)
+      .filter((item) => attachmentFilter === 'all' || item.type === attachmentFilter)
+      .filter((item) => {
+        if (!query) return true;
+        const typeLabel = item.type === 'doc' ? 'document' : item.type;
+        const note = item.note?.toLowerCase() ?? '';
+        const createdAt = new Date(item.created_at).toLocaleString().toLowerCase();
+        return `${typeLabel} ${note} ${createdAt}`.includes(query);
+      });
+  }, [projectMedia, attachmentFilter, attachmentSearch]);
 
   if (!project) {
     return (
@@ -4663,67 +4731,64 @@ function ProjectDetailContent() {
           )}
 
           <Text style={{ fontSize: 15, fontWeight: '600', color: bvColors.text.primary, marginTop: 4, marginBottom: 8 }}>
-            Link Media (Optional)
+            Link Attachment (Optional)
           </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 12 }}>
-            <TouchableOpacity
-              onPress={() => setManualActivityReferenceId(null)}
-              activeOpacity={0.86}
-              style={{
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: manualActivityReferenceId === null ? bvColors.brand.primaryLight : bvFx.neutralBorderSoft,
-                backgroundColor: manualActivityReferenceId === null ? bvFx.accentSoft : bvColors.surface.chrome,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                marginRight: 8,
-              }}
-            >
-              <Text style={{
-                color: manualActivityReferenceId === null ? bvColors.brand.primaryLight : bvColors.text.secondary,
-                fontSize: 12,
-                fontWeight: '700',
-              }}>
-                No Media
+
+          {selectedActivityAttachment ? (
+            <BVCard style={{ marginBottom: 10 }} contentStyle={{ padding: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                <Ionicons
+                  name={
+                    selectedActivityAttachment.type === 'photo'
+                      ? 'image-outline'
+                      : selectedActivityAttachment.type === 'video'
+                        ? 'videocam-outline'
+                        : 'document-outline'
+                  }
+                  size={14}
+                  color={bvColors.brand.primaryLight}
+                />
+                <Text style={{ marginLeft: 8, color: bvColors.text.primary, fontSize: 13, fontWeight: '700' }}>
+                  {selectedActivityAttachment.type === 'doc'
+                    ? 'Document'
+                    : selectedActivityAttachment.type === 'video'
+                      ? 'Video'
+                      : 'Photo'}
+                  {' '}attached
+                </Text>
+              </View>
+              <Text style={{ color: bvColors.text.muted, fontSize: 12 }}>
+                {formatRelativeTime(selectedActivityAttachment.created_at)}
               </Text>
-            </TouchableOpacity>
-            {activityAttachmentOptions.map((item) => {
-              const selected = manualActivityReferenceId === item.id;
-              const iconName: IoniconName = item.type === 'photo' ? 'image-outline' : item.type === 'video' ? 'videocam-outline' : 'document-outline';
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  onPress={() => setManualActivityReferenceId(item.id)}
-                  activeOpacity={0.86}
-                  style={{
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: selected ? bvColors.brand.primaryLight : bvFx.neutralBorderSoft,
-                    backgroundColor: selected ? bvFx.accentSoft : bvColors.surface.chrome,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    marginRight: 8,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Ionicons
-                    name={iconName}
-                    size={14}
-                    color={selected ? bvColors.brand.primaryLight : bvColors.text.tertiary}
-                  />
-                  <Text style={{
-                    marginLeft: 6,
-                    color: selected ? bvColors.brand.primaryLight : bvColors.text.secondary,
-                    fontSize: 12,
-                    fontWeight: '600',
-                  }}>
-                    {item.type.toUpperCase()} • {formatRelativeTime(item.created_at)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+              {selectedActivityAttachment.note ? (
+                <Text style={{ color: bvColors.text.secondary, fontSize: 12, marginTop: 6 }} numberOfLines={2}>
+                  {selectedActivityAttachment.note}
+                </Text>
+              ) : null}
+            </BVCard>
+          ) : (
+            <Text style={{ color: bvColors.text.muted, fontSize: 12, marginBottom: 10 }}>
+              No attachment linked to this activity yet.
+            </Text>
+          )}
+
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
+            <GlassButton
+              title={selectedActivityAttachment ? 'Change Attachment' : 'Choose Attachment'}
+              onPress={handleOpenAttachmentPicker}
+              style={{ flex: 1 }}
+              variant="secondary"
+              size="small"
+            />
+            <GlassButton
+              title="Clear"
+              onPress={() => setManualActivityReferenceId(null)}
+              style={{ flex: 1 }}
+              variant="danger"
+              size="small"
+              disabled={!selectedActivityAttachment}
+            />
+          </View>
 
           <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
             <GlassButton
@@ -4740,6 +4805,172 @@ function ProjectDetailContent() {
             />
           </View>
         </ScrollView>
+      </GlassModal>
+
+      <GlassModal visible={showAttachmentPickerModal} onRequestClose={handleCloseAttachmentPicker}>
+        <View style={{ padding: 20 }}>
+          <Text style={{ color: bvColors.text.primary, fontSize: 22, fontWeight: '700', marginBottom: 6 }}>
+            Choose Attachment
+          </Text>
+          <Text style={{ color: bvColors.text.muted, fontSize: 13, marginBottom: 12 }}>
+            Link a photo, video, or document to this activity.
+          </Text>
+
+          <GlassTextInput
+            label="Search"
+            value={attachmentSearch}
+            onChangeText={setAttachmentSearch}
+            placeholder="Search by type, note, or date"
+            returnKeyType="search"
+          />
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingRight: 12, marginBottom: 12 }}
+          >
+            {([
+              { id: 'all', label: 'All', count: activityAttachmentCounts.all },
+              { id: 'photo', label: 'Photos', count: activityAttachmentCounts.photo },
+              { id: 'video', label: 'Videos', count: activityAttachmentCounts.video },
+              { id: 'doc', label: 'Docs', count: activityAttachmentCounts.doc },
+            ] as Array<{ id: AttachmentFilter; label: string; count: number }>).map((filterOption) => {
+              const selected = attachmentFilter === filterOption.id;
+              return (
+                <TouchableOpacity
+                  key={filterOption.id}
+                  onPress={() => setAttachmentFilter(filterOption.id)}
+                  activeOpacity={0.86}
+                  style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: selected ? bvColors.brand.primaryLight : bvFx.neutralBorderSoft,
+                    backgroundColor: selected ? bvFx.accentSoft : bvColors.surface.chrome,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    marginRight: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: selected ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {filterOption.label} ({filterOption.count})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          <View
+            style={{
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: bvFx.neutralBorderSoft,
+              backgroundColor: bvColors.surface.chrome,
+              padding: 8,
+              maxHeight: 360,
+              marginBottom: 12,
+            }}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {activityAttachmentOptions.length === 0 ? (
+                <Text style={{ color: bvColors.text.muted, fontSize: 13, padding: 12 }}>
+                  No attachments match your filters.
+                </Text>
+              ) : (
+                activityAttachmentOptions.map((item) => {
+                  const selected = manualActivityReferenceId === item.id;
+                  const isVisual = item.type === 'photo' || item.type === 'video';
+                  const thumbnailUri =
+                    item.type === 'video'
+                      ? item.thumb_uri || item.uri
+                      : item.uri;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      onPress={() => handleSelectActivityAttachment(item.id)}
+                      activeOpacity={0.86}
+                      style={{
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: selected ? bvColors.brand.primaryLight : bvFx.neutralBorderSoft,
+                        backgroundColor: selected ? bvFx.accentSoft : bvColors.surface.chrome,
+                        padding: 10,
+                        marginBottom: 8,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {isVisual ? (
+                        <ExpoImage
+                          source={{ uri: thumbnailUri }}
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 10,
+                            marginRight: 10,
+                            backgroundColor: bvColors.surface.cardElevated,
+                          }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 10,
+                            marginRight: 10,
+                            backgroundColor: bvColors.surface.cardElevated,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Ionicons name="document-outline" size={20} color={bvColors.text.tertiary} />
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: bvColors.text.primary, fontSize: 13, fontWeight: '700' }}>
+                          {item.type === 'doc' ? 'Document' : item.type === 'video' ? 'Video' : 'Photo'}
+                          {' '}• {formatRelativeTime(item.created_at)}
+                        </Text>
+                        <Text style={{ color: bvColors.text.muted, fontSize: 12 }} numberOfLines={2}>
+                          {item.note?.trim() || 'No note'}
+                        </Text>
+                      </View>
+                      {selected ? (
+                        <Ionicons name="checkmark-circle" size={20} color={bvColors.brand.primaryLight} />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <GlassButton
+              title="No Attachment"
+              onPress={() => {
+                setManualActivityReferenceId(null);
+                handleCloseAttachmentPicker();
+              }}
+              style={{ flex: 1 }}
+              variant="secondary"
+              size="small"
+            />
+            <GlassButton
+              title="Done"
+              onPress={handleCloseAttachmentPicker}
+              style={{ flex: 1 }}
+              variant="primary"
+              size="small"
+            />
+          </View>
+        </View>
       </GlassModal>
 
       {/* Note Editing Modal */}
