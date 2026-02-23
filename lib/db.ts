@@ -3753,6 +3753,108 @@ export function getProjectMemberByUser(projectId: string, userId: string): Proje
   }, 'Get project member by user');
 }
 
+export function getProjectMemberById(projectId: string, memberId: string): ProjectMember | null {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, scopedUserId);
+    const row = db.getFirstSync(
+      `SELECT * FROM project_members
+       WHERE project_id = ? AND id = ?
+       LIMIT 1`,
+      [projectId, memberId]
+    ) as Record<string, unknown> | null;
+    return row ? mapProjectMemberRow(row) : null;
+  }, 'Get project member by id');
+}
+
+export function setProjectMemberRoleById(
+  projectId: string,
+  memberId: string,
+  role: ProjectMemberRole
+): ProjectMember | null {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, scopedUserId);
+    const existing = getProjectMemberById(projectId, memberId);
+    if (!existing) return null;
+    if (existing.role === role) return existing;
+
+    const now = Date.now();
+    db.runSync(
+      `UPDATE project_members
+       SET role = ?,
+           updated_at = ?
+       WHERE project_id = ? AND id = ?`,
+      [role, now, projectId, memberId]
+    );
+    const updatedRow = db.getFirstSync(
+      `SELECT * FROM project_members
+       WHERE project_id = ? AND id = ?
+       LIMIT 1`,
+      [projectId, memberId]
+    ) as Record<string, unknown> | null;
+    const member = updatedRow ? mapProjectMemberRow(updatedRow) : null;
+    if (!member) return null;
+
+    touchProject(projectId, now);
+    logActivityInternal(projectId, 'member_role_updated', member.id, {
+      user_id: member.user_id,
+      name: member.user_name_snapshot,
+      from_role: existing.role,
+      to_role: role,
+    }, now);
+    return member;
+  }, 'Set project member role by id');
+}
+
+export function removeProjectMemberById(projectId: string, memberId: string): void {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, scopedUserId);
+    const existing = getProjectMemberById(projectId, memberId);
+    if (!existing) return;
+    if (existing.status === 'removed') return;
+
+    if (existing.role === 'owner' && existing.status === 'active') {
+      const ownerCount = db.getFirstSync(
+        `SELECT COUNT(*) AS count
+         FROM project_members
+         WHERE project_id = ?
+           AND role = 'owner'
+           AND status = 'active'`,
+        [projectId]
+      ) as { count?: number } | null;
+      if ((ownerCount?.count ?? 0) <= 1) {
+        throw new Error('Cannot remove the last project owner');
+      }
+    }
+
+    const now = Date.now();
+    db.runSync(
+      `UPDATE project_members
+       SET status = 'removed',
+           updated_at = ?
+       WHERE project_id = ? AND id = ?`,
+      [now, projectId, memberId]
+    );
+    const updatedRow = db.getFirstSync(
+      `SELECT * FROM project_members
+       WHERE project_id = ? AND id = ?
+       LIMIT 1`,
+      [projectId, memberId]
+    ) as Record<string, unknown> | null;
+    const member = updatedRow ? mapProjectMemberRow(updatedRow) : null;
+    if (!member) return;
+
+    touchProject(projectId, now);
+    logActivityInternal(projectId, 'member_removed', member.id, {
+      user_id: member.user_id,
+      name: member.user_name_snapshot,
+      role: member.role,
+    }, now);
+  }, 'Remove project member by id');
+}
+
 export function upsertProjectMember(data: {
   projectId: string;
   userId: string;

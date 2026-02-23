@@ -27,6 +27,7 @@ import {
   getMediaById,
   getProjectMembers,
   getProjectById,
+  getProjectMemberById,
   getProjectPublicProfile,
   mergeProjectMembersSnapshotFromSupabase,
   mergeProjectContentSnapshotFromSupabase,
@@ -34,6 +35,8 @@ import {
   mergeProjectPublicProfileSnapshotFromSupabase,
   mergeProjectsAndActivitySnapshotFromSupabase,
   moveMediaToFolder,
+  removeProjectMemberById,
+  setProjectMemberRoleById,
   setProjectCompletionState,
   setProjectVisibility,
   upsertProjectMember,
@@ -2261,6 +2264,70 @@ export async function addProjectMemberFromOrganizationInSupabase(data: {
     throw new Error('Project member was added remotely but not available locally yet');
   }
   return localMember;
+}
+
+export async function setProjectMemberRoleInSupabase(data: {
+  projectId: string;
+  memberId: string;
+  role: ProjectMemberRole;
+}): Promise<ProjectMember | null> {
+  const projectId = data.projectId.trim();
+  const memberId = data.memberId.trim();
+  if (!projectId || !memberId) {
+    throw new Error('Project id and member id are required');
+  }
+
+  const role =
+    data.role === 'owner' || data.role === 'manager' || data.role === 'worker' || data.role === 'client'
+      ? data.role
+      : 'worker';
+
+  if (!isUuid(projectId) || !isUuid(memberId)) {
+    return setProjectMemberRoleById(projectId, memberId, role);
+  }
+
+  const authUser = await requireAuthUser('update project member role');
+  const { error } = await supabase
+    .from('project_members')
+    .update({ role })
+    .eq('project_id', projectId)
+    .eq('id', memberId);
+
+  if (error) {
+    mergeErrors(error, 'Unable to update project member role');
+  }
+
+  await syncProjectMembersSnapshotFromSupabase(projectId, authUser.id);
+  return getProjectMemberById(projectId, memberId);
+}
+
+export async function removeProjectMemberInSupabase(data: {
+  projectId: string;
+  memberId: string;
+}): Promise<void> {
+  const projectId = data.projectId.trim();
+  const memberId = data.memberId.trim();
+  if (!projectId || !memberId) {
+    throw new Error('Project id and member id are required');
+  }
+
+  if (!isUuid(projectId) || !isUuid(memberId)) {
+    removeProjectMemberById(projectId, memberId);
+    return;
+  }
+
+  const authUser = await requireAuthUser('remove project member');
+  const { error } = await supabase
+    .from('project_members')
+    .update({ status: 'removed' })
+    .eq('project_id', projectId)
+    .eq('id', memberId);
+
+  if (error) {
+    mergeErrors(error, 'Unable to remove project member');
+  }
+
+  await syncProjectMembersSnapshotFromSupabase(projectId, authUser.id);
 }
 
 export async function createActivityInSupabase(

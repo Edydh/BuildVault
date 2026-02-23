@@ -27,7 +27,7 @@ import { ImageVariants, getImageVariants, checkImageVariantsExist, generateImage
 import { deleteLocalFileIfPresent, ensureShareableLocalUri, isRemoteMediaUri } from '../../../lib/mediaFileAccess';
 import NoteEncouragement from '../../../components/NoteEncouragement';
 import { GlassCard, GlassTextInput, GlassButton, GlassModal, GlassActionSheet, ScrollProvider } from '../../../components/glass';
-import { BVCard, BVEmptyState, BVFloatingAction } from '../../../components/ui';
+import { BVButton, BVCard, BVEmptyState, BVFloatingAction } from '../../../components/ui';
 import { FAB_BOTTOM_OFFSET } from '../../../components/glass/layout';
 import { bvColors, bvFx } from '../../../lib/theme/tokens';
 import {
@@ -39,7 +39,9 @@ import {
   deleteFolderInSupabase,
   deleteMediaInSupabase,
   moveMediaToFolderInSupabase,
+  removeProjectMemberInSupabase,
   setProjectCompletionStateInSupabase,
+  setProjectMemberRoleInSupabase,
   syncProjectContentFromSupabase,
   syncProjectsAndActivityFromSupabase,
   updateFolderNameInSupabase,
@@ -100,6 +102,11 @@ const SYSTEM_MEDIA_LINKABLE_ACTIVITY_TYPES = new Set<string>([
 const ACTIVITY_QUERY_LIMIT = 100;
 const ACTIVITY_INITIAL_VISIBLE_COUNT = 12;
 const ACTIVITY_VISIBLE_INCREMENT = 12;
+const PROJECT_MANAGEABLE_MEMBER_ROLES: Array<Exclude<ProjectMemberRole, 'owner'>> = [
+  'manager',
+  'worker',
+  'client',
+];
 
 function isActivityStatus(value: string): value is ActivityStatus {
   return ACTIVITY_STATUS_VALUES.has(value as ActivityStatus);
@@ -147,6 +154,13 @@ function formatActivityTypeLabel(value: string): string {
   const readable = normalized.replace(/[_-]+/g, ' ').trim();
   if (!readable) return 'Activity';
   return readable.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatProjectRoleLabel(role: ProjectMemberRole): string {
+  if (role === 'owner') return 'Owner';
+  if (role === 'manager') return 'Manager';
+  if (role === 'client') return 'Client';
+  return 'Worker';
 }
 
 function isManualEntryActivity(actionType: string, metadata?: Record<string, unknown> | null): boolean {
@@ -259,12 +273,17 @@ function ProjectDetailContent() {
   const [noteText, setNoteText] = useState<string>('');
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
+  const [showProjectTeamModal, setShowProjectTeamModal] = useState(false);
+  const [showManageProjectMemberModal, setShowManageProjectMemberModal] = useState(false);
   const [activityModalMode, setActivityModalMode] = useState<'create' | 'edit'>('create');
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
   const [projectProgressComputation, setProjectProgressComputation] = useState<ProjectProgressComputation | null>(null);
   const [isAddingOrganizationAssignee, setIsAddingOrganizationAssignee] = useState<string | null>(null);
+  const [isUpdatingProjectMemberId, setIsUpdatingProjectMemberId] = useState<string | null>(null);
+  const [managedProjectMember, setManagedProjectMember] = useState<ProjectMember | null>(null);
+  const [managedProjectRoleDraft, setManagedProjectRoleDraft] = useState<Exclude<ProjectMemberRole, 'owner'>>('worker');
   const [customActivityTypes, setCustomActivityTypes] = useState<Array<{ id: string; label: string }>>([]);
   const [manualActivityType, setManualActivityType] = useState<string>('material_purchase');
   const [manualActivityCustomTypeLabel, setManualActivityCustomTypeLabel] = useState('');
@@ -486,6 +505,16 @@ function ProjectDetailContent() {
     if (!project?.organization_id && projectMembers.length === 0) return true;
     return false;
   }, [currentProjectRole, project?.organization_id, projectMembers.length]);
+
+  const canManageProjectTeam = canManageManualActivities;
+
+  const visibleProjectMembers = React.useMemo(
+    () => projectMembers.filter((member) => member.status !== 'removed'),
+    [projectMembers]
+  );
+  const managedProjectMemberBusy = managedProjectMember
+    ? isUpdatingProjectMemberId === managedProjectMember.id
+    : false;
 
   const projectStatusLabel = React.useMemo(() => {
     if (!project?.status) return 'neutral';
@@ -1337,8 +1366,12 @@ function ProjectDetailContent() {
     }
   };
 
-  const handleAssignOrganizationMember = async (member: OrganizationMember) => {
+  const handleAssignOrganizationMember = async (
+    member: OrganizationMember,
+    options?: { selectAsAssignee?: boolean }
+  ) => {
     if (!id || !member.user_id) return;
+    const selectAsAssignee = options?.selectAsAssignee ?? true;
 
     try {
       setIsAddingOrganizationAssignee(member.id);
@@ -1350,16 +1383,162 @@ function ProjectDetailContent() {
         invitedEmail: member.invited_email ?? null,
         userEmailSnapshot: member.invited_email ?? null,
       });
-      setManualActivityAssigneeId(promoted.id);
+      if (selectAsAssignee) {
+        setManualActivityAssigneeId(promoted.id);
+      }
       loadData();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      Alert.alert('Member added', `${getOrganizationMemberDisplayName(member)} can now be assigned in this project.`);
+      Alert.alert(
+        'Member added',
+        selectAsAssignee
+          ? `${getOrganizationMemberDisplayName(member)} can now be assigned in this project.`
+          : `${getOrganizationMemberDisplayName(member)} was added to this project team.`
+      );
     } catch (error) {
       console.error('Error adding organization member to project:', error);
       Alert.alert('Error', 'Could not add organization member to this project.');
     } finally {
       setIsAddingOrganizationAssignee(null);
     }
+  };
+
+  const handleOpenProjectTeamModal = () => {
+    setShowProjectTeamModal(true);
+  };
+
+  const handleCloseProjectTeamModal = () => {
+    setShowProjectTeamModal(false);
+  };
+
+  const handleSetProjectMemberRole = async (
+    member: ProjectMember,
+    role: Exclude<ProjectMemberRole, 'owner'>
+  ): Promise<boolean> => {
+    if (!id) return false;
+    if (member.role === role) return true;
+
+    try {
+      setIsUpdatingProjectMemberId(member.id);
+      await setProjectMemberRoleInSupabase({
+        projectId: id,
+        memberId: member.id,
+        role,
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      loadData();
+      return true;
+    } catch (error) {
+      console.error('Error updating project member role:', error);
+      Alert.alert('Error', 'Could not update member role. Please try again.');
+      return false;
+    } finally {
+      setIsUpdatingProjectMemberId(null);
+    }
+  };
+
+  const handleOpenManageProjectMemberModal = (member: ProjectMember) => {
+    if (!canManageProjectTeam) return;
+    if (member.role === 'owner' || member.status === 'removed') return;
+    setManagedProjectMember(member);
+    setManagedProjectRoleDraft(
+      member.role === 'manager' || member.role === 'client' || member.role === 'worker'
+        ? member.role
+        : 'worker'
+    );
+    if (showProjectTeamModal) {
+      setShowProjectTeamModal(false);
+      setTimeout(() => {
+        setShowManageProjectMemberModal(true);
+      }, 120);
+      return;
+    }
+    setShowManageProjectMemberModal(true);
+  };
+
+  const handleCloseManageProjectMemberModal = (options?: { reopenTeam?: boolean }) => {
+    setShowManageProjectMemberModal(false);
+    setManagedProjectMember(null);
+    if (options?.reopenTeam) {
+      setTimeout(() => {
+        setShowProjectTeamModal(true);
+      }, 100);
+    }
+  };
+
+  const handleSaveManagedProjectMemberRole = async () => {
+    if (!managedProjectMember) return;
+    if (managedProjectRoleDraft === managedProjectMember.role) {
+      handleCloseManageProjectMemberModal({ reopenTeam: true });
+      return;
+    }
+    const success = await handleSetProjectMemberRole(managedProjectMember, managedProjectRoleDraft);
+    if (success) {
+      handleCloseManageProjectMemberModal({ reopenTeam: true });
+    }
+  };
+
+  const handleRemoveProjectMember = (
+    member: ProjectMember,
+    options?: { reopenTeamOnSuccess?: boolean }
+  ) => {
+    if (!id) return;
+    if (member.role === 'owner') {
+      Alert.alert('Owner protected', 'Project owners cannot be removed from this screen.');
+      return;
+    }
+
+    const memberName = getProjectMemberDisplayName(member);
+    Alert.alert(
+      'Remove Member',
+      `Remove ${memberName} from this project team?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => {
+            if (options?.reopenTeamOnSuccess) {
+              setTimeout(() => {
+                setShowProjectTeamModal(true);
+              }, 80);
+            }
+          },
+        },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                setIsUpdatingProjectMemberId(member.id);
+                await removeProjectMemberInSupabase({
+                  projectId: id,
+                  memberId: member.id,
+                });
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                loadData();
+                if (options?.reopenTeamOnSuccess) {
+                  setTimeout(() => {
+                    setShowProjectTeamModal(true);
+                  }, 80);
+                }
+              } catch (error) {
+                console.error('Error removing project member:', error);
+                Alert.alert('Error', 'Could not remove member. Please try again.');
+              } finally {
+                setIsUpdatingProjectMemberId(null);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  };
+
+  const openProjectMemberActions = (member: ProjectMember) => {
+    if (!canManageProjectTeam) return;
+    const busy = isUpdatingProjectMemberId === member.id;
+    if (busy) return;
+    handleOpenManageProjectMemberModal(member);
   };
 
   const handleToggleProjectCompletion = () => {
@@ -3033,6 +3212,14 @@ function ProjectDetailContent() {
       enabled: true,
     },
     {
+      id: 'team',
+      icon: 'people-outline',
+      label: 'Team',
+      iconColor: bvColors.brand.primaryLight,
+      onPress: handleOpenProjectTeamModal,
+      enabled: true,
+    },
+    {
       id: 'activity',
       icon: 'add-circle-outline',
       label: 'Activity',
@@ -3990,6 +4177,258 @@ function ProjectDetailContent() {
         </GlassModal>
       )}
 
+      {/* Project Team Modal */}
+      <GlassModal visible={showProjectTeamModal} onRequestClose={handleCloseProjectTeamModal}>
+        <ScrollView
+          style={{ maxHeight: '88%' }}
+          contentContainerStyle={{ padding: 20 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: '700',
+              color: bvColors.text.primary,
+              textAlign: 'center',
+              marginBottom: 8,
+            }}
+          >
+            Project Team
+          </Text>
+          <Text
+            style={{
+              fontSize: 14,
+              color: bvColors.text.muted,
+              textAlign: 'center',
+              marginBottom: 14,
+            }}
+          >
+            {visibleProjectMembers.length} member{visibleProjectMembers.length === 1 ? '' : 's'} in this project
+          </Text>
+
+          {visibleProjectMembers.length === 0 ? (
+            <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 14 }}>
+              <Text style={{ color: bvColors.text.primary, fontSize: 15, fontWeight: '600' }}>
+                No team members yet
+              </Text>
+              <Text style={{ color: bvColors.text.muted, marginTop: 4 }}>
+                Add organization members to this project to assign activities and collaborate.
+              </Text>
+            </BVCard>
+          ) : (
+            <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 14 }}>
+              {visibleProjectMembers.map((member, index) => {
+                const isBusy = isUpdatingProjectMemberId === member.id;
+                const canManageMember =
+                  canManageProjectTeam && member.role !== 'owner' && member.status !== 'removed';
+                return (
+                  <View
+                    key={member.id}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingVertical: 10,
+                      borderBottomWidth: index < visibleProjectMembers.length - 1 ? 1 : 0,
+                      borderBottomColor: bvFx.glassBorderSoft,
+                    }}
+                  >
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={{ color: bvColors.text.primary, fontSize: 14, fontWeight: '600' }}>
+                        {getProjectMemberDisplayName(member)}
+                      </Text>
+                      <Text style={{ color: bvColors.text.muted, fontSize: 12, marginTop: 2 }}>
+                        {formatProjectRoleLabel(member.role)} •{' '}
+                        {member.status === 'invited' ? 'invited' : member.status === 'active' ? 'active' : member.status}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View
+                        style={{
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: bvFx.glassBorderSoft,
+                          backgroundColor: bvFx.glassSoft,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                        }}
+                      >
+                        <Text style={{ color: bvColors.text.secondary, fontSize: 11, fontWeight: '700' }}>
+                          {formatProjectRoleLabel(member.role)}
+                        </Text>
+                      </View>
+                      {canManageMember ? (
+                        <TouchableOpacity
+                          onPress={() => openProjectMemberActions(member)}
+                          disabled={isBusy}
+                          style={{
+                            marginLeft: 8,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: bvFx.brandBorder,
+                            backgroundColor: bvFx.brandSoft,
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                            opacity: isBusy ? 0.6 : 1,
+                          }}
+                        >
+                          <Text style={{ color: bvColors.brand.primaryLight, fontSize: 11, fontWeight: '700' }}>
+                            {isBusy ? 'Saving...' : 'Manage'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </BVCard>
+          )}
+
+          {canManageProjectTeam ? (
+            <>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: bvColors.text.primary, marginBottom: 8 }}>
+                Add from Organization
+              </Text>
+              {organizationAssignableMembers.length === 0 ? (
+                <Text style={{ color: bvColors.text.muted, fontSize: 12, marginBottom: 14 }}>
+                  All active organization members are already in this project.
+                </Text>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingRight: 12, marginBottom: 14 }}
+                >
+                  {organizationAssignableMembers.map((member) => {
+                    const isAdding = isAddingOrganizationAssignee === member.id;
+                    return (
+                      <TouchableOpacity
+                        key={member.id}
+                        onPress={() => handleAssignOrganizationMember(member, { selectAsAssignee: false })}
+                        disabled={isAdding}
+                        activeOpacity={0.86}
+                        style={{
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: bvFx.brandBorder,
+                          backgroundColor: bvFx.brandSoft,
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          marginRight: 8,
+                          opacity: isAdding ? 0.6 : 1,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: bvColors.brand.primaryLight,
+                            fontSize: 12,
+                            fontWeight: '600',
+                          }}
+                        >
+                          {isAdding ? 'Adding...' : `+ ${getOrganizationMemberDisplayName(member)}`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </>
+          ) : (
+            <BVCard style={{ marginBottom: 12 }} contentStyle={{ padding: 12 }}>
+              <Text style={{ color: bvColors.text.muted, fontSize: 12 }}>
+                Only owner or manager can manage this project team.
+              </Text>
+            </BVCard>
+          )}
+
+          <GlassButton title="Done" onPress={handleCloseProjectTeamModal} variant="secondary" />
+        </ScrollView>
+      </GlassModal>
+
+      <GlassModal
+        visible={showManageProjectMemberModal}
+        onRequestClose={handleCloseManageProjectMemberModal}
+      >
+        <View style={{ padding: 20 }}>
+          <Text
+            style={{
+              color: bvColors.text.primary,
+              fontSize: 20,
+              fontWeight: '700',
+              marginBottom: 4,
+              textAlign: 'center',
+            }}
+          >
+            Manage Member
+          </Text>
+          <Text style={{ color: bvColors.text.muted, marginBottom: 12, textAlign: 'center' }}>
+            {managedProjectMember ? getProjectMemberDisplayName(managedProjectMember) : 'Team member'}
+          </Text>
+
+          <Text style={{ color: bvColors.text.secondary, fontSize: 12, marginBottom: 8 }}>Role</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 14 }}>
+            {PROJECT_MANAGEABLE_MEMBER_ROLES.map((role) => {
+              const selected = managedProjectRoleDraft === role;
+              return (
+                <TouchableOpacity
+                  key={role}
+                  onPress={() => setManagedProjectRoleDraft(role)}
+                  disabled={!managedProjectMember || managedProjectMemberBusy}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: selected ? bvFx.brandBorder : bvFx.glassBorderSoft,
+                    backgroundColor: selected ? bvFx.brandSoft : bvFx.glassSoft,
+                    marginRight: 8,
+                    marginBottom: 8,
+                    opacity: !managedProjectMember || managedProjectMemberBusy ? 0.6 : 1,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: selected ? bvColors.brand.primaryLight : bvColors.text.secondary,
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {formatProjectRoleLabel(role)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <BVButton
+            title="Save Role"
+            onPress={() => void handleSaveManagedProjectMemberRole()}
+            disabled={!managedProjectMember || managedProjectMemberBusy}
+            loading={managedProjectMemberBusy}
+            icon="save-outline"
+            style={{ marginBottom: 10 }}
+          />
+          <BVButton
+            title="Remove Member"
+            variant="danger"
+            onPress={() => {
+              if (!managedProjectMember) return;
+              handleCloseManageProjectMemberModal();
+              handleRemoveProjectMember(managedProjectMember, { reopenTeamOnSuccess: true });
+            }}
+            disabled={!managedProjectMember || managedProjectMemberBusy}
+            icon="person-remove-outline"
+            style={{ marginBottom: 10 }}
+          />
+          <BVButton
+            title="Cancel"
+            variant="secondary"
+            onPress={() => handleCloseManageProjectMemberModal({ reopenTeam: true })}
+            disabled={managedProjectMemberBusy}
+          />
+        </View>
+      </GlassModal>
+
       {/* Manual Activity Modal */}
       <GlassModal visible={showActivityModal} onRequestClose={handleCloseActivityModal}>
         <ScrollView style={{ maxHeight: '88%' }} contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
@@ -4173,7 +4612,7 @@ function ProjectDetailContent() {
                   return (
                     <TouchableOpacity
                       key={member.id}
-                      onPress={() => handleAssignOrganizationMember(member)}
+                      onPress={() => handleAssignOrganizationMember(member, { selectAsAssignee: true })}
                       disabled={isAdding}
                       activeOpacity={0.86}
                       style={{
