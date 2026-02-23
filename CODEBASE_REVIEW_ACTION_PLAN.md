@@ -1,6 +1,6 @@
 # BuildVault Action Plan (Stabilize + Rebuild)
 
-Date: 2026-02-14 (updated 2026-02-18)
+Date: 2026-02-14 (updated 2026-02-23)
 Scope: Expo React Native app (`app/`, `lib/`, `components/`)
 Inputs: codebase review + UI wireframe blueprint + SQLite target model + Figma token JSON
 
@@ -286,6 +286,24 @@ Link to activities:
 - Add Activity assignee picker should include only active project members.
 - If assignee is an org member but not yet on project, support `Add to project + assign`.
 - Persist assignee as stable user/member reference (not just display name).
+
+### B5.1.1 Deferred: client role as spectator (not active contributor)
+
+Objective:
+- Keep `client` as a true observer role (read-only) and reserve active contribution for `worker`/`manager`/`owner`.
+
+Backlog tasks:
+- RLS hardening:
+  - restrict `INSERT/UPDATE/DELETE` on `media`, `notes`, `folders`, and manual `activity_log` entries to `owner|manager|worker`.
+  - keep `SELECT` for `client` project members.
+  - keep assignee status updates allowed only when explicitly assigned and intended by policy.
+- UI permissions:
+  - hide/disable capture, upload, add-note, create/edit/delete activity, folder mutations for `client`.
+  - keep timeline and media viewing enabled.
+- Sync/service layer:
+  - ensure mutation endpoints short-circuit for `client` with clear messages.
+- QA:
+  - add cross-device tests validating client can view project/media/activity but cannot create or mutate records.
 
 ### B5.2 Feed engagement (post-collaboration milestone)
 
