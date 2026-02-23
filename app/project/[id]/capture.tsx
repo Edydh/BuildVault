@@ -12,8 +12,53 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { PinchGestureHandler, State } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
-import { createMediaInSupabase } from '../../../lib/supabaseProjectsSync';
+import { createMediaInSupabase, deleteMediaInSupabase } from '../../../lib/supabaseProjectsSync';
 import { saveMediaToProject } from '../../../lib/files';
+import { deleteLocalFileIfPresent, isRemoteMediaUri } from '../../../lib/mediaFileAccess';
+
+type MediaStorageSyncState = 'synced' | 'pending' | 'blocked';
+
+type MediaStorageSyncOutcome = {
+  state: MediaStorageSyncState;
+  blockedReason: string | null;
+};
+
+function parseMediaMetadata(metadata: string | null | undefined): Record<string, unknown> | null {
+  if (!metadata) return null;
+  try {
+    const parsed = JSON.parse(metadata);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function getMediaStorageSyncOutcome(media: {
+  uri: string;
+  metadata?: string | null;
+}): MediaStorageSyncOutcome {
+  const metadata = parseMediaMetadata(media.metadata);
+  const storage =
+    metadata?.storage && typeof metadata.storage === 'object' && !Array.isArray(metadata.storage)
+      ? (metadata.storage as Record<string, unknown>)
+      : null;
+
+  const blocked = storage?.upload_blocked === true;
+  const pending = storage?.upload_pending === true;
+  const blockedReason =
+    typeof storage?.upload_block_reason === 'string' ? storage.upload_block_reason.trim().toLowerCase() : null;
+
+  if (blocked) {
+    return { state: 'blocked', blockedReason };
+  }
+  if (pending || !isRemoteMediaUri(media.uri)) {
+    return { state: 'pending', blockedReason: null };
+  }
+  return { state: 'synced', blockedReason: null };
+}
 
 export default function CaptureScreen() {
   const { id, mode, folderId, captureKind } = useLocalSearchParams<{
@@ -41,6 +86,66 @@ export default function CaptureScreen() {
   
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
+  const getSavedInLocationMessage = useCallback(
+    (mediaLabel: string) =>
+      folderId
+        ? `Your ${mediaLabel} has been saved to the selected folder.`
+        : `Your ${mediaLabel} has been saved to the project.`,
+    [folderId]
+  );
+  const showMediaSaveOutcome = useCallback(
+    (params: {
+      mediaLabel: string;
+      mediaId: string;
+      localFileUri: string;
+      localThumbUri?: string | null;
+      metadata?: string | null;
+      uri: string;
+    }) => {
+      const outcome = getMediaStorageSyncOutcome({
+        uri: params.uri,
+        metadata: params.metadata,
+      });
+      const savedMessage = getSavedInLocationMessage(params.mediaLabel);
+
+      if (outcome.state === 'blocked') {
+        const blockedMessage =
+          outcome.blockedReason === 'payload_too_large'
+            ? `This ${params.mediaLabel} is too large for cloud sync right now. It will stay on this device only.`
+            : `Cloud sync is currently blocked for this ${params.mediaLabel}. It will stay on this device only.`;
+        Alert.alert('Saved Locally', `${savedMessage}\n\n${blockedMessage}`, [
+          { text: 'Keep Local', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await deleteLocalFileIfPresent(params.localFileUri);
+                await deleteLocalFileIfPresent(params.localThumbUri || null);
+                await deleteMediaInSupabase(params.mediaId);
+                Alert.alert('Deleted', `The ${params.mediaLabel} was removed from this project.`);
+              } catch (deleteError) {
+                console.error('Delete blocked media error:', deleteError);
+                Alert.alert('Delete Failed', `Could not remove this ${params.mediaLabel}. Please try again.`);
+              }
+            },
+          },
+        ]);
+        return;
+      }
+
+      if (outcome.state === 'pending') {
+        Alert.alert(
+          `${params.mediaLabel.charAt(0).toUpperCase() + params.mediaLabel.slice(1)} Saved`,
+          `${savedMessage}\n\nCloud sync is pending and will retry automatically.`
+        );
+        return;
+      }
+
+      Alert.alert(`${params.mediaLabel.charAt(0).toUpperCase() + params.mediaLabel.slice(1)} Saved`, savedMessage);
+    },
+    [getSavedInLocationMessage]
+  );
 
   type CameraRecorder = {
     recordAsync: (options: {
@@ -149,7 +254,7 @@ export default function CaptureScreen() {
         // Save video
         console.log('Saving video to project...');
         const { fileUri, thumbUri } = await saveMediaToProject(id, video.uri, 'video');
-        await createMediaInSupabase({
+        const createdMedia = await createMediaInSupabase({
           project_id: id,
           uri: fileUri,
           thumb_uri: thumbUri,
@@ -158,12 +263,14 @@ export default function CaptureScreen() {
         });
 
         console.log('Video saved successfully:', fileUri);
-        Alert.alert(
-          'Video Saved', 
-          folderId 
-            ? 'Your video has been saved to the selected folder.' 
-            : 'Your video has been saved to the project.'
-        );
+        showMediaSaveOutcome({
+          mediaLabel: 'video',
+          mediaId: createdMedia.id,
+          localFileUri: fileUri,
+          localThumbUri: thumbUri,
+          metadata: createdMedia.metadata,
+          uri: createdMedia.uri,
+        });
       } else {
         throw new Error('No video data received');
       }
@@ -182,7 +289,7 @@ export default function CaptureScreen() {
         recordingIntervalRef.current = null;
       }
     }
-  }, [id, facing, folderId]);
+  }, [id, facing, folderId, showMediaSaveOutcome]);
 
   const stopRecording = useCallback(() => {
     const recorder = getCameraRecorder();
@@ -207,7 +314,7 @@ export default function CaptureScreen() {
       }
 
       const { fileUri, thumbUri } = await saveMediaToProject(id, photo.uri, 'photo');
-      await createMediaInSupabase({
+      const createdMedia = await createMediaInSupabase({
         project_id: id,
         uri: fileUri,
         thumb_uri: thumbUri,
@@ -225,21 +332,19 @@ export default function CaptureScreen() {
             },
       });
 
-      Alert.alert(
-        isReceiptCapture ? 'Receipt Saved' : 'Photo Saved',
-        folderId
-          ? isReceiptCapture
-            ? 'Your receipt has been saved to the selected folder.'
-            : 'Your photo has been saved to the selected folder.'
-          : isReceiptCapture
-            ? 'Your receipt has been saved to the project.'
-            : 'Your photo has been saved to the project.'
-      );
+      showMediaSaveOutcome({
+        mediaLabel: isReceiptCapture ? 'receipt' : 'photo',
+        mediaId: createdMedia.id,
+        localFileUri: fileUri,
+        localThumbUri: thumbUri,
+        metadata: createdMedia.metadata,
+        uri: createdMedia.uri,
+      });
     } catch (error) {
       console.error('Error taking picture:', error);
       Alert.alert('Error', isReceiptCapture ? 'Failed to capture receipt' : 'Failed to capture photo');
     }
-  }, [id, folderId, isReceiptCapture]);
+  }, [id, folderId, isReceiptCapture, showMediaSaveOutcome]);
 
   const toggleFlash = useCallback(() => {
     setFlash(current => {

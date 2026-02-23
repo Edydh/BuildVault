@@ -72,6 +72,7 @@ const STORAGE_BUCKET = 'buildvault-media';
 const PUBLIC_STORAGE_PATH_SEGMENT = `/storage/v1/object/public/${STORAGE_BUCKET}/`;
 const SIGNED_STORAGE_PATH_SEGMENT = `/storage/v1/object/sign/${STORAGE_BUCKET}/`;
 const MAX_BASE64_UPLOAD_FALLBACK_BYTES = 8 * 1024 * 1024;
+const STORAGE_UPLOAD_SIZE_GUARD_BYTES = 45 * 1024 * 1024;
 const STORAGE_UPLOAD_RETRY_QUEUE_KEY = '@buildvault/storage-upload-retry/v1';
 const STORAGE_UPLOAD_RETRY_BASE_DELAY_MS = 15 * 1000;
 const STORAGE_UPLOAD_RETRY_MAX_DELAY_MS = 30 * 60 * 1000;
@@ -593,6 +594,11 @@ async function uploadLocalFileToStorage(params: {
     throw new Error(`Local file not found: ${params.localUri}`);
   }
   const fileSizeBytes = typeof info.size === 'number' && Number.isFinite(info.size) ? info.size : null;
+  if (fileSizeBytes !== null && fileSizeBytes > STORAGE_UPLOAD_SIZE_GUARD_BYTES) {
+    throw new Error(
+      `Storage payload too large (guard): file size ${fileSizeBytes} exceeds ${STORAGE_UPLOAD_SIZE_GUARD_BYTES} bytes`
+    );
+  }
 
   const contentType = inferContentType(params.extension, params.mediaType);
   try {

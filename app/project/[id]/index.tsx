@@ -54,6 +54,15 @@ import Reanimated, { useSharedValue, useAnimatedScrollHandler, useAnimatedStyle 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 type ActivityStatus = 'assigned' | 'in_progress' | 'completed' | 'rejected';
 type AttachmentFilter = 'all' | MediaItem['type'];
+type MediaSyncBadge = {
+  status: 'pending' | 'blocked';
+  label: string;
+  detail: string;
+  icon: IoniconName;
+  iconColor: string;
+  backgroundColor: string;
+  borderColor: string;
+};
 type ActivityTypeOption = {
   value: string;
   label: string;
@@ -185,6 +194,58 @@ function isImageThumbnailUri(uri?: string | null): boolean {
     normalized.endsWith('.png') ||
     normalized.endsWith('.webp') ||
     normalized.endsWith('.heic');
+}
+
+function parseMediaMetadata(metadata: string | null | undefined): Record<string, unknown> | null {
+  if (!metadata) return null;
+  try {
+    const parsed = JSON.parse(metadata);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function getMediaSyncBadge(item: MediaItem): MediaSyncBadge | null {
+  const metadata = parseMediaMetadata(item.metadata);
+  const storage =
+    metadata?.storage && typeof metadata.storage === 'object' && !Array.isArray(metadata.storage)
+      ? (metadata.storage as Record<string, unknown>)
+      : null;
+  const isBlocked = storage?.upload_blocked === true;
+  const isPending = storage?.upload_pending === true;
+  const blockedReason =
+    typeof storage?.upload_block_reason === 'string' ? storage.upload_block_reason.trim().toLowerCase() : null;
+
+  if (isBlocked) {
+    return {
+      status: 'blocked',
+      label: 'Local Only',
+      detail:
+        blockedReason === 'payload_too_large' ? 'Too large for cloud sync' : 'Cloud sync is blocked',
+      icon: 'warning-outline',
+      iconColor: bvColors.semantic.warning,
+      backgroundColor: bvFx.accentHint,
+      borderColor: bvFx.accentBorderSoft,
+    };
+  }
+
+  if (isPending || !isRemoteMediaUri(item.uri)) {
+    return {
+      status: 'pending',
+      label: 'Not Synced',
+      detail: 'Will retry automatically',
+      icon: 'cloud-offline-outline',
+      iconColor: bvColors.brand.primaryLight,
+      backgroundColor: bvFx.brandSoft,
+      borderColor: bvFx.brandBorder,
+    };
+  }
+
+  return null;
 }
 
 function ProjectDetailContent() {
@@ -824,7 +885,7 @@ function ProjectDetailContent() {
       const { fileUri, thumbUri } = await saveMediaToProject(id!, document.uri, mediaType);
       
       // Save to database with correct type
-      await createMediaInSupabase({
+      const createdMedia = await createMediaInSupabase({
         project_id: id!,
         folder_id: currentFolder,
         type: mediaType,
@@ -838,7 +899,20 @@ function ProjectDetailContent() {
       loadData();
       
       const fileTypeMessage = mediaType === 'photo' ? 'Image' : mediaType === 'video' ? 'Video' : 'Document';
-      Alert.alert('Success', `${fileTypeMessage} uploaded successfully!`);
+      const syncBadge = getMediaSyncBadge(createdMedia);
+      if (syncBadge?.status === 'blocked') {
+        Alert.alert(
+          `${fileTypeMessage} Saved Locally`,
+          `${fileTypeMessage} was added to this project, but cloud sync is blocked.\n\n${syncBadge.detail}.`
+        );
+      } else if (syncBadge?.status === 'pending') {
+        Alert.alert(
+          `${fileTypeMessage} Saved`,
+          `${fileTypeMessage} was added to this project. Cloud sync is pending and will retry automatically.`
+        );
+      } else {
+        Alert.alert('Success', `${fileTypeMessage} uploaded successfully!`);
+      }
       
     } catch (error) {
       console.error('Document upload error:', error);
@@ -2580,6 +2654,7 @@ function ProjectDetailContent() {
     const [variants, setVariants] = useState<ImageVariants | null>(null);
     const [isGeneratingVariants, setIsGeneratingVariants] = useState(false);
     const [videoThumbnail, setVideoThumbnail] = useState<string | null>(item.thumb_uri || null);
+    const syncBadge = getMediaSyncBadge(item);
     
     // Load image variants for photos
     useEffect(() => {
@@ -2955,6 +3030,28 @@ function ProjectDetailContent() {
           }}>
             {formatDate(item.created_at)}
           </Text>
+
+          {syncBadge && (
+            <View
+              style={{
+                alignSelf: 'center',
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: syncBadge.borderColor,
+                backgroundColor: syncBadge.backgroundColor,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                marginBottom: 6,
+              }}
+            >
+              <Ionicons name={syncBadge.icon} size={10} color={syncBadge.iconColor} />
+              <Text style={{ color: syncBadge.iconColor, fontSize: 10, fontWeight: '700', marginLeft: 4 }}>
+                {syncBadge.label}
+              </Text>
+            </View>
+          )}
           
           {item.note && (
             <Text 
@@ -2986,6 +3083,7 @@ function ProjectDetailContent() {
   const MediaCard = ({ item }: { item: MediaItem }) => {
     const isSelected = selectedItems.has(item.id);
     const videoThumbnail = isImageThumbnailUri(item.thumb_uri) ? item.thumb_uri : null;
+    const syncBadge = getMediaSyncBadge(item);
     
     const handlePress = () => {
       if (isSelectionMode) {
@@ -3145,6 +3243,32 @@ function ProjectDetailContent() {
             <Text style={{ color: bvColors.text.muted, fontSize: 14, marginTop: 4 }}>
               {item.note}
             </Text>
+          )}
+          {syncBadge && (
+            <>
+              <View
+                style={{
+                  alignSelf: 'flex-start',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: syncBadge.borderColor,
+                  backgroundColor: syncBadge.backgroundColor,
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  marginTop: 6,
+                }}
+              >
+                <Ionicons name={syncBadge.icon} size={11} color={syncBadge.iconColor} />
+                <Text style={{ color: syncBadge.iconColor, fontSize: 11, fontWeight: '700', marginLeft: 5 }}>
+                  {syncBadge.label}
+                </Text>
+              </View>
+              <Text style={{ color: bvColors.text.tertiary, fontSize: 11, marginTop: 4 }}>
+                {syncBadge.detail}
+              </Text>
+            </>
           )}
           {item.type === 'video' && item.uri.includes('placeholder') && (
             <Text style={{ color: bvColors.text.tertiary, fontSize: 12, marginTop: 2 }}>
