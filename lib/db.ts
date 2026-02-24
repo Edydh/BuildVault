@@ -221,6 +221,20 @@ type RemoteProjectPublicProfileSyncRow = {
   updated_at: number;
 };
 
+type RemoteProjectNotificationSyncRow = {
+  id: string;
+  recipient_user_id: string;
+  project_id: string;
+  activity_id?: string | null;
+  actor_user_id?: string | null;
+  action_type: string;
+  title?: string | null;
+  body?: string | null;
+  metadata?: string | null;
+  read_at?: number | null;
+  created_at: number;
+};
+
 export interface ProjectPublicProfile {
   project_id: string;
   public_title?: string | null;
@@ -304,6 +318,20 @@ export interface ActivityLogEntry {
   actor_user_id?: string | null;
   actor_name_snapshot?: string | null;
   metadata?: string | null;
+  created_at: number;
+}
+
+export interface ProjectNotification {
+  id: string;
+  user_id: string;
+  project_id: string;
+  activity_id?: string | null;
+  actor_user_id?: string | null;
+  action_type: string;
+  title?: string | null;
+  body?: string | null;
+  metadata?: string | null;
+  read_at?: number | null;
   created_at: number;
 }
 
@@ -867,6 +895,23 @@ function mapActivityRow(row: Record<string, unknown>): ActivityLogEntry {
   };
 }
 
+function mapProjectNotificationRow(row: Record<string, unknown>): ProjectNotification {
+  const createdAt = toNullableNumber(row.created_at) ?? Date.now();
+  return {
+    id: String(row.id),
+    user_id: String(row.user_id ?? ''),
+    project_id: String(row.project_id ?? ''),
+    activity_id: typeof row.activity_id === 'string' ? row.activity_id : null,
+    actor_user_id: typeof row.actor_user_id === 'string' ? row.actor_user_id : null,
+    action_type: typeof row.action_type === 'string' ? row.action_type : 'project_updated',
+    title: typeof row.title === 'string' ? row.title : null,
+    body: typeof row.body === 'string' ? row.body : null,
+    metadata: typeof row.metadata === 'string' ? row.metadata : null,
+    read_at: toNullableNumber(row.read_at),
+    created_at: createdAt,
+  };
+}
+
 function mapNoteRow(row: Record<string, unknown>): Note {
   const createdAt = toNullableNumber(row.created_at) ?? Date.now();
   return {
@@ -960,6 +1005,8 @@ function repointUserReferences(sourceUserId: string, targetUserId: string) {
   db.runSync('UPDATE media SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE activity_log SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE activity_log SET actor_user_id = ? WHERE actor_user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE project_notifications SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE project_notifications SET actor_user_id = ? WHERE actor_user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE organizations SET owner_user_id = ? WHERE owner_user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE organization_members SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE project_members SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
@@ -1768,6 +1815,20 @@ export function migrate() {
         created_at INTEGER NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS project_notifications (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        activity_id TEXT,
+        actor_user_id TEXT,
+        action_type TEXT NOT NULL,
+        title TEXT,
+        body TEXT,
+        metadata TEXT,
+        read_at INTEGER,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS project_public_profiles (
         project_id TEXT PRIMARY KEY NOT NULL,
         public_title TEXT,
@@ -1892,6 +1953,10 @@ export function migrate() {
         CREATE INDEX IF NOT EXISTS idx_folders_user_project ON folders(user_id, project_id);
         CREATE INDEX IF NOT EXISTS idx_activity_user_project_created_at ON activity_log(user_id, project_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_activity_project_created_at ON activity_log(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_project_notifications_user_created
+          ON project_notifications(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_project_notifications_user_read_created
+          ON project_notifications(user_id, read_at, created_at DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id_unique
           ON users(auth_user_id)
           WHERE auth_user_id IS NOT NULL AND length(trim(auth_user_id)) > 0;
@@ -2349,6 +2414,96 @@ export function mergeProjectsAndActivitySnapshotFromSupabase(data: {
       );
     }
   }, 'Merge projects and activity snapshot from Supabase');
+}
+
+export function mergeProjectNotificationsSnapshotFromSupabase(
+  data: {
+    currentAuthUserId: string;
+    notifications: RemoteProjectNotificationSyncRow[];
+  },
+  options?: { pruneMissing?: boolean }
+): void {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    const scopedUser = getUserById(scopedUserId);
+    const scopedAuthUserId = scopedUser?.authUserId?.trim() || data.currentAuthUserId.trim();
+    const seenIds = new Set<string>();
+
+    const normalizeActorUserId = (remoteUserId?: string | null): string | null => {
+      if (!remoteUserId) return null;
+      const trimmed = remoteUserId.trim();
+      if (!trimmed) return null;
+      if (trimmed === scopedAuthUserId) {
+        return scopedUserId;
+      }
+      const localUser = getUserByAuthUserId(trimmed);
+      return localUser?.id ?? null;
+    };
+
+    for (const notification of data.notifications) {
+      const id = notification.id.trim();
+      const projectId = notification.project_id.trim();
+      const actionType = notification.action_type.trim();
+      if (!id || !projectId || !actionType) continue;
+
+      const recipientAuthUserId = notification.recipient_user_id?.trim() || '';
+      if (recipientAuthUserId && recipientAuthUserId !== scopedAuthUserId) {
+        continue;
+      }
+
+      const actorUserId = normalizeActorUserId(notification.actor_user_id ?? null);
+      const title = typeof notification.title === 'string' ? notification.title.trim() || null : null;
+      const body = typeof notification.body === 'string' ? notification.body.trim() || null : null;
+      const metadata = typeof notification.metadata === 'string' ? notification.metadata : null;
+      const readAt = notification.read_at ?? null;
+      const createdAt = notification.created_at || Date.now();
+
+      db.runSync(
+        `INSERT INTO project_notifications
+          (id, user_id, project_id, activity_id, actor_user_id, action_type, title, body, metadata, read_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
+           project_id = excluded.project_id,
+           activity_id = excluded.activity_id,
+           actor_user_id = excluded.actor_user_id,
+           action_type = excluded.action_type,
+           title = excluded.title,
+           body = excluded.body,
+           metadata = excluded.metadata,
+           read_at = excluded.read_at,
+           created_at = excluded.created_at`,
+        [
+          id,
+          scopedUserId,
+          projectId,
+          notification.activity_id || null,
+          actorUserId,
+          actionType,
+          title,
+          body,
+          metadata,
+          readAt,
+          createdAt,
+        ]
+      );
+      seenIds.add(id);
+    }
+
+    if (options?.pruneMissing) {
+      if (seenIds.size === 0) {
+        db.runSync('DELETE FROM project_notifications WHERE user_id = ?', [scopedUserId]);
+      } else {
+        const placeholders = Array.from({ length: seenIds.size }, () => '?').join(', ');
+        db.runSync(
+          `DELETE FROM project_notifications
+           WHERE user_id = ?
+             AND id NOT IN (${placeholders})`,
+          [scopedUserId, ...seenIds]
+        );
+      }
+    }
+  }, 'Merge project notifications snapshot from Supabase');
 }
 
 export function mergeProjectContentSnapshotFromSupabase(
@@ -5052,4 +5207,62 @@ export function getActivityByProject(projectId: string, limit = 20): ActivityLog
     ) as Array<Record<string, unknown>>;
     return rows.map(mapActivityRow);
   }, 'Get activity by project');
+}
+
+export function getProjectNotifications(limit = 50): ProjectNotification[] {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit || 50)));
+    const rows = db.getAllSync(
+      `SELECT *
+       FROM project_notifications
+       WHERE user_id = ?
+       ORDER BY CASE WHEN read_at IS NULL THEN 0 ELSE 1 END ASC, created_at DESC
+       LIMIT ${safeLimit}`,
+      [userId]
+    ) as Array<Record<string, unknown>>;
+    return rows.map(mapProjectNotificationRow);
+  }, 'Get project notifications');
+}
+
+export function getUnreadProjectNotificationCount(): number {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const row = db.getFirstSync(
+      `SELECT COUNT(*) as unread_count
+       FROM project_notifications
+       WHERE user_id = ?
+         AND read_at IS NULL`,
+      [userId]
+    ) as { unread_count?: number } | null;
+    return typeof row?.unread_count === 'number' ? row.unread_count : 0;
+  }, 'Get unread project notification count');
+}
+
+export function markProjectNotificationRead(notificationId: string, readAt: number = Date.now()): void {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const normalizedId = notificationId.trim();
+    if (!normalizedId) return;
+    db.runSync(
+      `UPDATE project_notifications
+       SET read_at = COALESCE(read_at, ?)
+       WHERE id = ?
+         AND user_id = ?`,
+      [readAt, normalizedId, userId]
+    );
+  }, 'Mark project notification read');
+}
+
+export function markAllProjectNotificationsRead(readAt: number = Date.now()): void {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    db.runSync(
+      `UPDATE project_notifications
+       SET read_at = ?
+       WHERE user_id = ?
+         AND read_at IS NULL`,
+      [readAt, userId]
+    );
+  }, 'Mark all project notifications read');
 }

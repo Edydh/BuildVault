@@ -37,6 +37,20 @@ export interface User {
   last_login_at: number;
 }
 
+export interface ProjectNotification {
+  id: string;
+  user_id: string;
+  project_id: string;
+  activity_id?: string | null;
+  actor_user_id?: string | null;
+  action_type: string;
+  title?: string | null;
+  body?: string | null;
+  metadata?: string | null;
+  read_at?: number | null;
+  created_at: number;
+}
+
 type DbState = {
   projects: Project[];
   folders: Folder[];
@@ -491,4 +505,24 @@ export function moveMediaToFolder(mediaId: string, folderId: string | null) {
     media.folder_id = folderId;
     persistState();
   }, 'Move media to folder');
+}
+
+export function getProjectNotifications(_limit = 50): ProjectNotification[] {
+  return [];
+}
+
+export function getUnreadProjectNotificationCount(): number {
+  return 0;
+}
+
+export function markProjectNotificationRead(_notificationId: string, _readAt: number = Date.now()): void {
+  // Web fallback no-op.
+}
+
+export function markAllProjectNotificationsRead(_readAt: number = Date.now()): void {
+  // Web fallback no-op.
+}
+
+export function mergeProjectNotificationsSnapshotFromSupabase(): void {
+  // Web fallback no-op.
 }

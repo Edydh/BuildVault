@@ -1,3 +1,4 @@
+import React, { useCallback, useEffect, useState } from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../lib/AuthContext';
@@ -5,9 +6,36 @@ import { Redirect } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { ScrollProvider } from '../../components/glass/ScrollContext';
 import { BVTabBar } from '../../components/ui';
+import { getUnreadProjectNotificationCount } from '../../lib/db';
 
 export default function TabLayout() {
   const { user, isLoading } = useAuth();
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+
+  const refreshUnreadNotificationCount = useCallback(() => {
+    if (!user) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+    try {
+      setUnreadNotificationCount(getUnreadProjectNotificationCount());
+    } catch {
+      setUnreadNotificationCount(0);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    refreshUnreadNotificationCount();
+    if (!user) return;
+
+    const intervalId = setInterval(() => {
+      refreshUnreadNotificationCount();
+    }, 5000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [refreshUnreadNotificationCount, user]);
 
   // Debug logging
   console.log('TabLayout - isLoading:', isLoading, 'user:', user ? 'Found' : 'Not found');
@@ -67,6 +95,12 @@ export default function TabLayout() {
           options={{
             title: 'Settings',
             headerShown: false,
+            tabBarBadge:
+              unreadNotificationCount > 0
+                ? unreadNotificationCount > 99
+                  ? '99+'
+                  : unreadNotificationCount
+                : undefined,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="settings" size={size} color={color} />
             ),

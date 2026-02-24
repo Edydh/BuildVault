@@ -32,6 +32,7 @@ import {
   getProjectPublicProfile,
   mergeProjectMembersSnapshotFromSupabase,
   mergeProjectContentSnapshotFromSupabase,
+  mergeProjectNotificationsSnapshotFromSupabase,
   mergeProjectNotesSnapshotFromSupabase,
   mergeProjectPublicProfileSnapshotFromSupabase,
   mergeProjectsAndActivitySnapshotFromSupabase,
@@ -59,6 +60,8 @@ const PROJECT_COLUMNS =
 
 const ACTIVITY_COLUMNS =
   'id, project_id, action_type, reference_id, actor_user_id, actor_name_snapshot, metadata, created_at';
+const PROJECT_NOTIFICATION_COLUMNS =
+  'id, project_id, activity_id, recipient_user_id, actor_user_id, action_type, title, body, metadata, read_at, created_at';
 const FOLDER_COLUMNS = 'id, project_id, name, created_at';
 const MEDIA_COLUMNS =
   'id, project_id, folder_id, uploaded_by_user_id, type, uri, thumb_uri, note, metadata, created_at';
@@ -113,6 +116,20 @@ type SupabaseActivityRow = {
   actor_user_id: string | null;
   actor_name_snapshot: string | null;
   metadata: unknown;
+  created_at: string;
+};
+
+type SupabaseProjectNotificationRow = {
+  id: string;
+  project_id: string;
+  activity_id: string | null;
+  recipient_user_id: string;
+  actor_user_id: string | null;
+  action_type: string;
+  title: string | null;
+  body: string | null;
+  metadata: unknown;
+  read_at: string | null;
   created_at: string;
 };
 
@@ -1037,6 +1054,22 @@ function normalizeActivityRow(row: SupabaseActivityRow) {
   };
 }
 
+function normalizeProjectNotificationRow(row: SupabaseProjectNotificationRow) {
+  return {
+    id: row.id,
+    recipient_user_id: row.recipient_user_id,
+    project_id: row.project_id,
+    activity_id: row.activity_id,
+    actor_user_id: row.actor_user_id,
+    action_type: row.action_type,
+    title: row.title,
+    body: row.body,
+    metadata: normalizeMetadata(row.metadata),
+    read_at: toNullableMillis(row.read_at),
+    created_at: toMillis(row.created_at),
+  };
+}
+
 function normalizeFolderRow(row: SupabaseFolderRow) {
   return {
     id: row.id,
@@ -1203,6 +1236,15 @@ function chunkArray<T>(source: T[], size: number): T[][] {
 
 function mergeErrors(error: { message?: string } | null | undefined, fallback: string): never {
   throw new Error(typeof error?.message === 'string' && error.message.trim().length > 0 ? error.message : fallback);
+}
+
+function isMissingNotificationsRelationError(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('project_notifications') &&
+    (normalized.includes('does not exist') || normalized.includes('42p01'))
+  );
 }
 
 function isRecoverableAuthSessionError(message: string): boolean {
@@ -1688,6 +1730,28 @@ export async function syncProjectsAndActivityFromSupabase(): Promise<void> {
     projects: projectRows.map(normalizeProjectRow),
     activities: activityRows.map(normalizeActivityRow),
   });
+
+  const { data: notificationRowsRaw, error: notificationsError } = await supabase
+    .from('project_notifications')
+    .select(PROJECT_NOTIFICATION_COLUMNS)
+    .eq('recipient_user_id', authUser.id)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (notificationsError) {
+    if (isMissingNotificationsRelationError(notificationsError.message || '')) {
+      console.log('Project notifications sync skipped: table not migrated yet');
+    } else {
+      mergeErrors(notificationsError, 'Failed to load project notifications');
+    }
+  } else {
+    mergeProjectNotificationsSnapshotFromSupabase({
+      currentAuthUserId: authUser.id,
+      notifications: ((notificationRowsRaw || []) as SupabaseProjectNotificationRow[]).map(
+        normalizeProjectNotificationRow
+      ),
+    });
+  }
 }
 
 export async function syncProjectContentFromSupabase(projectId: string): Promise<void> {

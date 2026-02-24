@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,13 +12,20 @@ import {
   Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getProjects } from '../../lib/db';
+import {
+  ProjectNotification,
+  getProjects,
+  getProjectNotifications,
+  getUnreadProjectNotificationCount,
+  markAllProjectNotificationsRead,
+  markProjectNotificationRead,
+} from '../../lib/db';
 import { deleteProjectDir, clearAllProjectDirs } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
-import { deleteProjectInSupabase } from '../../lib/supabaseProjectsSync';
+import { deleteProjectInSupabase, syncProjectsAndActivityFromSupabase } from '../../lib/supabaseProjectsSync';
 import NoteSettings from '../../components/NoteSettings';
 import {
   useGlassTheme,
@@ -33,6 +40,18 @@ import {
 import { BVHeader, BVCard, BVButton } from '../../components/ui';
 import { bvColors, bvFx, bvRadius, bvSpacing, bvTypography } from '../../lib/theme/tokens';
 import * as Haptics from 'expo-haptics';
+
+function formatRelativeTime(timestamp: number): string {
+  const deltaMs = Date.now() - timestamp;
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (deltaMs < minute) return 'Just now';
+  if (deltaMs < hour) return `${Math.max(1, Math.floor(deltaMs / minute))}m ago`;
+  if (deltaMs < day) return `${Math.max(1, Math.floor(deltaMs / hour))}h ago`;
+  return `${Math.max(1, Math.floor(deltaMs / day))}d ago`;
+}
 
 export default function Settings() {
   const insets = useSafeAreaInsets();
@@ -83,6 +102,101 @@ export default function Settings() {
   const [profileNameDraft, setProfileNameDraft] = React.useState('');
   const [isSavingProfile, setIsSavingProfile] = React.useState(false);
   const [avatarLoadFailed, setAvatarLoadFailed] = React.useState(false);
+  const [notifications, setNotifications] = React.useState<ProjectNotification[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = React.useState(0);
+  const [isLoadingNotifications, setIsLoadingNotifications] = React.useState(false);
+
+  const refreshNotifications = useCallback(async () => {
+    if (!user) {
+      setNotifications([]);
+      setUnreadNotificationCount(0);
+      return;
+    }
+
+    setIsLoadingNotifications(true);
+    try {
+      await syncProjectsAndActivityFromSupabase();
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      const isAuthSessionIssue =
+        message.includes('auth session missing') ||
+        message.includes('must be signed in') ||
+        message.includes('invalid refresh token');
+      if (!isAuthSessionIssue) {
+        console.log('Notifications sync warning:', error);
+      }
+    }
+
+    try {
+      const projectNameById = new Map(getProjects().map((project) => [project.id, project.name]));
+      const rows = getProjectNotifications(25).map((item) => {
+        if (item.title?.trim()) return item;
+        const projectName = projectNameById.get(item.project_id) || 'Project';
+        const actionLabel = item.action_type
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, (match) => match.toUpperCase());
+        return {
+          ...item,
+          title: `${projectName} • ${actionLabel}`,
+        };
+      });
+      setNotifications(rows);
+      setUnreadNotificationCount(getUnreadProjectNotificationCount());
+    } catch (error) {
+      console.log('Notifications load warning:', error);
+      setNotifications([]);
+      setUnreadNotificationCount(0);
+    } finally {
+      setIsLoadingNotifications(false);
+    }
+  }, [user]);
+
+  const handleOpenNotification = useCallback(
+    (notification: ProjectNotification) => {
+      if (!notification.read_at) {
+        try {
+          markProjectNotificationRead(notification.id);
+        } catch (error) {
+          console.log('Mark notification read warning:', error);
+        }
+        setNotifications((prev) =>
+          prev.map((item) =>
+            item.id === notification.id
+              ? {
+                  ...item,
+                  read_at: item.read_at ?? Date.now(),
+                }
+              : item
+          )
+        );
+        setUnreadNotificationCount((prev) => Math.max(0, prev - 1));
+      }
+      router.push(`/project/${notification.project_id}`);
+    },
+    [router]
+  );
+
+  const handleMarkAllNotificationsRead = useCallback(() => {
+    try {
+      markAllProjectNotificationsRead();
+      setNotifications((prev) =>
+        prev.map((item) =>
+          item.read_at
+            ? item
+            : {
+                ...item,
+                read_at: Date.now(),
+              }
+        )
+      );
+      setUnreadNotificationCount(0);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.log('Mark all notifications read warning:', error);
+      setSheetMessage('Could not mark notifications as read.');
+      setShowErrorSheet(true);
+    }
+  }, []);
 
   React.useEffect(() => {
     if (!user) return;
@@ -92,6 +206,12 @@ export default function Settings() {
   React.useEffect(() => {
     setAvatarLoadFailed(false);
   }, [user?.avatar]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshNotifications();
+    }, [refreshNotifications])
+  );
 
   // Load/save performance preference
   React.useEffect(() => {
@@ -728,6 +848,161 @@ export default function Settings() {
               icon="log-out-outline"
               onPress={handleSignOut}
             />
+          </BVCard>
+        </View>
+      )}
+
+      {user && (
+        <View style={{ paddingBottom: 8 }}>
+          <View
+            style={{
+              alignItems: 'center',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              marginBottom: 12,
+            }}
+          >
+            <Text
+              style={{
+                color: bvColors.text.tertiary,
+                fontSize: 14,
+                fontWeight: '600',
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+              }}
+            >
+              Notifications
+            </Text>
+            {unreadNotificationCount > 0 ? (
+              <View
+                style={{
+                  backgroundColor: bvColors.semantic.danger,
+                  borderRadius: bvRadius.pill,
+                  minWidth: 22,
+                  paddingHorizontal: 8,
+                  paddingVertical: 2,
+                }}
+              >
+                <Text
+                  style={{
+                    color: bvColors.text.onPrimary,
+                    fontSize: 12,
+                    fontWeight: '700',
+                    textAlign: 'center',
+                  }}
+                >
+                  {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <BVCard style={{ marginBottom: 16 }} contentStyle={{ padding: 16 }}>
+            {isLoadingNotifications ? (
+              <Text style={{ ...bvTypography.bodyRegular, color: bvColors.text.muted }}>
+                Loading updates...
+              </Text>
+            ) : notifications.length === 0 ? (
+              <Text style={{ ...bvTypography.bodyRegular, color: bvColors.text.muted }}>
+                No project updates yet.
+              </Text>
+            ) : (
+              notifications.slice(0, 8).map((notification, index, list) => (
+                <TouchableOpacity
+                  key={notification.id}
+                  onPress={() => handleOpenNotification(notification)}
+                  style={{
+                    borderBottomColor: 'rgba(148,163,184,0.2)',
+                    borderBottomWidth: index === list.length - 1 ? 0 : 1,
+                    paddingBottom: 12,
+                    paddingTop: index === 0 ? 0 : 12,
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={{ alignItems: 'flex-start', flexDirection: 'row' }}>
+                    <View
+                      style={{
+                        alignItems: 'center',
+                        backgroundColor: notification.read_at ? bvFx.glassSoft : bvFx.brandSoftStrong,
+                        borderColor: notification.read_at ? bvFx.glassBorderSoft : bvFx.brandBorder,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        height: 28,
+                        justifyContent: 'center',
+                        marginRight: 10,
+                        marginTop: 2,
+                        width: 28,
+                      }}
+                    >
+                      <Ionicons
+                        name={notification.read_at ? 'mail-open-outline' : 'mail-unread-outline'}
+                        size={14}
+                        color={notification.read_at ? bvColors.neutral[400] : bvColors.brand.primaryLight}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          ...bvTypography.bodyRegular,
+                          color: bvColors.text.primary,
+                          fontWeight: notification.read_at ? '500' : '700',
+                          marginBottom: 3,
+                        }}
+                      >
+                        {notification.title || 'Project update'}
+                      </Text>
+                      {notification.body ? (
+                        <Text
+                          style={{
+                            ...bvTypography.bodySmall,
+                            color: bvColors.text.secondary,
+                            marginBottom: 4,
+                          }}
+                          numberOfLines={2}
+                        >
+                          {notification.body}
+                        </Text>
+                      ) : null}
+                      <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted }}>
+                        {formatRelativeTime(notification.created_at)}
+                      </Text>
+                    </View>
+                    {!notification.read_at ? (
+                      <View
+                        style={{
+                          backgroundColor: bvColors.brand.primaryLight,
+                          borderRadius: 4,
+                          height: 8,
+                          marginLeft: 8,
+                          marginTop: 7,
+                          width: 8,
+                        }}
+                      />
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <BVButton
+                title="Refresh"
+                variant="ghost"
+                icon="refresh-outline"
+                onPress={() => {
+                  void refreshNotifications();
+                }}
+                style={{ flex: 1 }}
+              />
+              <BVButton
+                title="Mark All Read"
+                variant="secondary"
+                icon="checkmark-done-outline"
+                onPress={handleMarkAllNotificationsRead}
+                disabled={unreadNotificationCount === 0}
+                style={{ flex: 1 }}
+              />
+            </View>
           </BVCard>
         </View>
       )}

@@ -36,14 +36,18 @@ Open constraints:
 
 ## Next Priority Sequence (updated)
 
-1. Organization member management in Settings (invite, list, role change, remove, accept invite).
-2. Activity assignment flow wired to real members:
+1. Project notifications (phase 1):
+   - server fan-out from `activity_log` into `project_notifications`
+   - in-app notification inbox in Settings
+   - unread badge on the Settings tab and read-state controls
+2. Organization member management in Settings (invite, list, role change, remove, accept invite).
+3. Activity assignment flow wired to real members:
    - picker from active project members
    - optional "add to project + assign" from organization roster.
-3. Project completion controls:
+4. Project completion controls:
    - explicit mark completed/reopen action
    - progress breakdown panel tied to phase/activity model.
-4. Feed engagement (likes/comments) stabilization after collaboration flows are complete.
+5. Feed engagement (likes/comments) stabilization after collaboration flows are complete.
 
 ## Track A: Stabilization (must do before visual rebuild)
 

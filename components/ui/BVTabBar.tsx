@@ -30,6 +30,11 @@ export function BVTabBar({ state, descriptors, navigation }: BottomTabBarProps) 
               : typeof options.title === 'string'
                 ? options.title
                 : route.name;
+          const badgeValue = options.tabBarBadge;
+          const badgeLabel =
+            badgeValue === undefined || badgeValue === null || badgeValue === ''
+              ? null
+              : String(badgeValue);
 
           const onPress = () => {
             const event = navigation.emit({
@@ -49,11 +54,20 @@ export function BVTabBar({ state, descriptors, navigation }: BottomTabBarProps) 
               style={[styles.tab, isFocused && styles.tabActive]}
               activeOpacity={0.9}
             >
-              {typeof iconRenderer === 'function' ? (
-                iconRenderer({ focused: isFocused, color, size: 22 })
-              ) : (
-                <Ionicons name={fallbackIconForRoute(route.name)} size={22} color={color} />
-              )}
+              <View style={styles.iconWrap}>
+                {typeof iconRenderer === 'function' ? (
+                  iconRenderer({ focused: isFocused, color, size: 22 })
+                ) : (
+                  <Ionicons name={fallbackIconForRoute(route.name)} size={22} color={color} />
+                )}
+                {badgeLabel ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText} numberOfLines={1}>
+                      {badgeLabel}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
               <Text style={[styles.label, { color }]} numberOfLines={1}>
                 {label}
               </Text>
@@ -88,6 +102,33 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58,99,243,0.16)',
     borderColor: 'rgba(58,99,243,0.35)',
     borderWidth: 1,
+  },
+  iconWrap: {
+    minWidth: 28,
+    minHeight: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -14,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: bvColors.semantic.danger,
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    ...bvTypography.bodySmall,
+    color: bvColors.text.onPrimary,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '700',
   },
   label: {
     ...bvTypography.bodySmall,
