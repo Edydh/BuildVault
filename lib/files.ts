@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from './fileSystemCompat';
 import { VideoThumbnailResult, generateSmartVideoThumbnail } from './media';
 import { getActiveUserScope } from './db';
 

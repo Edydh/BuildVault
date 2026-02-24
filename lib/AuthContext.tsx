@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { router } from 'expo-router';
 import { authService, AuthResult } from './auth';
 import { User } from './db';
@@ -24,6 +24,8 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const signInInProgressRef = useRef(false);
+  const signOutInProgressRef = useRef(false);
 
   const syncDbAuthState = (nextUser: User | null) => {
     const dbAccess = dbModule as {
@@ -72,7 +74,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
         }
         if (event === 'SIGNED_OUT') {
-          applyUser(null);
+          if (signOutInProgressRef.current) {
+            await authService.clearLocalSession();
+            applyUser(null);
+            return;
+          }
+
+          // Some providers can transiently emit SIGNED_OUT during token handoff.
+          // Confirm there's truly no active session before clearing app user state.
+          const { data: latest } = await supabase.auth.getSession();
+          if (latest.session?.user) {
+            const synced = await authService.upsertUserFromSupabase(latest.session.user);
+            applyUser(synced);
+            await syncCollaborationState();
+          } else if (signInInProgressRef.current) {
+            // Ignore transient SIGNED_OUT while sign-in flow is still completing.
+            console.log('Ignoring transient SIGNED_OUT during sign-in handoff');
+          } else {
+            await authService.clearLocalSession();
+            applyUser(null);
+          }
         }
       } catch (e) {
         console.log('Auth state change handler error:', e);
@@ -101,13 +122,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await syncCollaborationState();
         return;
       }
-
-      const currentUser = await authService.getCurrentUser();
-      console.log('Current user (local):', currentUser ? 'Found' : 'Not found');
-      
-      // Only update user state if it's actually different
-      if (currentUser?.id !== user?.id) {
-        applyUser(currentUser);
+      // No Supabase session means signed-out state for collaboration-enabled app.
+      await authService.clearLocalSession();
+      console.log('Current user (local): Not found');
+      if (user !== null) {
+        applyUser(null);
       }
     } catch (error) {
       console.error('Error checking auth state:', error);
@@ -118,6 +137,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signInWithApple = async (): Promise<AuthResult> => {
     try {
+      signInInProgressRef.current = true;
       console.log('Starting Apple Sign-In...');
       const result = await authService.signInWithApple();
       console.log('Apple Sign-In result:', result.success ? 'Success' : 'Failed', result.error || '');
@@ -143,11 +163,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         success: false,
         error: error instanceof Error ? error.message : 'Apple Sign-In failed'
       };
+    } finally {
+      signInInProgressRef.current = false;
     }
   };
 
   const signInWithGoogle = async (): Promise<AuthResult> => {
     try {
+      signInInProgressRef.current = true;
       console.log('Starting Google Sign-In...');
       const result = await authService.signInWithGoogle();
       console.log('Google Sign-In result:', result.success ? 'Success' : 'Failed', result.error || '');
@@ -173,17 +196,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
         success: false,
         error: error instanceof Error ? error.message : 'Google Sign-In failed'
       };
+    } finally {
+      signInInProgressRef.current = false;
     }
   };
 
 
   const signOut = async () => {
     try {
+      signOutInProgressRef.current = true;
       await authService.signOut();
       applyUser(null);
+      router.replace('/auth');
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
+    } finally {
+      signOutInProgressRef.current = false;
     }
   };
 

@@ -41,6 +41,28 @@ export class AuthService {
   private static instance: AuthService;
   private currentUser: User | null = null;
 
+  private getWebGoogleRedirectTo(): string | undefined {
+    if (typeof window === 'undefined' || !window.location?.origin) {
+      return undefined;
+    }
+    // Keep callback on origin root to match common Supabase redirect allow-lists.
+    return window.location.origin;
+  }
+
+  private getNativeGoogleRedirectTo(): string {
+    // Redirect to an existing in-app route to avoid "Unmatched route".
+    return 'buildvault://auth';
+  }
+
+  private isLocalhostFallbackUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    } catch {
+      return false;
+    }
+  }
+
   static getInstance(): AuthService {
     if (!AuthService.instance) {
       AuthService.instance = new AuthService();
@@ -55,7 +77,7 @@ export class AuthService {
 
     return withErrorHandling(async () => {
       // Try to get user from local storage
-      const userId = await SecureStore.getItemAsync('currentUserId');
+      const userId = (await SecureStore.getItemAsync('currentUserId'))?.trim();
       if (userId) {
         const user = await this.loadUserFromStorage(userId);
         if (user) {
@@ -65,6 +87,23 @@ export class AuthService {
       }
       return null;
     }, 'Get current user', false);
+  }
+
+  async clearLocalSession(): Promise<void> {
+    this.currentUser = null;
+    try {
+      // Empty string write first, delete second keeps behavior resilient across platforms.
+      try {
+        await SecureStore.setItemAsync('currentUserId', '');
+        await SecureStore.setItemAsync('userSession', '');
+      } catch (error) {
+        console.log('SecureStore clear-write warning:', error);
+      }
+      await SecureStore.deleteItemAsync('currentUserId');
+      await SecureStore.deleteItemAsync('userSession');
+    } catch (error) {
+      console.log('SecureStore clear warning:', error);
+    }
   }
 
   async signInWithApple(): Promise<AuthResult> {
@@ -171,9 +210,31 @@ export class AuthService {
 
   async signInWithGoogle(): Promise<AuthResult> {
     try {
+      if (Platform.OS === 'web') {
+        const redirectTo = this.getWebGoogleRedirectTo();
+
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo,
+            queryParams: {
+              prompt: 'select_account',
+            },
+          },
+        });
+
+        if (error) {
+          console.error('Supabase Google OAuth error (web):', error);
+          return { success: false, error: error.message };
+        }
+
+        // Browser redirect is expected on web. Session is restored after callback.
+        return { success: true };
+      }
+
       // For native apps, we need to use a different approach
       // Use the native Google Sign-In flow instead of OAuth web flow
-      const redirectTo = 'buildvault://auth/callback';
+      const redirectTo = this.getNativeGoogleRedirectTo();
 
       // Start OAuth flow with Supabase
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -181,6 +242,9 @@ export class AuthService {
         options: {
           redirectTo,
           skipBrowserRedirect: true, // We'll handle the redirect manually
+          queryParams: {
+            prompt: 'select_account',
+          },
         },
       });
 
@@ -200,6 +264,13 @@ export class AuthService {
       );
 
       if (result.type === 'success' && 'url' in result && result.url) {
+        if (this.isLocalhostFallbackUrl(result.url)) {
+          return {
+            success: false,
+            error: 'OAuth redirect is misconfigured in Supabase (redirect fell back to localhost). Update Auth URL configuration and allow this app callback URL.',
+          };
+        }
+
         // Parse the redirect URL to extract tokens
         const url = new URL(result.url);
         
@@ -328,14 +399,12 @@ export class AuthService {
     try {
       // Sign out from Supabase (if connected)
       try {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
       } catch (error) {
         // Ignore Supabase errors in development
         console.log('Supabase signout error (ignored):', error);
       }
-      await SecureStore.deleteItemAsync('currentUserId');
-      await SecureStore.deleteItemAsync('userSession');
-      this.currentUser = null;
+      await this.clearLocalSession();
     } catch (error) {
       console.error('Sign out error:', error);
     }

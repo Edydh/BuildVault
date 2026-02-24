@@ -53,6 +53,7 @@ const DEFAULT_STATE: DbState = {
 };
 
 let state: DbState | null = null;
+let activeUserScopeId: string | null = null;
 
 function getStorage(): Storage | null {
   if (typeof window === 'undefined') return null;
@@ -118,6 +119,24 @@ function compareByCreatedAtAsc<T extends { created_at: number }>(a: T, b: T): nu
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? '').toLowerCase();
+}
+
+function normalizeScopedUserId(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function setActiveUserScope(userId: string | null): void {
+  activeUserScopeId = normalizeScopedUserId(userId);
+}
+
+export function getActiveUserScope(): string | null {
+  return activeUserScopeId;
+}
+
+export function clearActiveUserScope(): void {
+  activeUserScopeId = null;
 }
 
 export function migrate() {

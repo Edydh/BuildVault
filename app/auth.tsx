@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,11 +14,18 @@ import * as Linking from 'expo-linking';
 import { useAuth } from '../lib/AuthContext';
 import { GlassButton } from '../components/glass';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 
 export default function AuthScreen() {
-  const { signInWithApple, signInWithGoogle } = useAuth();
+  const { user, isLoading: authLoading, signInWithApple, signInWithGoogle } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/(tabs)');
+    }
+  }, [authLoading, user]);
 
   const handleAppleSignIn = async () => {
     setIsLoading(true);

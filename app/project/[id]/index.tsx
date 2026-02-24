@@ -18,7 +18,7 @@ import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, Project
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from '../../../lib/fileSystemCompat';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../../lib/AuthContext';

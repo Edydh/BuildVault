@@ -22,7 +22,7 @@ import {
   getProjectsByOrganization,
 } from '../../lib/db';
 import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from '../../lib/fileSystemCompat';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { GlassCard, GlassTextInput, GlassModal, GlassActionSheet } from '../../components/glass';
@@ -38,6 +38,8 @@ import {
   syncProjectsAndActivityFromSupabase,
   updateProjectInSupabase,
 } from '../../lib/supabaseProjectsSync';
+import { syncOrganizationDataFromSupabase } from '../../lib/supabaseCollaboration';
+import { useAuth } from '../../lib/AuthContext';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -190,6 +192,7 @@ const StatCard: React.FC<StatCardConfig & { style?: ViewStyle }> = ({
 
 export default function ProjectsList() {
   const router = useRouter();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [projects, setProjects] = useState<Project[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -388,6 +391,14 @@ export default function ProjectsList() {
   const loadProjects = useCallback(async () => {
     setStatsLoading(true);
     try {
+      if (!user) {
+        setOrganizations([]);
+        setProjects([]);
+        setStorageStats(EMPTY_STATS);
+        return;
+      }
+
+      await syncOrganizationDataFromSupabase();
       await syncProjectsAndActivityFromSupabase();
       const orgList = getOrganizationsForCurrentUser();
       const storedWorkspace = await getStoredWorkspace();
@@ -408,11 +419,12 @@ export default function ProjectsList() {
     } catch (error) {
       console.error('Error loading projects:', error);
       setProjects([]);
+      setOrganizations([]);
       setStorageStats(EMPTY_STATS);
     } finally {
       setStatsLoading(false);
     }
-  }, [loadProjectsForWorkspace, resolveWorkspace]);
+  }, [loadProjectsForWorkspace, resolveWorkspace, user]);
 
   const handleWorkspaceChange = async (nextWorkspace: WorkspaceSelection) => {
     setStatsLoading(true);
@@ -439,6 +451,10 @@ export default function ProjectsList() {
       loadProjects();
     }, [loadProjects])
   );
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects, user?.id]);
 
   // Handle scroll events for dynamic header and tab bar
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {

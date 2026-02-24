@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from './fileSystemCompat';
 
 const REMOTE_URI_REGEX = /^https?:\/\//i;
 
