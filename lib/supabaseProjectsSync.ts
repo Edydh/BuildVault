@@ -1215,12 +1215,55 @@ function isRecoverableAuthSessionError(message: string): boolean {
   );
 }
 
-async function requireAuthUser(actionLabel: string): Promise<SupabaseUser> {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) {
-    throw new Error(error?.message || `Must be signed in to ${actionLabel}`);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getAuthUserFromSessionOrUser(): Promise<SupabaseUser | null> {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userData?.user) {
+    return userData.user;
   }
-  return data.user;
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionData.session?.user) {
+    return sessionData.session.user;
+  }
+
+  const errorMessage =
+    sessionError?.message ||
+    userError?.message ||
+    '';
+
+  if (errorMessage.trim().length > 0) {
+    throw new Error(errorMessage);
+  }
+
+  return null;
+}
+
+async function requireAuthUser(actionLabel: string): Promise<SupabaseUser> {
+  let lastMessage = '';
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const user = await getAuthUserFromSessionOrUser();
+      if (user) {
+        return user;
+      }
+      lastMessage = 'Auth session missing!';
+    } catch (error) {
+      lastMessage = error instanceof Error ? error.message : String(error ?? '');
+    }
+
+    if (!isRecoverableAuthSessionError(lastMessage) || attempt === 3) {
+      throw new Error(lastMessage || `Must be signed in to ${actionLabel}`);
+    }
+
+    await sleep(250 * attempt);
+  }
+
+  throw new Error(lastMessage || `Must be signed in to ${actionLabel}`);
 }
 
 async function requireAuthUserForSyncOrNull(actionLabel: string): Promise<SupabaseUser | null> {

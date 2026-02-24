@@ -398,17 +398,30 @@ export default function ProjectsList() {
         return;
       }
 
+      const storedWorkspace = await getStoredWorkspace();
+
+      // Render from local cache first so organization projects remain visible
+      // even if the immediate network sync is delayed.
+      const localOrgList = getOrganizationsForCurrentUser();
+      const localWorkspace = resolveWorkspace(storedWorkspace, localOrgList);
+      setOrganizations(localOrgList);
+      setWorkspace(localWorkspace);
+      setForm((prev) => ({
+        ...prev,
+        organizationId: localWorkspace.type === 'organization' ? localWorkspace.organizationId : null,
+      }));
+      await loadProjectsForWorkspace(localWorkspace);
+
       await syncOrganizationDataFromSupabase();
       await syncProjectsAndActivityFromSupabase();
-      const orgList = getOrganizationsForCurrentUser();
-      const storedWorkspace = await getStoredWorkspace();
-      const nextWorkspace = resolveWorkspace(storedWorkspace, orgList);
+      const syncedOrgList = getOrganizationsForCurrentUser();
+      const nextWorkspace = resolveWorkspace(storedWorkspace, syncedOrgList);
 
       if (!isWorkspaceEqual(storedWorkspace, nextWorkspace)) {
         await setStoredWorkspace(nextWorkspace);
       }
 
-      setOrganizations(orgList);
+      setOrganizations(syncedOrgList);
       setWorkspace(nextWorkspace);
       setForm((prev) => ({
         ...prev,
@@ -418,9 +431,32 @@ export default function ProjectsList() {
       await loadProjectsForWorkspace(nextWorkspace);
     } catch (error) {
       console.error('Error loading projects:', error);
-      setProjects([]);
-      setOrganizations([]);
-      setStorageStats(EMPTY_STATS);
+      if (!user) {
+        setProjects([]);
+        setOrganizations([]);
+        setStorageStats(EMPTY_STATS);
+        return;
+      }
+
+      // Keep the best local view available if sync fails transiently.
+      try {
+        const storedWorkspace = await getStoredWorkspace();
+        const localOrgList = getOrganizationsForCurrentUser();
+        const fallbackWorkspace = resolveWorkspace(storedWorkspace, localOrgList);
+        setOrganizations(localOrgList);
+        setWorkspace(fallbackWorkspace);
+        setForm((prev) => ({
+          ...prev,
+          organizationId:
+            fallbackWorkspace.type === 'organization' ? fallbackWorkspace.organizationId : null,
+        }));
+        await loadProjectsForWorkspace(fallbackWorkspace);
+      } catch (fallbackError) {
+        console.error('Error applying local fallback projects:', fallbackError);
+        setProjects([]);
+        setOrganizations([]);
+        setStorageStats(EMPTY_STATS);
+      }
     } finally {
       setStatsLoading(false);
     }
