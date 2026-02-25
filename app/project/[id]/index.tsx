@@ -3338,6 +3338,17 @@ function ProjectDetailContent() {
     );
   };
 
+  const mergedProjectMedia = React.useMemo(() => {
+    const byId = new Map<string, MediaItem>();
+    for (const item of projectMedia) {
+      byId.set(item.id, item);
+    }
+    for (const item of media) {
+      byId.set(item.id, item);
+    }
+    return Array.from(byId.values());
+  }, [projectMedia, media]);
+
   const mediaSummary = React.useMemo(() => {
     const summary = {
       photos: 0,
@@ -3346,7 +3357,7 @@ function ProjectDetailContent() {
       notes: 0,
     };
 
-    for (const item of projectMedia) {
+    for (const item of mergedProjectMedia) {
       if (item.type === 'photo') summary.photos += 1;
       if (item.type === 'video') summary.videos += 1;
       if (item.type === 'doc') summary.docs += 1;
@@ -3354,7 +3365,7 @@ function ProjectDetailContent() {
     }
 
     return summary;
-  }, [projectMedia]);
+  }, [mergedProjectMedia]);
 
   const quickActions: Array<{
     id: string;
