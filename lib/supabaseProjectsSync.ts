@@ -4,6 +4,7 @@ import * as FileSystem from './fileSystemCompat';
 import Constants from 'expo-constants';
 import { triggerProjectNotificationPushDispatch } from './pushNotifications';
 import {
+  ActivityComment,
   ActivityLogEntry,
   Folder,
   MediaItem,
@@ -16,6 +17,7 @@ import {
   ProjectStatus,
   ProjectVisibility,
   createActivity,
+  createActivityComment,
   createFolder,
   createMedia,
   createProjectNote,
@@ -25,6 +27,7 @@ import {
   deleteProjectNote,
   deleteProject,
   getActivityByProject,
+  getActivityCommentsByProject,
   getFoldersByProject,
   getMediaById,
   getProjectMembers,
@@ -33,6 +36,7 @@ import {
   getProjectPublicProfile,
   mergeProjectMembersSnapshotFromSupabase,
   mergeProjectContentSnapshotFromSupabase,
+  mergeProjectActivityCommentsSnapshotFromSupabase,
   mergeProjectNotificationsSnapshotFromSupabase,
   mergeProjectNotesSnapshotFromSupabase,
   mergeProjectPublicProfileSnapshotFromSupabase,
@@ -70,6 +74,8 @@ const MEDIA_COLUMNS =
   'id, project_id, folder_id, uploaded_by_user_id, type, uri, thumb_uri, note, metadata, created_at';
 const NOTE_COLUMNS =
   'id, project_id, media_id, author_user_id, title, content, created_at, updated_at';
+const ACTIVITY_COMMENT_COLUMNS =
+  'id, project_id, activity_id, author_user_id, author_name_snapshot, body, created_at, updated_at';
 const PROJECT_MEMBER_COLUMNS =
   'id, project_id, user_id, invited_email, role, status, invited_by, user_name_snapshot, user_email_snapshot, created_at, updated_at, accepted_at';
 const PROJECT_PUBLIC_PROFILE_COLUMNS =
@@ -163,6 +169,17 @@ type SupabaseNoteRow = {
   author_user_id: string | null;
   title: string | null;
   content: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type SupabaseActivityCommentRow = {
+  id: string;
+  project_id: string;
+  activity_id: string;
+  author_user_id: string | null;
+  author_name_snapshot: string | null;
+  body: string;
   created_at: string;
   updated_at: string;
 };
@@ -1177,6 +1194,19 @@ function normalizeNoteRow(row: SupabaseNoteRow) {
   };
 }
 
+function normalizeActivityCommentRow(row: SupabaseActivityCommentRow) {
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    activity_id: row.activity_id,
+    author_user_id: row.author_user_id,
+    author_name_snapshot: row.author_name_snapshot,
+    body: row.body,
+    created_at: toMillis(row.created_at),
+    updated_at: toMillis(row.updated_at),
+  };
+}
+
 function normalizeProjectMemberRole(value: string | null | undefined): ProjectMemberRole {
   if (value === 'owner' || value === 'manager' || value === 'worker' || value === 'client') {
     return value;
@@ -1839,6 +1869,15 @@ export async function syncProjectContentFromSupabase(projectId: string): Promise
     mergeErrors(notesError, 'Failed to load project notes');
   }
 
+  const { data: activityCommentRowsRaw, error: activityCommentsError } = await supabase
+    .from('activity_comments')
+    .select(ACTIVITY_COMMENT_COLUMNS)
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true });
+  if (activityCommentsError) {
+    mergeErrors(activityCommentsError, 'Failed to load activity comments');
+  }
+
   await syncProjectMembersSnapshotFromSupabase(projectId, authUser.id);
 
   let mediaRows = (mediaRowsRaw || []) as SupabaseMediaRow[];
@@ -1858,6 +1897,17 @@ export async function syncProjectContentFromSupabase(projectId: string): Promise
       currentAuthUserId: authUser.id,
       projectId,
       notes: ((noteRowsRaw || []) as SupabaseNoteRow[]).map(normalizeNoteRow),
+    },
+    { pruneMissing: true }
+  );
+
+  mergeProjectActivityCommentsSnapshotFromSupabase(
+    {
+      currentAuthUserId: authUser.id,
+      projectId,
+      comments: ((activityCommentRowsRaw || []) as SupabaseActivityCommentRow[]).map(
+        normalizeActivityCommentRow
+      ),
     },
     { pruneMissing: true }
   );
@@ -2755,6 +2805,74 @@ export async function removeProjectMemberInSupabase(data: {
   }
 
   await syncProjectMembersSnapshotFromSupabase(projectId, authUser.id);
+}
+
+export async function createActivityCommentInSupabase(data: {
+  projectId: string;
+  activityId: string;
+  body: string;
+}): Promise<ActivityComment> {
+  const projectId = data.projectId.trim();
+  const activityId = data.activityId.trim();
+  const body = data.body.trim();
+
+  if (!projectId || !activityId) {
+    throw new Error('Project id and activity id are required');
+  }
+  if (!body) {
+    throw new Error('Comment body is required');
+  }
+
+  if (!isUuid(projectId) || !isUuid(activityId)) {
+    return createActivityComment({
+      activity_id: activityId,
+      body,
+    });
+  }
+
+  const authUser = await requireAuthUser('create activity comment');
+  const actorName = getActorName(authUser);
+  const { data: activityRow, error: lookupError } = await supabase
+    .from('activity_log')
+    .select('id, project_id')
+    .eq('id', activityId)
+    .maybeSingle();
+
+  if (lookupError) {
+    mergeErrors(lookupError, 'Unable to load activity');
+  }
+  if (!activityRow?.id || activityRow.project_id !== projectId) {
+    throw new Error('Activity not found for this project');
+  }
+
+  const { data: createdCommentRow, error: createError } = await supabase
+    .from('activity_comments')
+    .insert({
+      project_id: projectId,
+      activity_id: activityId,
+      author_user_id: authUser.id,
+      author_name_snapshot: actorName,
+      body,
+    })
+    .select(ACTIVITY_COMMENT_COLUMNS)
+    .single();
+
+  if (createError || !createdCommentRow) {
+    mergeErrors(createError, 'Unable to create activity comment');
+  }
+
+  mergeProjectActivityCommentsSnapshotFromSupabase({
+    currentAuthUserId: authUser.id,
+    projectId,
+    comments: [normalizeActivityCommentRow(createdCommentRow as SupabaseActivityCommentRow)],
+  });
+
+  const localComment = getActivityCommentsByProject(projectId, 1000).find(
+    (comment) => comment.id === createdCommentRow.id
+  );
+  if (localComment) return localComment;
+
+  return normalizeActivityCommentRow(createdCommentRow as SupabaseActivityCommentRow);
 }
 
 export async function createActivityInSupabase(

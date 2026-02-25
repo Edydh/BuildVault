@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectMemberRole, ProjectProgressComputation, getProjectById, Project, Folder, getFoldersByProject, getMediaByFolder, getMediaByProject, getMediaById, getMediaFiltered, getActivityByProject, getProjectMembers, getOrganizationMembers, computeProjectProgress } from '../../../lib/db';
+import { ActivityComment, ActivityLogEntry, MediaItem, OrganizationMember, ProjectMember, ProjectMemberRole, ProjectProgressComputation, getProjectById, Project, Folder, getFoldersByProject, getMediaByFolder, getMediaByProject, getMediaById, getMediaFiltered, getActivityByProject, getActivityCommentsByProject, getProjectMembers, getOrganizationMembers, computeProjectProgress } from '../../../lib/db';
 import { useFocusEffect } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { saveMediaToProject, getMediaType } from '../../../lib/files';
@@ -32,6 +32,7 @@ import { FAB_BOTTOM_OFFSET } from '../../../components/glass/layout';
 import { bvColors, bvFx } from '../../../lib/theme/tokens';
 import {
   createActivityInSupabase,
+  createActivityCommentInSupabase,
   createFolderInSupabase,
   createMediaInSupabase,
   addProjectMemberFromOrganizationInSupabase,
@@ -285,6 +286,7 @@ function ProjectDetailContent() {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [projectMedia, setProjectMedia] = useState<MediaItem[]>([]);
   const [recentActivity, setRecentActivity] = useState<ActivityLogEntry[]>([]);
+  const [activityComments, setActivityComments] = useState<ActivityComment[]>([]);
   const [visibleActivityCount, setVisibleActivityCount] = useState<number>(ACTIVITY_INITIAL_VISIBLE_COUNT);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
@@ -385,6 +387,10 @@ function ProjectDetailContent() {
   const [attachmentSearch, setAttachmentSearch] = useState('');
   const [activityCardOffsets, setActivityCardOffsets] = useState<Record<string, number>>({});
   const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
+  const [showActivityCommentModal, setShowActivityCommentModal] = useState(false);
+  const [commentTargetActivityId, setCommentTargetActivityId] = useState<string | null>(null);
+  const [activityCommentDraft, setActivityCommentDraft] = useState('');
+  const [isSavingActivityComment, setIsSavingActivityComment] = useState(false);
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -657,6 +663,8 @@ function ProjectDetailContent() {
       // Recent activity feed (always scoped to full project, not folder)
       const activityItems = getActivityByProject(id, ACTIVITY_QUERY_LIMIT);
       setRecentActivity(activityItems);
+      const activityCommentItems = getActivityCommentsByProject(id, 1000);
+      setActivityComments(activityCommentItems);
 
       // Team members (for activity assignment)
       const members = getProjectMembers(id);
@@ -1506,6 +1514,45 @@ function ProjectDetailContent() {
     } catch (error) {
       console.error('Error saving activity:', error);
       Alert.alert('Error', activityModalMode === 'edit' ? 'Could not update activity. Please try again.' : 'Could not add activity. Please try again.');
+    }
+  };
+
+  const handleOpenActivityCommentModal = (activityId: string) => {
+    setCommentTargetActivityId(activityId);
+    setActivityCommentDraft('');
+    setShowActivityCommentModal(true);
+  };
+
+  const handleCloseActivityCommentModal = (force = false) => {
+    if (isSavingActivityComment && !force) return;
+    setShowActivityCommentModal(false);
+    setCommentTargetActivityId(null);
+    setActivityCommentDraft('');
+  };
+
+  const handleSaveActivityComment = async () => {
+    if (!id || !commentTargetActivityId) return;
+    const body = activityCommentDraft.trim();
+    if (!body) {
+      Alert.alert('Missing comment', 'Please enter a comment before saving.');
+      return;
+    }
+
+    try {
+      setIsSavingActivityComment(true);
+      await createActivityCommentInSupabase({
+        projectId: id,
+        activityId: commentTargetActivityId,
+        body,
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      handleCloseActivityCommentModal(true);
+      loadData();
+    } catch (error) {
+      console.error('Error saving activity comment:', error);
+      Alert.alert('Error', 'Could not save comment. Please try again.');
+    } finally {
+      setIsSavingActivityComment(false);
     }
   };
 
@@ -3441,6 +3488,48 @@ function ProjectDetailContent() {
     },
   ];
 
+  const activityCommentsByActivityId = React.useMemo(() => {
+    const map = new Map<string, ActivityComment[]>();
+    for (const comment of activityComments) {
+      const activityId = comment.activity_id?.trim();
+      if (!activityId) continue;
+      const bucket = map.get(activityId);
+      if (bucket) {
+        bucket.push(comment);
+      } else {
+        map.set(activityId, [comment]);
+      }
+    }
+    for (const bucket of map.values()) {
+      bucket.sort((a, b) => a.created_at - b.created_at);
+    }
+    return map;
+  }, [activityComments]);
+
+  const resolveCommentAuthorName = useCallback((comment: ActivityComment): string => {
+    const snapshot = comment.author_name_snapshot?.trim();
+    if (snapshot) return snapshot;
+
+    const authorUserId = comment.author_user_id?.trim();
+    if (authorUserId) {
+      if (
+        (currentAuthUserId && authorUserId === currentAuthUserId) ||
+        (currentLocalUserId && authorUserId === currentLocalUserId)
+      ) {
+        return 'You';
+      }
+      const member = projectMembers.find((projectMember) => {
+        const memberUserId = projectMember.user_id?.trim();
+        return !!memberUserId && memberUserId === authorUserId;
+      });
+      if (member) {
+        return getProjectMemberDisplayName(member);
+      }
+    }
+
+    return 'Teammate';
+  }, [currentAuthUserId, currentLocalUserId, projectMembers, getProjectMemberDisplayName]);
+
   const recentActivityFeed = React.useMemo(() => {
     const projectMediaById = new Map(projectMedia.map((item) => [item.id, item]));
     const projectPreviewUris = projectMedia
@@ -3504,6 +3593,13 @@ function ProjectDetailContent() {
       const canManage = isManualEntry && canManageManualActivities;
       const canEditAsAssignee = isManualEntry && isAssignedToCurrentUser;
       const canRespondAsAssignee = !!(status && (status === 'assigned' || status === 'in_progress') && isAssignedToCurrentUser);
+      const comments = activityCommentsByActivityId.get(entry.id) || [];
+      const commentPreview = comments.slice(-3).map((comment) => ({
+        id: comment.id,
+        author: resolveCommentAuthorName(comment),
+        body: comment.body,
+        createdAt: comment.created_at,
+      }));
       return {
         id: entry.id,
         actionType: entry.action_type,
@@ -3521,6 +3617,8 @@ function ProjectDetailContent() {
         actorName,
         assigneeName,
         status,
+        commentCount: comments.length,
+        commentPreview,
         previewUris: canExpand ? projectPreviewUris : [],
         expanded: canExpand,
         ...presentation,
@@ -3528,6 +3626,7 @@ function ProjectDetailContent() {
     });
   }, [
     recentActivity,
+    activityCommentsByActivityId,
     projectMedia,
     id,
     canManageManualActivities,
@@ -3535,6 +3634,7 @@ function ProjectDetailContent() {
     currentLocalUserId,
     currentUserEmail,
     projectMembers,
+    resolveCommentAuthorName,
   ]);
 
   const visibleRecentActivityFeed = React.useMemo(
@@ -4233,6 +4333,63 @@ function ProjectDetailContent() {
                           <Text style={{ color: bvColors.text.secondary, fontSize: 15, marginTop: 8, lineHeight: 20 }}>
                             {entry.description}
                           </Text>
+
+                          {entry.commentCount > 0 ? (
+                            <View
+                              style={{
+                                marginTop: 10,
+                                borderTopWidth: 1,
+                                borderTopColor: bvFx.neutralBorder,
+                                paddingTop: 10,
+                              }}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                                <Ionicons
+                                  name="chatbubble-ellipses-outline"
+                                  size={14}
+                                  color={bvColors.text.muted}
+                                />
+                                <Text style={{ color: bvColors.text.muted, fontSize: 12, marginLeft: 6 }}>
+                                  {entry.commentCount} comment{entry.commentCount === 1 ? '' : 's'}
+                                </Text>
+                              </View>
+                              {entry.commentPreview.map((comment) => (
+                                <View key={comment.id} style={{ marginTop: 6 }}>
+                                  <Text style={{ color: bvColors.text.primary, fontSize: 12, fontWeight: '700' }}>
+                                    {comment.author}
+                                    <Text style={{ color: bvColors.text.muted, fontWeight: '500' }}>
+                                      {' '}• {formatRelativeTime(comment.createdAt)}
+                                    </Text>
+                                  </Text>
+                                  <Text style={{ color: bvColors.text.secondary, fontSize: 12, marginTop: 2 }}>
+                                    {comment.body}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+                          ) : null}
+
+                          <TouchableOpacity
+                            onPress={() => handleOpenActivityCommentModal(entry.id)}
+                            activeOpacity={0.84}
+                            style={{
+                              marginTop: 10,
+                              borderTopWidth: 1,
+                              borderTopColor: bvFx.neutralBorder,
+                              paddingTop: 10,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Ionicons
+                              name="chatbubble-ellipses-outline"
+                              size={15}
+                              color={bvColors.text.muted}
+                            />
+                            <Text style={{ color: bvColors.text.muted, fontSize: 12, marginLeft: 8 }}>
+                              {entry.commentCount > 0 ? 'Add another comment...' : 'Add a comment...'}
+                            </Text>
+                          </TouchableOpacity>
 
                           {entry.linkedState === 'available' ? (
                             <View
@@ -5051,6 +5208,60 @@ function ProjectDetailContent() {
             />
           </View>
         </ScrollView>
+      </GlassModal>
+
+      <GlassModal visible={showActivityCommentModal} onRequestClose={handleCloseActivityCommentModal}>
+        <View style={{ padding: 20 }}>
+          <Text
+            style={{
+              color: bvColors.text.primary,
+              fontSize: 20,
+              fontWeight: '700',
+              textAlign: 'center',
+              marginBottom: 6,
+            }}
+          >
+            Add Comment
+          </Text>
+          <Text
+            style={{
+              color: bvColors.text.muted,
+              fontSize: 13,
+              textAlign: 'center',
+              marginBottom: 14,
+            }}
+          >
+            Comment on this activity update for your project team.
+          </Text>
+
+          <GlassTextInput
+            label="Comment"
+            value={activityCommentDraft}
+            onChangeText={setActivityCommentDraft}
+            placeholder="Write a comment..."
+            multiline
+            numberOfLines={4}
+            inputStyle={{ minHeight: 88, textAlignVertical: 'top' }}
+            returnKeyType="done"
+          />
+
+          <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+            <GlassButton
+              title="Cancel"
+              onPress={handleCloseActivityCommentModal}
+              style={{ flex: 1 }}
+              variant="secondary"
+              disabled={isSavingActivityComment}
+            />
+            <GlassButton
+              title={isSavingActivityComment ? 'Saving...' : 'Save Comment'}
+              onPress={handleSaveActivityComment}
+              style={{ flex: 1 }}
+              variant="primary"
+              disabled={isSavingActivityComment}
+            />
+          </View>
+        </View>
       </GlassModal>
 
       <GlassModal visible={showAttachmentPickerModal} onRequestClose={handleCloseAttachmentPicker}>

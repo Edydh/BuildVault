@@ -159,6 +159,17 @@ type RemoteActivitySyncRow = {
   created_at: number;
 };
 
+type RemoteActivityCommentSyncRow = {
+  id: string;
+  project_id: string;
+  activity_id: string;
+  author_user_id?: string | null;
+  author_name_snapshot?: string | null;
+  body: string;
+  created_at: number;
+  updated_at: number;
+};
+
 type RemoteFolderSyncRow = {
   id: string;
   project_id: string;
@@ -319,6 +330,17 @@ export interface ActivityLogEntry {
   actor_name_snapshot?: string | null;
   metadata?: string | null;
   created_at: number;
+}
+
+export interface ActivityComment {
+  id: string;
+  project_id: string;
+  activity_id: string;
+  author_user_id?: string | null;
+  author_name_snapshot?: string | null;
+  body: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface ProjectNotification {
@@ -494,6 +516,7 @@ function adoptLegacyRowsForActiveUser(userId: string) {
     db.runSync(`UPDATE folders SET user_id = ? WHERE user_id IS NULL OR trim(user_id) = ''`, [userId]);
     db.runSync(`UPDATE media SET user_id = ? WHERE user_id IS NULL OR trim(user_id) = ''`, [userId]);
     db.runSync(`UPDATE activity_log SET user_id = ? WHERE user_id IS NULL OR trim(user_id) = ''`, [userId]);
+    db.runSync(`UPDATE activity_comments SET user_id = ? WHERE user_id IS NULL OR trim(user_id) = ''`, [userId]);
   } catch (error) {
     console.log('Legacy user scoping migration warning:', error);
   }
@@ -895,6 +918,20 @@ function mapActivityRow(row: Record<string, unknown>): ActivityLogEntry {
   };
 }
 
+function mapActivityCommentRow(row: Record<string, unknown>): ActivityComment {
+  const createdAt = toNullableNumber(row.created_at) ?? Date.now();
+  return {
+    id: String(row.id),
+    project_id: String(row.project_id),
+    activity_id: String(row.activity_id),
+    author_user_id: typeof row.author_user_id === 'string' ? row.author_user_id : null,
+    author_name_snapshot: typeof row.author_name_snapshot === 'string' ? row.author_name_snapshot : null,
+    body: typeof row.body === 'string' ? row.body : '',
+    created_at: createdAt,
+    updated_at: toNullableNumber(row.updated_at) ?? createdAt,
+  };
+}
+
 function mapProjectNotificationRow(row: Record<string, unknown>): ProjectNotification {
   const createdAt = toNullableNumber(row.created_at) ?? Date.now();
   return {
@@ -1005,6 +1042,8 @@ function repointUserReferences(sourceUserId: string, targetUserId: string) {
   db.runSync('UPDATE media SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE activity_log SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE activity_log SET actor_user_id = ? WHERE actor_user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE activity_comments SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
+  db.runSync('UPDATE activity_comments SET author_user_id = ? WHERE author_user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE project_notifications SET user_id = ? WHERE user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE project_notifications SET actor_user_id = ? WHERE actor_user_id = ?', [targetUserId, sourceUserId]);
   db.runSync('UPDATE organizations SET owner_user_id = ? WHERE owner_user_id = ?', [targetUserId, sourceUserId]);
@@ -1815,6 +1854,19 @@ export function migrate() {
         created_at INTEGER NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS activity_comments (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        project_id TEXT NOT NULL,
+        activity_id TEXT NOT NULL,
+        author_user_id TEXT,
+        author_name_snapshot TEXT,
+        body TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
+        FOREIGN KEY (activity_id) REFERENCES activity_log (id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS project_notifications (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
@@ -1912,6 +1964,8 @@ export function migrate() {
       UPDATE notes SET user_id = '' WHERE user_id IS NULL;
       UPDATE notes SET updated_at = created_at WHERE updated_at IS NULL;
       UPDATE activity_log SET user_id = '' WHERE user_id IS NULL;
+      UPDATE activity_comments SET user_id = '' WHERE user_id IS NULL;
+      UPDATE activity_comments SET updated_at = created_at WHERE updated_at IS NULL;
       UPDATE organizations SET updated_at = created_at WHERE updated_at IS NULL;
       UPDATE organization_members SET role = 'member' WHERE role IS NULL OR trim(role) = '';
       UPDATE organization_members SET status = 'invited' WHERE status IS NULL OR trim(status) = '';
@@ -1953,6 +2007,9 @@ export function migrate() {
         CREATE INDEX IF NOT EXISTS idx_folders_user_project ON folders(user_id, project_id);
         CREATE INDEX IF NOT EXISTS idx_activity_user_project_created_at ON activity_log(user_id, project_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_activity_project_created_at ON activity_log(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_activity_comments_user_project_created_at ON activity_comments(user_id, project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_activity_comments_project_activity_created_at ON activity_comments(project_id, activity_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_activity_comments_activity_created_at ON activity_comments(activity_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_project_notifications_user_created
           ON project_notifications(user_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_project_notifications_user_read_created
@@ -2712,6 +2769,93 @@ export function mergeProjectNotesSnapshotFromSupabase(
       db.runSync('DELETE FROM notes WHERE id = ? AND user_id = ?', [id, scopedUserId]);
     }
   }, 'Merge project notes snapshot from Supabase');
+}
+
+export function mergeProjectActivityCommentsSnapshotFromSupabase(
+  data: {
+    currentAuthUserId: string;
+    projectId: string;
+    comments: RemoteActivityCommentSyncRow[];
+  },
+  options?: { pruneMissing?: boolean }
+): void {
+  return withErrorHandlingSync(() => {
+    const scopedUserId = getScopedUserIdOrThrow();
+    const scopedUser = getUserById(scopedUserId);
+    const scopedAuthUserId = scopedUser?.authUserId?.trim() || data.currentAuthUserId.trim();
+    const projectId = data.projectId.trim();
+    if (!projectId) return;
+
+    const projectRow = db.getFirstSync(
+      `SELECT id
+       FROM projects
+       WHERE id = ?
+       LIMIT 1`,
+      [projectId]
+    ) as { id?: string } | null;
+    if (!projectRow?.id) return;
+
+    const normalizeUserId = (remoteUserId?: string | null): string | null => {
+      if (!remoteUserId) return null;
+      const trimmed = remoteUserId.trim();
+      if (!trimmed) return null;
+      if (trimmed === scopedAuthUserId) return scopedUserId;
+      const localUser = getUserByAuthUserId(trimmed);
+      return localUser?.id ?? trimmed;
+    };
+
+    for (const comment of data.comments) {
+      const id = comment.id.trim();
+      const remoteProjectId = comment.project_id.trim();
+      const activityId = comment.activity_id.trim();
+      const body = comment.body.trim();
+      if (!id || !remoteProjectId || !activityId || !body) continue;
+      if (remoteProjectId !== projectId) continue;
+
+      const authorUserId = normalizeUserId(comment.author_user_id) ?? null;
+      const authorNameSnapshot =
+        typeof comment.author_name_snapshot === 'string' ? comment.author_name_snapshot.trim() || null : null;
+      const createdAt = comment.created_at || Date.now();
+      const updatedAt = comment.updated_at || createdAt;
+
+      db.runSync(
+        `INSERT INTO activity_comments
+          (id, user_id, project_id, activity_id, author_user_id, author_name_snapshot, body, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
+           project_id = excluded.project_id,
+           activity_id = excluded.activity_id,
+           author_user_id = excluded.author_user_id,
+           author_name_snapshot = excluded.author_name_snapshot,
+           body = excluded.body,
+           created_at = excluded.created_at,
+           updated_at = excluded.updated_at`,
+        [id, scopedUserId, projectId, activityId, authorUserId, authorNameSnapshot, body, createdAt, updatedAt]
+      );
+    }
+
+    if (!options?.pruneMissing) return;
+    const remoteCommentIds = new Set(
+      data.comments
+        .map((comment) => comment.id.trim())
+        .filter((value) => value.length > 0)
+    );
+    const localCommentIds = db.getAllSync(
+      `SELECT id
+       FROM activity_comments
+       WHERE project_id = ?
+         AND user_id = ?`,
+      [projectId, scopedUserId]
+    ) as Array<Record<string, unknown>>;
+
+    for (const row of localCommentIds) {
+      const id = typeof row.id === 'string' ? row.id.trim() : '';
+      if (!id || !isUuid(id)) continue;
+      if (remoteCommentIds.has(id)) continue;
+      db.runSync('DELETE FROM activity_comments WHERE id = ? AND user_id = ?', [id, scopedUserId]);
+    }
+  }, 'Merge project activity comments snapshot from Supabase');
 }
 
 export function mergeProjectMembersSnapshotFromSupabase(
@@ -5207,6 +5351,82 @@ export function getActivityByProject(projectId: string, limit = 20): ActivityLog
     ) as Array<Record<string, unknown>>;
     return rows.map(mapActivityRow);
   }, 'Get activity by project');
+}
+
+export function getActivityCommentsByProject(projectId: string, limit = 500): ActivityComment[] {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    assertProjectAccess(projectId, userId);
+    const safeLimit = Math.max(1, Math.min(2000, Math.floor(limit || 500)));
+    const rows = db.getAllSync(
+      `SELECT *
+       FROM activity_comments
+       WHERE project_id = ?
+       ORDER BY created_at ASC
+       LIMIT ${safeLimit}`,
+      [projectId]
+    ) as Array<Record<string, unknown>>;
+    return rows.map(mapActivityCommentRow);
+  }, 'Get activity comments by project');
+}
+
+export function createActivityComment(data: {
+  activity_id: string;
+  body: string;
+  author_name_snapshot?: string | null;
+}): ActivityComment {
+  return withErrorHandlingSync(() => {
+    const userId = getScopedUserIdOrThrow();
+    const activityId = data.activity_id.trim();
+    if (!activityId) {
+      throw new Error('Activity id is required');
+    }
+
+    const body = data.body.trim();
+    if (!body) {
+      throw new Error('Comment body is required');
+    }
+
+    const activityRow = db.getFirstSync(
+      `SELECT id, project_id
+       FROM activity_log
+       WHERE id = ?
+       LIMIT 1`,
+      [activityId]
+    ) as { id?: string; project_id?: string } | null;
+
+    if (!activityRow?.id || !activityRow.project_id) {
+      throw new Error('Activity not found');
+    }
+
+    assertProjectAccess(activityRow.project_id, userId);
+    const now = Date.now();
+    const authorName =
+      (typeof data.author_name_snapshot === 'string' ? data.author_name_snapshot.trim() : '') ||
+      getUserById(userId)?.name?.trim() ||
+      activityActor?.name?.trim() ||
+      null;
+    const id = createId();
+
+    db.runSync(
+      `INSERT INTO activity_comments
+        (id, user_id, project_id, activity_id, author_user_id, author_name_snapshot, body, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, userId, activityRow.project_id, activityId, userId, authorName, body, now, now]
+    );
+
+    touchProject(activityRow.project_id, now, userId);
+    return {
+      id,
+      project_id: activityRow.project_id,
+      activity_id: activityId,
+      author_user_id: userId,
+      author_name_snapshot: authorName,
+      body,
+      created_at: now,
+      updated_at: now,
+    };
+  }, 'Create activity comment');
 }
 
 export function getProjectNotifications(limit = 50): ProjectNotification[] {
