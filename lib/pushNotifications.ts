@@ -83,7 +83,6 @@ function ensureNotificationHandlerConfigured(Notifications: typeof import('expo-
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
       shouldShowBanner: true,
