@@ -6,8 +6,11 @@ import * as dbModule from './db';
 import { supabase } from './supabase';
 import { syncOrganizationDataFromSupabase } from './supabaseCollaboration';
 import {
+  consumePendingPushProjectNavigationTarget,
   deactivateStoredPushTokenForCurrentUser,
   registerPushTokenForCurrentUser,
+  setPendingPushProjectNavigationTarget,
+  subscribeToPushNotificationOpens,
   triggerProjectNotificationPushDispatch,
 } from './pushNotifications';
 
@@ -31,6 +34,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const signInInProgressRef = useRef(false);
   const signOutInProgressRef = useRef(false);
+  const userRef = useRef<User | null>(null);
 
   const syncDbAuthState = (nextUser: User | null) => {
     const dbAccess = dbModule as {
@@ -61,6 +65,65 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.log('Collaboration sync skipped:', error);
     }
   };
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    let mounted = true;
+
+    (async () => {
+      try {
+        const cleanup = await subscribeToPushNotificationOpens(async (projectId) => {
+          const currentUser = userRef.current;
+          if (currentUser) {
+            router.push(`/project/${projectId}`);
+            return;
+          }
+
+          await setPendingPushProjectNavigationTarget(projectId);
+        });
+
+        if (!mounted) {
+          cleanup();
+          return;
+        }
+        unsubscribe = cleanup;
+      } catch (error) {
+        console.log('Push notification open bridge warning:', error);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const timeoutId = setTimeout(() => {
+      (async () => {
+        try {
+          const pendingProjectId = await consumePendingPushProjectNavigationTarget();
+          if (pendingProjectId) {
+            router.push(`/project/${pendingProjectId}`);
+          }
+        } catch (error) {
+          console.log('Consume pending push navigation warning:', error);
+        }
+      })();
+    }, 500);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     checkAuthState();

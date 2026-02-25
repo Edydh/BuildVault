@@ -6,6 +6,9 @@ import { supabase } from './supabase';
 const PUSH_TOKEN_STORAGE_KEY = '@buildvault/push/expo-token';
 const PUSH_DISPATCH_LAST_RUN_KEY = '@buildvault/push/dispatch-last-run';
 const PUSH_DISPATCH_COOLDOWN_MS = 15_000;
+const PUSH_PENDING_PROJECT_KEY = '@buildvault/push/pending-project-id';
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type PushModules = {
   Device: typeof import('expo-device');
@@ -106,6 +109,105 @@ function resolvePlatform(): 'ios' | 'android' | 'unknown' {
   if (Platform.OS === 'ios') return 'ios';
   if (Platform.OS === 'android') return 'android';
   return 'unknown';
+}
+
+function normalizeProjectId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!UUID_REGEX.test(trimmed)) return null;
+  return trimmed;
+}
+
+function extractProjectIdFromNotificationResponse(response: unknown): string | null {
+  if (!response || typeof response !== 'object') return null;
+  const notification = (response as { notification?: unknown }).notification;
+  if (!notification || typeof notification !== 'object') return null;
+  const request = (notification as { request?: unknown }).request;
+  if (!request || typeof request !== 'object') return null;
+  const content = (request as { content?: unknown }).content;
+  if (!content || typeof content !== 'object') return null;
+  const data = (content as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return null;
+
+  const projectId = normalizeProjectId((data as { projectId?: unknown }).projectId);
+  if (projectId) return projectId;
+
+  const snakeCaseProjectId = normalizeProjectId((data as { project_id?: unknown }).project_id);
+  if (snakeCaseProjectId) return snakeCaseProjectId;
+
+  return null;
+}
+
+export async function setPendingPushProjectNavigationTarget(projectId: string): Promise<void> {
+  const normalizedId = normalizeProjectId(projectId);
+  if (!normalizedId) return;
+  await AsyncStorage.setItem(PUSH_PENDING_PROJECT_KEY, normalizedId);
+}
+
+export async function consumePendingPushProjectNavigationTarget(): Promise<string | null> {
+  const stored = await AsyncStorage.getItem(PUSH_PENDING_PROJECT_KEY);
+  const normalizedId = normalizeProjectId(stored);
+  if (!normalizedId) {
+    if (stored) {
+      await AsyncStorage.removeItem(PUSH_PENDING_PROJECT_KEY);
+    }
+    return null;
+  }
+  await AsyncStorage.removeItem(PUSH_PENDING_PROJECT_KEY);
+  return normalizedId;
+}
+
+export async function subscribeToPushNotificationOpens(
+  onProjectId: (projectId: string) => void | Promise<void>
+): Promise<() => void> {
+  if (Platform.OS === 'web') return () => undefined;
+
+  const modules = await loadPushModules();
+  if (!modules) return () => undefined;
+  const { Notifications } = modules;
+
+  let active = true;
+  const handleResponse = async (response: unknown) => {
+    if (!active) return;
+    const projectId = extractProjectIdFromNotificationResponse(response);
+    if (!projectId) return;
+
+    try {
+      await onProjectId(projectId);
+      if (typeof Notifications.clearLastNotificationResponseAsync === 'function') {
+        await Notifications.clearLastNotificationResponseAsync();
+      }
+    } catch (error) {
+      console.log('Push open callback warning:', error);
+    }
+  };
+
+  try {
+    if (typeof Notifications.getLastNotificationResponseAsync === 'function') {
+      const initialResponse = await Notifications.getLastNotificationResponseAsync();
+      await handleResponse(initialResponse);
+    }
+  } catch (error) {
+    console.log('Push initial response warning:', error);
+  }
+
+  if (typeof Notifications.addNotificationResponseReceivedListener !== 'function') {
+    return () => undefined;
+  }
+
+  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    void handleResponse(response);
+  });
+
+  return () => {
+    active = false;
+    try {
+      subscription.remove();
+    } catch {
+      // no-op
+    }
+  };
 }
 
 export async function registerPushTokenForCurrentUser(): Promise<string | null> {
