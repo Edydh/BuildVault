@@ -117,6 +117,26 @@ const PROJECT_MANAGEABLE_MEMBER_ROLES: Array<Exclude<ProjectMemberRole, 'owner'>
   'worker',
   'client',
 ];
+const AnimatedFlatList = Reanimated.createAnimatedComponent(FlatList);
+const UUID_PARAM_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function getFirstRouteParam(value?: string | string[]): string | null {
+  if (Array.isArray(value)) {
+    const first = value[0];
+    return typeof first === 'string' && first.trim().length > 0 ? first.trim() : null;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim();
+  }
+  return null;
+}
+
+function normalizeRouteUuid(value?: string | string[]): string | null {
+  const first = getFirstRouteParam(value);
+  if (!first) return null;
+  return UUID_PARAM_REGEX.test(first) ? first : null;
+}
 
 function isActivityStatus(value: string): value is ActivityStatus {
   return ACTIVITY_STATUS_VALUES.has(value as ActivityStatus);
@@ -249,10 +269,18 @@ function getMediaSyncBadge(item: MediaItem): MediaSyncBadge | null {
 }
 
 function ProjectDetailContent() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id?: string | string[];
+    activityId?: string | string[];
+    notificationId?: string | string[];
+  }>();
+  const id = getFirstRouteParam(params.id) ?? '';
+  const deepLinkedActivityId = normalizeRouteUuid(params.activityId);
   const router = useRouter();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const mediaListRef = React.useRef<React.ComponentRef<typeof AnimatedFlatList> | null>(null);
+  const deepLinkScrollHandledRef = React.useRef<string | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [projectMedia, setProjectMedia] = useState<MediaItem[]>([]);
@@ -309,8 +337,6 @@ function ProjectDetailContent() {
     })();
   }, []);
 
-  // Create Animated components
-  const AnimatedFlatList = Reanimated.createAnimatedComponent(FlatList);
   const [headerHeight, setHeaderHeight] = useState<number>(0);
   const topOverlayHeight = headerHeight > 0 ? headerHeight : insets.top + 160;
   const headerOpacity = useSharedValue(1);
@@ -357,6 +383,8 @@ function ProjectDetailContent() {
   const [showAttachmentPickerModal, setShowAttachmentPickerModal] = useState(false);
   const [attachmentFilter, setAttachmentFilter] = useState<AttachmentFilter>('all');
   const [attachmentSearch, setAttachmentSearch] = useState('');
+  const [activityCardOffsets, setActivityCardOffsets] = useState<Record<string, number>>({});
+  const [highlightedActivityId, setHighlightedActivityId] = useState<string | null>(null);
 
   // Load saved view mode preference
   const loadViewModePreference = useCallback(async () => {
@@ -801,6 +829,15 @@ function ProjectDetailContent() {
   useEffect(() => {
     setVisibleActivityCount(ACTIVITY_INITIAL_VISIBLE_COUNT);
   }, [id]);
+
+  useEffect(() => {
+    setActivityCardOffsets({});
+    deepLinkScrollHandledRef.current = null;
+  }, [id]);
+
+  useEffect(() => {
+    deepLinkScrollHandledRef.current = null;
+  }, [deepLinkedActivityId]);
 
   // Load view mode preference when component mounts
   useEffect(() => {
@@ -3494,6 +3531,48 @@ function ProjectDetailContent() {
     [recentActivityFeed, visibleActivityCount]
   );
 
+  useEffect(() => {
+    if (!deepLinkedActivityId) {
+      setHighlightedActivityId(null);
+      return;
+    }
+
+    const targetIndex = recentActivityFeed.findIndex((entry) => entry.id === deepLinkedActivityId);
+    if (targetIndex < 0) return;
+
+    setVisibleActivityCount((prev) => Math.max(prev, targetIndex + 1));
+    setHighlightedActivityId(deepLinkedActivityId);
+  }, [deepLinkedActivityId, recentActivityFeed]);
+
+  useEffect(() => {
+    if (!deepLinkedActivityId) return;
+    if (deepLinkScrollHandledRef.current === deepLinkedActivityId) return;
+
+    const y = activityCardOffsets[deepLinkedActivityId];
+    if (typeof y !== 'number') return;
+
+    const nextOffset = Math.max(0, topOverlayHeight + y - 120);
+    requestAnimationFrame(() => {
+      const listInstance = mediaListRef.current as unknown as {
+        scrollToOffset?: (params: { animated?: boolean; offset: number }) => void;
+      } | null;
+      listInstance?.scrollToOffset?.({
+        animated: true,
+        offset: nextOffset,
+      });
+    });
+
+    deepLinkScrollHandledRef.current = deepLinkedActivityId;
+  }, [activityCardOffsets, deepLinkedActivityId, topOverlayHeight]);
+
+  useEffect(() => {
+    if (!highlightedActivityId) return;
+    const timeoutId = setTimeout(() => {
+      setHighlightedActivityId((current) => (current === highlightedActivityId ? null : current));
+    }, 8000);
+    return () => clearTimeout(timeoutId);
+  }, [highlightedActivityId]);
+
   const hasMoreRecentActivity = visibleActivityCount < recentActivityFeed.length;
   const canCollapseRecentActivity =
     recentActivityFeed.length > ACTIVITY_INITIAL_VISIBLE_COUNT &&
@@ -3878,6 +3957,7 @@ function ProjectDetailContent() {
       {/* Media List/Grid */}
 
       <AnimatedFlatList
+        ref={mediaListRef}
         data={visibleMedia}
         keyExtractor={(item) => (item as MediaItem).id}
         contentContainerStyle={{ 
@@ -3980,7 +4060,17 @@ function ProjectDetailContent() {
                   />
 
                   {visibleRecentActivityFeed.map((entry) => (
-                    <View key={entry.id} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 }}>
+                    <View
+                      key={entry.id}
+                      onLayout={({ nativeEvent }) => {
+                        const nextY = Math.round(nativeEvent.layout.y);
+                        setActivityCardOffsets((prev) => {
+                          if (prev[entry.id] === nextY) return prev;
+                          return { ...prev, [entry.id]: nextY };
+                        });
+                      }}
+                      style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 }}
+                    >
                       <View
                         style={{
                           width: 48,
@@ -4004,7 +4094,16 @@ function ProjectDetailContent() {
 
                       <View style={{ flex: 1 }}>
                         <BVCard
-                          style={{ width: '100%' }}
+                          style={{
+                            width: '100%',
+                            borderWidth: highlightedActivityId === entry.id ? 1.5 : 0,
+                            borderColor:
+                              highlightedActivityId === entry.id
+                                ? bvColors.brand.primaryLight
+                                : 'transparent',
+                            backgroundColor:
+                              highlightedActivityId === entry.id ? bvFx.brandSoft : undefined,
+                          }}
                           contentStyle={{ padding: 14 }}
                           onPress={
                             entry.linkedState === 'available'
@@ -4029,6 +4128,18 @@ function ProjectDetailContent() {
                                 {entry.status ? ` • ${formatActivityStatusLabel(entry.status)}` : ''}
                                 {entry.assigneeName ? ` • ${entry.assigneeName}` : ''}
                               </Text>
+                              {highlightedActivityId === entry.id ? (
+                                <Text
+                                  style={{
+                                    color: bvColors.brand.primaryLight,
+                                    fontSize: 12,
+                                    fontWeight: '700',
+                                    marginTop: 4,
+                                  }}
+                                >
+                                  Opened from notification
+                                </Text>
+                              ) : null}
                             </View>
                             {entry.linkedState === 'available' ? (
                               <View

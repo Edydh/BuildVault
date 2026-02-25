@@ -10,6 +10,22 @@ const PUSH_PENDING_PROJECT_KEY = '@buildvault/push/pending-project-id';
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export type PushNavigationTarget = {
+  projectId: string;
+  activityId?: string | null;
+  notificationId?: string | null;
+};
+
+export type PushNotificationDiagnostics = {
+  runtime: 'ios' | 'android' | 'web' | 'unknown';
+  modulesAvailable: boolean;
+  easProjectIdConfigured: boolean;
+  hasStoredToken: boolean;
+  tokenPreview: string | null;
+  lastDispatchAt: number | null;
+  pendingNavigationTarget: PushNavigationTarget | null;
+};
+
 type PushModules = {
   Device: typeof import('expo-device');
   Notifications: typeof import('expo-notifications');
@@ -111,7 +127,7 @@ function resolvePlatform(): 'ios' | 'android' | 'unknown' {
   return 'unknown';
 }
 
-function normalizeProjectId(value: unknown): string | null {
+function normalizeUuid(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -119,7 +135,19 @@ function normalizeProjectId(value: unknown): string | null {
   return trimmed;
 }
 
-function extractProjectIdFromNotificationResponse(response: unknown): string | null {
+function normalizeProjectId(value: unknown): string | null {
+  return normalizeUuid(value);
+}
+
+function normalizeActivityId(value: unknown): string | null {
+  return normalizeUuid(value);
+}
+
+function normalizeNotificationId(value: unknown): string | null {
+  return normalizeUuid(value);
+}
+
+function getPushPayloadData(response: unknown): Record<string, unknown> | null {
   if (!response || typeof response !== 'object') return null;
   const notification = (response as { notification?: unknown }).notification;
   if (!notification || typeof notification !== 'object') return null;
@@ -129,37 +157,105 @@ function extractProjectIdFromNotificationResponse(response: unknown): string | n
   if (!content || typeof content !== 'object') return null;
   const data = (content as { data?: unknown }).data;
   if (!data || typeof data !== 'object') return null;
-
-  const projectId = normalizeProjectId((data as { projectId?: unknown }).projectId);
-  if (projectId) return projectId;
-
-  const snakeCaseProjectId = normalizeProjectId((data as { project_id?: unknown }).project_id);
-  if (snakeCaseProjectId) return snakeCaseProjectId;
-
-  return null;
+  return data as Record<string, unknown>;
 }
 
-export async function setPendingPushProjectNavigationTarget(projectId: string): Promise<void> {
+function extractPushNavigationTargetFromNotificationResponse(
+  response: unknown
+): PushNavigationTarget | null {
+  const data = getPushPayloadData(response);
+  if (!data) return null;
+
+  const projectId = normalizeProjectId(data.projectId);
+  const snakeCaseProjectId = normalizeProjectId(data.project_id);
+  const normalizedProjectId = projectId || snakeCaseProjectId;
+  if (!normalizedProjectId) return null;
+
+  const activityId = normalizeActivityId(data.activityId) || normalizeActivityId(data.activity_id);
+  const notificationId =
+    normalizeNotificationId(data.notificationId) || normalizeNotificationId(data.notification_id);
+
+  return {
+    projectId: normalizedProjectId,
+    activityId,
+    notificationId,
+  };
+}
+
+function encodePushNavigationTarget(target: PushNavigationTarget): string | null {
+  const projectId = normalizeProjectId(target.projectId);
+  if (!projectId) return null;
+  const payload: PushNavigationTarget = {
+    projectId,
+    activityId: normalizeActivityId(target.activityId),
+    notificationId: normalizeNotificationId(target.notificationId),
+  };
+  return JSON.stringify(payload);
+}
+
+function decodePushNavigationTarget(stored: string | null): PushNavigationTarget | null {
+  if (!stored || typeof stored !== 'string') return null;
+  const trimmed = stored.trim();
+  if (!trimmed) return null;
+
+  // Backward compatibility: old pending value stored only a project id string.
+  const legacyProjectId = normalizeProjectId(trimmed);
+  if (legacyProjectId) {
+    return { projectId: legacyProjectId };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      projectId?: unknown;
+      activityId?: unknown;
+      notificationId?: unknown;
+    };
+    const projectId = normalizeProjectId(parsed.projectId);
+    if (!projectId) return null;
+    return {
+      projectId,
+      activityId: normalizeActivityId(parsed.activityId),
+      notificationId: normalizeNotificationId(parsed.notificationId),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildTarget(projectId: string, options?: { activityId?: string | null; notificationId?: string | null }) {
+  return {
+    projectId,
+    activityId: normalizeActivityId(options?.activityId),
+    notificationId: normalizeNotificationId(options?.notificationId),
+  } as PushNavigationTarget;
+}
+
+export async function setPendingPushProjectNavigationTarget(
+  projectId: string,
+  options?: { activityId?: string | null; notificationId?: string | null }
+): Promise<void> {
   const normalizedId = normalizeProjectId(projectId);
   if (!normalizedId) return;
-  await AsyncStorage.setItem(PUSH_PENDING_PROJECT_KEY, normalizedId);
+  const encoded = encodePushNavigationTarget(buildTarget(normalizedId, options));
+  if (!encoded) return;
+  await AsyncStorage.setItem(PUSH_PENDING_PROJECT_KEY, encoded);
 }
 
-export async function consumePendingPushProjectNavigationTarget(): Promise<string | null> {
+export async function consumePendingPushProjectNavigationTarget(): Promise<PushNavigationTarget | null> {
   const stored = await AsyncStorage.getItem(PUSH_PENDING_PROJECT_KEY);
-  const normalizedId = normalizeProjectId(stored);
-  if (!normalizedId) {
+  const target = decodePushNavigationTarget(stored);
+  if (!target) {
     if (stored) {
       await AsyncStorage.removeItem(PUSH_PENDING_PROJECT_KEY);
     }
     return null;
   }
   await AsyncStorage.removeItem(PUSH_PENDING_PROJECT_KEY);
-  return normalizedId;
+  return target;
 }
 
 export async function subscribeToPushNotificationOpens(
-  onProjectId: (projectId: string) => void | Promise<void>
+  onTarget: (target: PushNavigationTarget) => void | Promise<void>
 ): Promise<() => void> {
   if (Platform.OS === 'web') return () => undefined;
 
@@ -170,11 +266,11 @@ export async function subscribeToPushNotificationOpens(
   let active = true;
   const handleResponse = async (response: unknown) => {
     if (!active) return;
-    const projectId = extractProjectIdFromNotificationResponse(response);
-    if (!projectId) return;
+    const target = extractPushNavigationTargetFromNotificationResponse(response);
+    if (!target) return;
 
     try {
-      await onProjectId(projectId);
+      await onTarget(target);
       if (typeof Notifications.clearLastNotificationResponseAsync === 'function') {
         await Notifications.clearLastNotificationResponseAsync();
       }
@@ -303,6 +399,7 @@ export async function deactivateStoredPushTokenForCurrentUser(): Promise<void> {
   if (error) {
     console.log('Push token deactivate warning:', error.message || error);
   }
+  await AsyncStorage.removeItem(PUSH_TOKEN_STORAGE_KEY);
 }
 
 export async function triggerProjectNotificationPushDispatch(limit = 50): Promise<void> {
@@ -327,4 +424,31 @@ export async function triggerProjectNotificationPushDispatch(limit = 50): Promis
   }
 
   await AsyncStorage.setItem(PUSH_DISPATCH_LAST_RUN_KEY, String(now));
+}
+
+export async function getPushNotificationDiagnostics(): Promise<PushNotificationDiagnostics> {
+  const [modules, storedToken, lastDispatchRaw, pendingRaw] = await Promise.all([
+    Platform.OS === 'web' ? Promise.resolve(null) : loadPushModules(),
+    AsyncStorage.getItem(PUSH_TOKEN_STORAGE_KEY),
+    AsyncStorage.getItem(PUSH_DISPATCH_LAST_RUN_KEY),
+    AsyncStorage.getItem(PUSH_PENDING_PROJECT_KEY),
+  ]);
+
+  const lastDispatchMs = Number(lastDispatchRaw || '');
+  const pendingTarget = decodePushNavigationTarget(pendingRaw);
+  const tokenValue = typeof storedToken === 'string' ? storedToken.trim() : '';
+  const tokenPreview = tokenValue.length > 16 ? `${tokenValue.slice(0, 12)}…` : tokenValue || null;
+
+  return {
+    runtime: Platform.OS === 'ios' || Platform.OS === 'android' || Platform.OS === 'web'
+      ? Platform.OS
+      : 'unknown',
+    modulesAvailable: Platform.OS === 'web' ? false : !!modules,
+    easProjectIdConfigured: !!resolveProjectId(),
+    hasStoredToken: tokenValue.length > 0,
+    tokenPreview,
+    lastDispatchAt:
+      Number.isFinite(lastDispatchMs) && lastDispatchMs > 0 ? Math.floor(lastDispatchMs) : null,
+    pendingNavigationTarget: pendingTarget,
+  };
 }

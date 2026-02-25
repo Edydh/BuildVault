@@ -66,6 +66,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  const buildPushTargetRoute = (target: {
+    projectId: string;
+    activityId?: string | null;
+    notificationId?: string | null;
+  }): string => {
+    const queryParts: string[] = [];
+    if (typeof target.activityId === 'string' && target.activityId.trim().length > 0) {
+      queryParts.push(`activityId=${encodeURIComponent(target.activityId.trim())}`);
+    }
+    if (typeof target.notificationId === 'string' && target.notificationId.trim().length > 0) {
+      queryParts.push(`notificationId=${encodeURIComponent(target.notificationId.trim())}`);
+    }
+    const query = queryParts.join('&');
+    return query.length > 0 ? `/project/${target.projectId}?${query}` : `/project/${target.projectId}`;
+  };
+
   useEffect(() => {
     userRef.current = user;
   }, [user]);
@@ -76,14 +92,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     (async () => {
       try {
-        const cleanup = await subscribeToPushNotificationOpens(async (projectId) => {
+        const cleanup = await subscribeToPushNotificationOpens(async (target) => {
           const currentUser = userRef.current;
           if (currentUser) {
-            router.push(`/project/${projectId}`);
+            router.push(buildPushTargetRoute(target));
             return;
           }
 
-          await setPendingPushProjectNavigationTarget(projectId);
+          await setPendingPushProjectNavigationTarget(target.projectId, {
+            activityId: target.activityId,
+            notificationId: target.notificationId,
+          });
         });
 
         if (!mounted) {
@@ -110,9 +129,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const timeoutId = setTimeout(() => {
       (async () => {
         try {
-          const pendingProjectId = await consumePendingPushProjectNavigationTarget();
-          if (pendingProjectId) {
-            router.push(`/project/${pendingProjectId}`);
+          const pendingTarget = await consumePendingPushProjectNavigationTarget();
+          if (pendingTarget) {
+            router.push(buildPushTargetRoute(pendingTarget));
           }
         } catch (error) {
           console.log('Consume pending push navigation warning:', error);

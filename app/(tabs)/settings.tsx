@@ -31,6 +31,10 @@ import {
   markProjectNotificationReadInSupabase,
   syncProjectsAndActivityFromSupabase,
 } from '../../lib/supabaseProjectsSync';
+import {
+  getPushNotificationDiagnostics,
+  type PushNotificationDiagnostics,
+} from '../../lib/pushNotifications';
 import NoteSettings from '../../components/NoteSettings';
 import {
   useGlassTheme,
@@ -110,8 +114,20 @@ export default function Settings() {
   const [notifications, setNotifications] = React.useState<ProjectNotification[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = React.useState(0);
   const [isLoadingNotifications, setIsLoadingNotifications] = React.useState(false);
+  const [pushDiagnostics, setPushDiagnostics] = React.useState<PushNotificationDiagnostics | null>(null);
+
+  const refreshPushDiagnostics = useCallback(async () => {
+    try {
+      const snapshot = await getPushNotificationDiagnostics();
+      setPushDiagnostics(snapshot);
+    } catch (error) {
+      console.log('Push diagnostics warning:', error);
+    }
+  }, []);
 
   const refreshNotifications = useCallback(async () => {
+    void refreshPushDiagnostics();
+
     if (!user) {
       setNotifications([]);
       setUnreadNotificationCount(0);
@@ -163,8 +179,9 @@ export default function Settings() {
       setUnreadNotificationCount(0);
     } finally {
       setIsLoadingNotifications(false);
+      void refreshPushDiagnostics();
     }
-  }, [user]);
+  }, [refreshPushDiagnostics, user]);
 
   const handleOpenNotification = useCallback(
     async (notification: ProjectNotification) => {
@@ -190,7 +207,13 @@ export default function Settings() {
         );
         setUnreadNotificationCount((prev) => Math.max(0, prev - 1));
       }
-      router.push(`/project/${notification.project_id}`);
+      const queryParts: string[] = [];
+      if (notification.activity_id?.trim()) {
+        queryParts.push(`activityId=${encodeURIComponent(notification.activity_id.trim())}`);
+      }
+      queryParts.push(`notificationId=${encodeURIComponent(notification.id)}`);
+      const query = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
+      router.push(`/project/${notification.project_id}${query}`);
     },
     [router]
   );
@@ -930,6 +953,41 @@ export default function Settings() {
           </View>
 
           <BVCard style={{ marginBottom: 16 }} contentStyle={{ padding: 16 }}>
+            <View
+              style={{
+                backgroundColor: bvFx.glassSoft,
+                borderColor: bvFx.glassBorderSoft,
+                borderRadius: bvRadius.md,
+                borderWidth: 1,
+                marginBottom: 14,
+                padding: 10,
+              }}
+            >
+              <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.secondary, fontWeight: '700' }}>
+                Push Diagnostics
+              </Text>
+              <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 4 }}>
+                Runtime: {pushDiagnostics?.runtime || 'unknown'} • Modules:{' '}
+                {pushDiagnostics ? (pushDiagnostics.modulesAvailable ? 'ready' : 'unavailable') : 'loading'}
+              </Text>
+              <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>
+                Token cache: {pushDiagnostics?.hasStoredToken ? 'present' : 'missing'}
+                {pushDiagnostics?.tokenPreview ? ` (${pushDiagnostics.tokenPreview})` : ''}
+              </Text>
+              <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>
+                Last dispatch:{' '}
+                {pushDiagnostics?.lastDispatchAt ? formatRelativeTime(pushDiagnostics.lastDispatchAt) : 'never'}
+              </Text>
+              {pushDiagnostics?.pendingNavigationTarget ? (
+                <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>
+                  Pending open: project {pushDiagnostics.pendingNavigationTarget.projectId.slice(0, 8)}
+                  {pushDiagnostics.pendingNavigationTarget.activityId
+                    ? ` • activity ${pushDiagnostics.pendingNavigationTarget.activityId.slice(0, 8)}`
+                    : ''}
+                </Text>
+              ) : null}
+            </View>
+
             {isLoadingNotifications ? (
               <Text style={{ ...bvTypography.bodyRegular, color: bvColors.text.muted }}>
                 Loading updates...

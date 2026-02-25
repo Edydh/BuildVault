@@ -7,6 +7,7 @@ type DispatchPayload = {
 type ProjectNotificationRow = {
   id: string;
   project_id: string;
+  activity_id?: string | null;
   recipient_user_id: string;
   action_type: string;
   title: string | null;
@@ -128,7 +129,7 @@ Deno.serve(async (req) => {
   const { data: notificationRowsRaw, error: notificationError } = await serviceClient
     .from('project_notifications')
     .select(
-      'id, project_id, recipient_user_id, action_type, title, body, created_at, push_dispatch_attempts'
+      'id, project_id, activity_id, recipient_user_id, action_type, title, body, created_at, push_dispatch_attempts'
     )
     .is('push_dispatched_at', null)
     .lt('push_dispatch_attempts', MAX_PUSH_ATTEMPTS)
@@ -228,6 +229,7 @@ Deno.serve(async (req) => {
         body,
         data: {
           projectId: notification.project_id,
+          activityId: notification.activity_id || '',
           notificationId: notification.id,
           actionType: notification.action_type,
         },
