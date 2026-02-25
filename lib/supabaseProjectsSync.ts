@@ -37,6 +37,8 @@ import {
   mergeProjectNotesSnapshotFromSupabase,
   mergeProjectPublicProfileSnapshotFromSupabase,
   mergeProjectsAndActivitySnapshotFromSupabase,
+  markAllProjectNotificationsRead,
+  markProjectNotificationRead,
   moveMediaToFolder,
   removeProjectMemberById,
   setProjectMemberRoleById,
@@ -1754,11 +1756,54 @@ export async function syncProjectsAndActivityFromSupabase(): Promise<void> {
     });
   }
 
-  try {
-    await triggerProjectNotificationPushDispatch(80);
-  } catch (error) {
+  void triggerProjectNotificationPushDispatch(80).catch((error) => {
     console.log('Project notification push dispatch skipped:', error);
+  });
+}
+
+export async function markProjectNotificationReadInSupabase(
+  notificationId: string,
+  readAt: number = Date.now()
+): Promise<void> {
+  const normalizedId = notificationId.trim();
+  if (!normalizedId) return;
+
+  if (!isUuid(normalizedId)) {
+    markProjectNotificationRead(normalizedId, readAt);
+    return;
   }
+
+  const authUser = await requireAuthUser('mark notification read');
+  const readAtIso = new Date(readAt).toISOString();
+  const { error } = await supabase
+    .from('project_notifications')
+    .update({ read_at: readAtIso })
+    .eq('id', normalizedId)
+    .eq('recipient_user_id', authUser.id);
+
+  if (error) {
+    mergeErrors(error, 'Unable to mark notification as read');
+  }
+
+  markProjectNotificationRead(normalizedId, readAt);
+}
+
+export async function markAllProjectNotificationsReadInSupabase(
+  readAt: number = Date.now()
+): Promise<void> {
+  const authUser = await requireAuthUser('mark all notifications read');
+  const readAtIso = new Date(readAt).toISOString();
+  const { error } = await supabase
+    .from('project_notifications')
+    .update({ read_at: readAtIso })
+    .eq('recipient_user_id', authUser.id)
+    .is('read_at', null);
+
+  if (error) {
+    mergeErrors(error, 'Unable to mark all notifications as read');
+  }
+
+  markAllProjectNotificationsRead(readAt);
 }
 
 export async function syncProjectContentFromSupabase(projectId: string): Promise<void> {
@@ -2749,11 +2794,9 @@ export async function createActivityInSupabase(
     activities: [normalizeActivityRow(createdRow as SupabaseActivityRow)],
   });
 
-  try {
-    await triggerProjectNotificationPushDispatch(80);
-  } catch (error) {
+  void triggerProjectNotificationPushDispatch(80).catch((error) => {
     console.log('Project notification push dispatch skipped:', error);
-  }
+  });
 
   const localEntry = getActivityByProject(projectId, 100).find((entry) => entry.id === createdRow.id);
   if (!localEntry) {

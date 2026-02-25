@@ -25,7 +25,12 @@ import {
 } from '../../lib/db';
 import { deleteProjectDir, clearAllProjectDirs } from '../../lib/files';
 import { useAuth } from '../../lib/AuthContext';
-import { deleteProjectInSupabase, syncProjectsAndActivityFromSupabase } from '../../lib/supabaseProjectsSync';
+import {
+  deleteProjectInSupabase,
+  markAllProjectNotificationsReadInSupabase,
+  markProjectNotificationReadInSupabase,
+  syncProjectsAndActivityFromSupabase,
+} from '../../lib/supabaseProjectsSync';
 import NoteSettings from '../../components/NoteSettings';
 import {
   useGlassTheme,
@@ -115,12 +120,22 @@ export default function Settings() {
 
     setIsLoadingNotifications(true);
     try {
-      await syncProjectsAndActivityFromSupabase();
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const syncTimeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('Notifications sync timed out'));
+        }, 8000);
+      });
+      await Promise.race([syncProjectsAndActivityFromSupabase(), syncTimeout]);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : '';
       const isAuthSessionIssue =
         message.includes('auth session missing') ||
         message.includes('must be signed in') ||
+        message.includes('timed out') ||
         message.includes('invalid refresh token');
       if (!isAuthSessionIssue) {
         console.log('Notifications sync warning:', error);
@@ -152,19 +167,23 @@ export default function Settings() {
   }, [user]);
 
   const handleOpenNotification = useCallback(
-    (notification: ProjectNotification) => {
+    async (notification: ProjectNotification) => {
       if (!notification.read_at) {
+        const readAt = Date.now();
         try {
-          markProjectNotificationRead(notification.id);
+          await markProjectNotificationReadInSupabase(notification.id, readAt);
         } catch (error) {
-          console.log('Mark notification read warning:', error);
+          console.log('Mark notification read in Supabase warning:', error);
+          try {
+            markProjectNotificationRead(notification.id, readAt);
+          } catch {}
         }
         setNotifications((prev) =>
           prev.map((item) =>
             item.id === notification.id
               ? {
                   ...item,
-                  read_at: item.read_at ?? Date.now(),
+                  read_at: item.read_at ?? readAt,
                 }
               : item
           )
@@ -176,25 +195,38 @@ export default function Settings() {
     [router]
   );
 
-  const handleMarkAllNotificationsRead = useCallback(() => {
+  const handleMarkAllNotificationsRead = useCallback(async () => {
+    const readAt = Date.now();
     try {
-      markAllProjectNotificationsRead();
+      await markAllProjectNotificationsReadInSupabase(readAt);
       setNotifications((prev) =>
         prev.map((item) =>
           item.read_at
             ? item
             : {
                 ...item,
-                read_at: Date.now(),
+                read_at: readAt,
               }
         )
       );
       setUnreadNotificationCount(0);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
-      console.log('Mark all notifications read warning:', error);
-      setSheetMessage('Could not mark notifications as read.');
-      setShowErrorSheet(true);
+      console.log('Mark all notifications read in Supabase warning:', error);
+      try {
+        markAllProjectNotificationsRead(readAt);
+      } catch {}
+      setNotifications((prev) =>
+        prev.map((item) =>
+          item.read_at
+            ? item
+            : {
+                ...item,
+                read_at: readAt,
+              }
+        )
+      );
+      setUnreadNotificationCount(0);
     }
   }, []);
 
@@ -910,7 +942,9 @@ export default function Settings() {
               notifications.slice(0, 8).map((notification, index, list) => (
                 <TouchableOpacity
                   key={notification.id}
-                  onPress={() => handleOpenNotification(notification)}
+                  onPress={() => {
+                    void handleOpenNotification(notification);
+                  }}
                   style={{
                     borderBottomColor: 'rgba(148,163,184,0.2)',
                     borderBottomWidth: index === list.length - 1 ? 0 : 1,
