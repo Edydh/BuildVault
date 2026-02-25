@@ -55,6 +55,17 @@ npm run start
 - TypeScript is in strict mode (see `tsconfig.json`).
 - Basic ESLint + Prettier configs included.
 
+### Edge Function CI Deployment
+
+- Workflow: `.github/workflows/deploy-send-project-notification-push.yml`
+- Deploy target: `supabase/functions/send-project-notification-push`
+- Triggers:
+  - Manual run (`workflow_dispatch`)
+  - Push to `main` when the function folder (or workflow file) changes
+- Required GitHub repository secrets:
+  - `SUPABASE_ACCESS_TOKEN`
+  - `SUPABASE_PROJECT_REF`
+
 ## Project Structure
 
 ```
