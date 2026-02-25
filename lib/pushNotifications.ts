@@ -1,7 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 
@@ -9,9 +7,35 @@ const PUSH_TOKEN_STORAGE_KEY = '@buildvault/push/expo-token';
 const PUSH_DISPATCH_LAST_RUN_KEY = '@buildvault/push/dispatch-last-run';
 const PUSH_DISPATCH_COOLDOWN_MS = 15_000;
 
-let notificationHandlerConfigured = false;
+type PushModules = {
+  Device: typeof import('expo-device');
+  Notifications: typeof import('expo-notifications');
+};
 
-function ensureNotificationHandlerConfigured() {
+let notificationHandlerConfigured = false;
+let pushModulesCache: PushModules | null | undefined;
+let pushModulesUnavailableLogged = false;
+
+async function loadPushModules(): Promise<PushModules | null> {
+  if (pushModulesCache !== undefined) {
+    return pushModulesCache;
+  }
+
+  try {
+    const [Notifications, Device] = await Promise.all([import('expo-notifications'), import('expo-device')]);
+    pushModulesCache = { Notifications, Device };
+  } catch (error) {
+    pushModulesCache = null;
+    if (!pushModulesUnavailableLogged) {
+      console.log('Push modules unavailable in this build, skipping push setup:', error);
+      pushModulesUnavailableLogged = true;
+    }
+  }
+
+  return pushModulesCache;
+}
+
+function ensureNotificationHandlerConfigured(Notifications: typeof import('expo-notifications')) {
   if (notificationHandlerConfigured) return;
 
   Notifications.setNotificationHandler({
@@ -45,7 +69,11 @@ function resolvePlatform(): 'ios' | 'android' | 'unknown' {
 export async function registerPushTokenForCurrentUser(): Promise<string | null> {
   if (Platform.OS === 'web') return null;
 
-  ensureNotificationHandlerConfigured();
+  const modules = await loadPushModules();
+  if (!modules) return null;
+  const { Notifications, Device } = modules;
+
+  ensureNotificationHandlerConfigured(Notifications);
 
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user) {
