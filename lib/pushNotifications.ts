@@ -22,7 +22,50 @@ async function loadPushModules(): Promise<PushModules | null> {
   }
 
   try {
-    const [Notifications, Device] = await Promise.all([import('expo-notifications'), import('expo-device')]);
+    const expoModulesCore = await import('expo-modules-core');
+    const nativeModulesProxy = (expoModulesCore as { NativeModulesProxy?: Record<string, unknown> })
+      .NativeModulesProxy;
+    const hasExpoDevice = !!nativeModulesProxy?.ExpoDevice;
+    const hasExpoPushTokenManager = !!nativeModulesProxy?.ExpoPushTokenManager;
+
+    if (!hasExpoDevice || !hasExpoPushTokenManager) {
+      pushModulesCache = null;
+      if (!pushModulesUnavailableLogged) {
+        console.log(
+          'Push modules unavailable in this runtime (requires fresh native dev build), skipping push setup.'
+        );
+        pushModulesUnavailableLogged = true;
+      }
+      return pushModulesCache;
+    }
+
+    const [notificationsModule, deviceModule] = await Promise.all([
+      import('expo-notifications'),
+      import('expo-device'),
+    ]);
+
+    const Notifications = (
+      (notificationsModule as { default?: typeof import('expo-notifications') }).default ||
+      notificationsModule
+    ) as typeof import('expo-notifications');
+    const Device = (
+      (deviceModule as { default?: typeof import('expo-device') }).default || deviceModule
+    ) as typeof import('expo-device');
+
+    if (
+      typeof Notifications.setNotificationHandler !== 'function' ||
+      typeof Notifications.getExpoPushTokenAsync !== 'function'
+    ) {
+      pushModulesCache = null;
+      if (!pushModulesUnavailableLogged) {
+        console.log(
+          'Push notifications module is not fully available in this runtime, skipping push setup.'
+        );
+        pushModulesUnavailableLogged = true;
+      }
+      return pushModulesCache;
+    }
+
     pushModulesCache = { Notifications, Device };
   } catch (error) {
     pushModulesCache = null;
