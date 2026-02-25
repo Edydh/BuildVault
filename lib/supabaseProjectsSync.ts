@@ -2867,6 +2867,10 @@ export async function createActivityCommentInSupabase(data: {
     comments: [normalizeActivityCommentRow(createdCommentRow as SupabaseActivityCommentRow)],
   });
 
+  void triggerProjectNotificationPushDispatch(80).catch((error) => {
+    console.log('Project notification push dispatch skipped:', error);
+  });
+
   const localComment = getActivityCommentsByProject(projectId, 1000).find(
     (comment) => comment.id === createdCommentRow.id
   );
