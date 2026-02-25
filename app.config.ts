@@ -25,6 +25,7 @@ const config: ExpoConfig = {
       },
     ],
     'expo-apple-authentication',
+    'expo-notifications',
     'expo-secure-store',
     'expo-web-browser',
   ],
@@ -50,6 +51,7 @@ const config: ExpoConfig = {
       backgroundColor: '#0B0F14',
     },
     permissions: [
+      'android.permission.POST_NOTIFICATIONS',
       'android.permission.CAMERA',
       'android.permission.RECORD_AUDIO',
       'android.permission.READ_MEDIA_IMAGES',

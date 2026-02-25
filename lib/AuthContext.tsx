@@ -5,6 +5,11 @@ import { User } from './db';
 import * as dbModule from './db';
 import { supabase } from './supabase';
 import { syncOrganizationDataFromSupabase } from './supabaseCollaboration';
+import {
+  deactivateStoredPushTokenForCurrentUser,
+  registerPushTokenForCurrentUser,
+  triggerProjectNotificationPushDispatch,
+} from './pushNotifications';
 
 interface AuthContextType {
   user: User | null;
@@ -110,6 +115,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     console.log('AuthContext user state changed:', user ? `User: ${user.name}` : 'No user');
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    (async () => {
+      try {
+        await registerPushTokenForCurrentUser();
+        await triggerProjectNotificationPushDispatch();
+      } catch (error) {
+        console.log('Push bootstrap warning:', error);
+      }
+    })();
+  }, [user?.id]);
+
   const checkAuthState = async () => {
     try {
       console.log('Checking auth state...');
@@ -205,6 +223,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signOut = async () => {
     try {
       signOutInProgressRef.current = true;
+      try {
+        await deactivateStoredPushTokenForCurrentUser();
+      } catch (error) {
+        console.log('Push token deactivation warning:', error);
+      }
       await authService.signOut();
       applyUser(null);
       router.replace('/auth');

@@ -2,6 +2,7 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from './fileSystemCompat';
 import Constants from 'expo-constants';
+import { triggerProjectNotificationPushDispatch } from './pushNotifications';
 import {
   ActivityLogEntry,
   Folder,
@@ -1752,6 +1753,12 @@ export async function syncProjectsAndActivityFromSupabase(): Promise<void> {
       ),
     });
   }
+
+  try {
+    await triggerProjectNotificationPushDispatch(80);
+  } catch (error) {
+    console.log('Project notification push dispatch skipped:', error);
+  }
 }
 
 export async function syncProjectContentFromSupabase(projectId: string): Promise<void> {
@@ -2741,6 +2748,12 @@ export async function createActivityInSupabase(
     projects: [],
     activities: [normalizeActivityRow(createdRow as SupabaseActivityRow)],
   });
+
+  try {
+    await triggerProjectNotificationPushDispatch(80);
+  } catch (error) {
+    console.log('Project notification push dispatch skipped:', error);
+  }
 
   const localEntry = getActivityByProject(projectId, 100).find((entry) => entry.id === createdRow.id);
   if (!localEntry) {

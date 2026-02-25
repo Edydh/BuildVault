@@ -29,6 +29,10 @@ Completed in codebase:
   - publishing a project backfills existing media posts
   - unpublishing marks project media posts as `unpublished`
 - [x] Public Profile UI now shows a sync status summary (how many media posts were synced/hidden).
+- [x] Notifications phase 2 baseline is in place:
+  - device push-token registration table (`user_push_tokens`)
+  - edge function delivery worker (`send-project-notification-push`)
+  - mobile token registration and dispatch trigger wiring
 
 Open constraints:
 - [ ] Web runtime remains deferred; mobile-first path is the active scope.
