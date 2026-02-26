@@ -36,7 +36,14 @@ const config: ExpoConfig = {
       },
     ],
     'expo-apple-authentication',
-    'expo-notifications',
+    [
+      'expo-notifications',
+      {
+        icon: './assets/notification-icon.png',
+        color: '#3A63F3',
+        defaultChannel: 'default',
+      },
+    ],
     'expo-secure-store',
     'expo-web-browser',
   ],
@@ -71,6 +78,10 @@ const config: ExpoConfig = {
       'android.permission.WRITE_EXTERNAL_STORAGE',
       'android.permission.READ_EXTERNAL_STORAGE',
     ],
+    notification: {
+      icon: './assets/notification-icon.png',
+      color: '#3A63F3',
+    },
     edgeToEdgeEnabled: true,
     package: 'com.edydhm.buildvault',
   },
