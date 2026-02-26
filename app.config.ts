@@ -1,9 +1,20 @@
 import type { ExpoConfig } from 'expo/config';
+import fs from 'node:fs';
+import path from 'node:path';
 
 // Load env from process.env (EAS sets these; locally loaded from .env by expo-cli)
 // These are public values, not secrets - Supabase anon keys are meant to be public
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const GOOGLE_SERVICES_JSON_CANDIDATES = [
+  process.env.GOOGLE_SERVICES_JSON,
+  './google-services.json',
+  './secrets/google-services.json',
+].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+
+const googleServicesFile = GOOGLE_SERVICES_JSON_CANDIDATES
+  .map((candidate) => candidate.trim())
+  .find((candidate) => fs.existsSync(path.resolve(process.cwd(), candidate)));
 
 const config: ExpoConfig = {
   name: 'BuildVault',
@@ -50,6 +61,7 @@ const config: ExpoConfig = {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#0B0F14',
     },
+    ...(googleServicesFile ? { googleServicesFile } : {}),
     permissions: [
       'android.permission.POST_NOTIFICATIONS',
       'android.permission.CAMERA',

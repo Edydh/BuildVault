@@ -335,7 +335,27 @@ export async function registerPushTokenForCurrentUser(): Promise<string | null> 
     return null;
   }
 
-  const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
+  let tokenResponse: { data?: string };
+  try {
+    tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
+
+    if (
+      Platform.OS === 'android' &&
+      (normalized.includes('default firebaseapp is not initialized') ||
+        normalized.includes('fcm-credentials'))
+    ) {
+      console.log(
+        'Push registration skipped: Android Firebase not configured (add google-services.json + FCM credentials).'
+      );
+      return null;
+    }
+
+    console.log('Push token fetch warning:', message);
+    return null;
+  }
   const expoPushToken = tokenResponse.data?.trim();
   if (!expoPushToken) {
     return null;
