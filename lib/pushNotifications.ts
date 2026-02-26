@@ -41,23 +41,6 @@ async function loadPushModules(): Promise<PushModules | null> {
   }
 
   try {
-    const expoModulesCore = await import('expo-modules-core');
-    const nativeModulesProxy = (expoModulesCore as { NativeModulesProxy?: Record<string, unknown> })
-      .NativeModulesProxy;
-    const hasExpoDevice = !!nativeModulesProxy?.ExpoDevice;
-    const hasExpoPushTokenManager = !!nativeModulesProxy?.ExpoPushTokenManager;
-
-    if (!hasExpoDevice || !hasExpoPushTokenManager) {
-      pushModulesCache = null;
-      if (!pushModulesUnavailableLogged) {
-        console.log(
-          'Push modules unavailable in this runtime (requires fresh native dev build), skipping push setup.'
-        );
-        pushModulesUnavailableLogged = true;
-      }
-      return pushModulesCache;
-    }
-
     const [notificationsModule, deviceModule] = await Promise.all([
       import('expo-notifications'),
       import('expo-device'),
