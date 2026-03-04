@@ -1,0 +1,7 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fallback Android small icon: simplified house mark for maximum legibility -->
+  <g fill="#FFFFFF" fill-rule="evenodd" clip-rule="evenodd">
+    <path d="M48 18l30 22v38H58V56H38v22H18V40l30-22zm0 9L26 43v27h6V48h32v22h6V43L48 27z"/>
+    <path d="M44 56h8v22h-8V56z"/>
+  </g>
+</svg>
