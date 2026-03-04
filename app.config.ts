@@ -4,8 +4,25 @@ import path from 'node:path';
 
 // Load env from process.env (EAS sets these; locally loaded from .env by expo-cli)
 // These are public values, not secrets - Supabase anon keys are meant to be public
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+function resolvePublicEnv(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const normalized = trimmed.toLowerCase();
+  if (normalized === 'public' || normalized === 'undefined' || normalized === 'null') {
+    return undefined;
+  }
+  return trimmed;
+}
+
+const SUPABASE_URL = resolvePublicEnv(process.env.SUPABASE_URL);
+const SUPABASE_ANON_KEY = resolvePublicEnv(process.env.SUPABASE_ANON_KEY);
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error(
+    'Invalid Supabase env for app config. Set SUPABASE_URL and SUPABASE_ANON_KEY to real values (not placeholders).'
+  );
+}
 const GOOGLE_SERVICES_JSON_CANDIDATES = [
   process.env.GOOGLE_SERVICES_JSON,
   './google-services.json',
@@ -52,6 +69,9 @@ const config: ExpoConfig = {
     resizeMode: 'contain',
     backgroundColor: '#0B0F14',
   },
+  updates: {
+    url: 'https://u.expo.dev/50a61d02-4a8e-4f71-9423-183446f39b6a',
+  },
   ios: {
     supportsTablet: true,
     usesAppleSignIn: true,
@@ -81,6 +101,9 @@ const config: ExpoConfig = {
     notification: {
       icon: './assets/notification-icon.png',
       color: '#3A63F3',
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
     },
     edgeToEdgeEnabled: true,
     package: 'com.edydhm.buildvault',

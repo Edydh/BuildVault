@@ -62,6 +62,12 @@ function formatRelativeTime(timestamp: number): string {
   return `${Math.max(1, Math.floor(deltaMs / day))}d ago`;
 }
 
+function formatLatencyMs(value: number | null): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 'n/a';
+  if (value < 1000) return `${Math.round(value)}ms`;
+  return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)}s`;
+}
+
 export default function Settings() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -977,6 +983,25 @@ export default function Settings() {
               <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>
                 Last dispatch:{' '}
                 {pushDiagnostics?.lastDispatchAt ? formatRelativeTime(pushDiagnostics.lastDispatchAt) : 'never'}
+              </Text>
+              <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>
+                Samples: {pushDiagnostics?.latencySummary.sendToReceiveSampleCount || 0}/
+                {pushDiagnostics?.latencySummary.targetSampleCount || 10} (send→receive)
+              </Text>
+              <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>
+                Send→Receive p50/p95:{' '}
+                {formatLatencyMs(pushDiagnostics?.latencySummary.sendToReceiveP50Ms ?? null)} /{' '}
+                {formatLatencyMs(pushDiagnostics?.latencySummary.sendToReceiveP95Ms ?? null)}
+              </Text>
+              <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>
+                Dispatch→Receive p50/p95:{' '}
+                {formatLatencyMs(pushDiagnostics?.latencySummary.dispatchToReceiveP50Ms ?? null)} /{' '}
+                {formatLatencyMs(pushDiagnostics?.latencySummary.dispatchToReceiveP95Ms ?? null)}
+              </Text>
+              <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>
+                Receive→Display p50/p95:{' '}
+                {formatLatencyMs(pushDiagnostics?.latencySummary.receiveToDisplayP50Ms ?? null)} /{' '}
+                {formatLatencyMs(pushDiagnostics?.latencySummary.receiveToDisplayP95Ms ?? null)}
               </Text>
               {pushDiagnostics?.pendingNavigationTarget ? (
                 <Text style={{ ...bvTypography.bodySmall, color: bvColors.text.muted, marginTop: 2 }}>

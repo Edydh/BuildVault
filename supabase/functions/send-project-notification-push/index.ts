@@ -221,6 +221,7 @@ Deno.serve(async (req) => {
       'You have a new update in BuildVault.';
 
     for (const token of userTokens) {
+      const sendTs = (notification.created_at || '').trim() || nowIso;
       messages.push({
         notificationId: notification.id,
         tokenId: token.id,
@@ -232,6 +233,7 @@ Deno.serve(async (req) => {
           activityId: notification.activity_id || '',
           notificationId: notification.id,
           actionType: notification.action_type,
+          send_ts: sendTs,
         },
       });
     }
@@ -240,12 +242,16 @@ Deno.serve(async (req) => {
   const successIds = new Set<string>();
 
   for (const messageChunk of chunkArray(messages, 100)) {
+    const dispatchTs = new Date().toISOString();
     const requestBody = messageChunk.map((message) => ({
       to: message.to,
       sound: 'default',
       title: message.title,
       body: message.body,
-      data: message.data,
+      data: {
+        ...message.data,
+        dispatch_ts: dispatchTs,
+      },
       priority: 'high',
     }));
 

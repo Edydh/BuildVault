@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,17 @@ type MediaStorageSyncOutcome = {
   state: MediaStorageSyncState;
   blockedReason: string | null;
 };
+
+const MAX_ZOOM = 1;
+const MIN_ZOOM = 0;
+const DEFAULT_ZOOM_SLIDER_WIDTH = 180;
+const PINCH_ZOOM_SENSITIVITY = 0.35;
+const ZOOM_SMOOTHING_FACTOR = 0.42;
+
+function clampZoom(value: number): number {
+  if (!Number.isFinite(value)) return MIN_ZOOM;
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
+}
 
 function parseMediaMetadata(metadata: string | null | undefined): Record<string, unknown> | null {
   if (!metadata) return null;
@@ -79,8 +90,10 @@ export default function CaptureScreen() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [isSliderActive, setIsSliderActive] = useState(false);
   
-  const scale = useRef(new Animated.Value(1)).current;
-  const lastScale = useRef(1);
+  const zoomRef = useRef(0);
+  const pinchStartZoomRef = useRef(0);
+  const pendingZoomRef = useRef<number | null>(null);
+  const zoomFrameRef = useRef<number | null>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const zoomSliderRef = useRef(new Animated.Value(0)).current;
   
@@ -173,36 +186,47 @@ export default function CaptureScreen() {
     return null;
   };
 
-  // Zoom functions with smooth animation
-  const zoomIn = useCallback(() => {
-    const newZoom = Math.min(1, zoom + 0.05);
-    setZoom(newZoom);
-    lastScale.current = newZoom;
-    
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    Animated.spring(scale, {
-      toValue: newZoom,
-      useNativeDriver: true,
-      tension: 120,
-      friction: 8,
-    }).start();
-  }, [zoom, scale]);
+  const commitZoom = useCallback(
+    (targetZoom: number) => {
+      const boundedTarget = clampZoom(targetZoom);
+      const current = zoomRef.current;
+      const shouldSnap = Math.abs(boundedTarget - current) <= 0.01;
+      const nextZoom = shouldSnap
+        ? boundedTarget
+        : current + (boundedTarget - current) * ZOOM_SMOOTHING_FACTOR;
+      const normalizedZoom = clampZoom(nextZoom);
 
-  const zoomOut = useCallback(() => {
-    const newZoom = Math.max(0, zoom - 0.05);
-    setZoom(newZoom);
-    lastScale.current = newZoom;
-    
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    Animated.spring(scale, {
-      toValue: newZoom,
-      useNativeDriver: true,
-      tension: 120,
-      friction: 8,
-    }).start();
-  }, [zoom, scale]);
+      zoomRef.current = normalizedZoom;
+      setZoom(normalizedZoom);
+      zoomSliderRef.setValue(normalizedZoom);
+    },
+    [zoomSliderRef]
+  );
+
+  const scheduleZoom = useCallback(
+    (targetZoom: number) => {
+      pendingZoomRef.current = clampZoom(targetZoom);
+      if (zoomFrameRef.current !== null) return;
+
+      zoomFrameRef.current = requestAnimationFrame(() => {
+        zoomFrameRef.current = null;
+        const pendingZoom = pendingZoomRef.current;
+        pendingZoomRef.current = null;
+        if (typeof pendingZoom !== 'number') return;
+        commitZoom(pendingZoom);
+      });
+    },
+    [commitZoom]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (zoomFrameRef.current !== null) {
+        cancelAnimationFrame(zoomFrameRef.current);
+        zoomFrameRef.current = null;
+      }
+    };
+  }, []);
 
   // Recording functions with better error handling
   const startRecording = useCallback(async () => {
@@ -358,28 +382,61 @@ export default function CaptureScreen() {
     setFacing(current => current === 'back' ? 'front' : 'back');
   }, []);
 
-  // Zoom gesture handlers
-  const onPinchGestureEvent = Animated.event(
-    [{ nativeEvent: { scale } }],
-    { useNativeDriver: true }
+  const onPinchGestureEvent = useCallback(
+    (event: { nativeEvent: { scale: number } }) => {
+      const gestureScale = Number.isFinite(event.nativeEvent.scale) ? event.nativeEvent.scale : 1;
+      const targetZoom = pinchStartZoomRef.current + (gestureScale - 1) * PINCH_ZOOM_SENSITIVITY;
+      scheduleZoom(targetZoom);
+    },
+    [scheduleZoom]
   );
 
-  const onPinchHandlerStateChange = (event: { nativeEvent: { state: number; scale: number } }) => {
-    if (event.nativeEvent.state === State.BEGAN) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } else if (event.nativeEvent.state === State.ACTIVE) {
-      const newScale = lastScale.current * event.nativeEvent.scale;
-      const clampedScale = Math.max(0, Math.min(1, newScale));
-      setZoom(clampedScale);
-      scale.setValue(clampedScale);
-    } else if (event.nativeEvent.state === State.END || event.nativeEvent.state === State.CANCELLED) {
-      const newScale = lastScale.current * event.nativeEvent.scale;
-      const clampedScale = Math.max(0, Math.min(1, newScale));
-      lastScale.current = clampedScale;
-      setZoom(clampedScale);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-  };
+  const onPinchHandlerStateChange = useCallback(
+    (event: { nativeEvent: { state: number; scale: number } }) => {
+      const state = event.nativeEvent.state;
+      if (state === State.BEGAN) {
+        pinchStartZoomRef.current = zoomRef.current;
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        return;
+      }
+
+      if (state === State.END || state === State.CANCELLED || state === State.FAILED) {
+        pinchStartZoomRef.current = zoomRef.current;
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+    },
+    []
+  );
+
+  const updateZoomFromSliderTouch = useCallback(
+    (locationX: number) => {
+      const progress = clampZoom(locationX / DEFAULT_ZOOM_SLIDER_WIDTH);
+      scheduleZoom(progress);
+    },
+    [scheduleZoom]
+  );
+
+  const handleSliderGrant = useCallback(
+    (event: { nativeEvent: { locationX: number } }) => {
+      setIsSliderActive(true);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      updateZoomFromSliderTouch(event.nativeEvent.locationX);
+    },
+    [updateZoomFromSliderTouch]
+  );
+
+  const handleSliderMove = useCallback(
+    (event: { nativeEvent: { locationX: number } }) => {
+      updateZoomFromSliderTouch(event.nativeEvent.locationX);
+    },
+    [updateZoomFromSliderTouch]
+  );
+
+  const handleSliderRelease = useCallback(() => {
+    setIsSliderActive(false);
+    pinchStartZoomRef.current = zoomRef.current;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, []);
 
   // Render camera permission denied
   if (!cameraPermission?.granted) {
@@ -534,47 +591,6 @@ export default function CaptureScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Zoom Controls */}
-        <View style={{
-          position: 'absolute',
-          top: 120,
-          right: 20,
-          flexDirection: 'column',
-          alignItems: 'center',
-          zIndex: 10,
-        }}>
-          <TouchableOpacity
-            style={{
-              width: 50,
-              height: 50,
-              borderRadius: 25,
-              backgroundColor: 'rgba(11, 15, 20, 0.7)',
-              justifyContent: 'center',
-              alignItems: 'center',
-              marginBottom: 10,
-            }}
-            onPress={zoomIn}
-            disabled={zoom >= 1}
-          >
-            <Ionicons name="add" size={24} color={zoom >= 1 ? "#64748B" : "#F8FAFC"} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={{
-              width: 50,
-              height: 50,
-              borderRadius: 25,
-              backgroundColor: 'rgba(11, 15, 20, 0.7)',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-            onPress={zoomOut}
-            disabled={zoom <= 0}
-          >
-            <Ionicons name="remove" size={24} color={zoom <= 0 ? "#64748B" : "#F8FAFC"} />
-          </TouchableOpacity>
-        </View>
-
         {/* Zoom Indicator */}
         {!isRecording && (
           <View style={{
@@ -616,12 +632,21 @@ export default function CaptureScreen() {
               Drag to zoom smoothly
             </Text>
             <View style={{
-              width: 180,
+              width: DEFAULT_ZOOM_SLIDER_WIDTH,
               height: 6, // Slightly thicker for better touch
               backgroundColor: 'rgba(148, 163, 184, 0.4)',
               borderRadius: 3,
               position: 'relative',
-            }}>
+            }}
+              {...{
+                onStartShouldSetResponder: () => true,
+                onMoveShouldSetResponder: () => true,
+                onResponderGrant: handleSliderGrant,
+                onResponderMove: handleSliderMove,
+                onResponderRelease: handleSliderRelease,
+                onResponderTerminate: handleSliderRelease,
+              }}
+            >
               <Animated.View
                 style={{
                   position: 'absolute',
@@ -630,7 +655,7 @@ export default function CaptureScreen() {
                   height: 6,
                   width: zoomSliderRef.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, 180],
+                    outputRange: [0, DEFAULT_ZOOM_SLIDER_WIDTH],
                   }),
                   backgroundColor: isSliderActive ? '#FF7A1A' : '#94A3B8',
                   borderRadius: 3,
@@ -641,7 +666,7 @@ export default function CaptureScreen() {
                   position: 'absolute',
                   left: zoomSliderRef.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [-12, 168], // Adjusted for new width
+                    outputRange: [-12, DEFAULT_ZOOM_SLIDER_WIDTH - 12],
                   }),
                   top: -9,
                   width: 24,
@@ -656,55 +681,12 @@ export default function CaptureScreen() {
                   shadowRadius: 6,
                   elevation: 8,
                 }}
-                {...{
-                  onStartShouldSetResponder: () => true,
-                  onMoveShouldSetResponder: () => true,
-                  onResponderGrant: (_evt) => {
-                    setIsSliderActive(true);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  },
-                  onResponderMove: (evt) => {
-                    try {
-                      const sliderWidth = 180;
-                      const touchX = evt.nativeEvent.locationX;
-                      
-                      // Add smoothing and bounds checking
-                      const progress = Math.max(0, Math.min(1, touchX / sliderWidth));
-                      const newZoom = progress; // 0 to 1 normalized zoom
-                      
-                      // Smooth the zoom changes to prevent jerkiness
-                      setZoom(newZoom);
-                      lastScale.current = newZoom;
-                      
-                      // Use smooth animation for camera zoom
-                      Animated.timing(scale, {
-                        toValue: newZoom,
-                        duration: 50, // Very short duration for responsiveness
-                        useNativeDriver: true,
-                      }).start();
-                      
-                      // Update slider position smoothly
-                      Animated.timing(zoomSliderRef, {
-                        toValue: progress,
-                        duration: 50,
-                        useNativeDriver: false,
-                      }).start();
-                      
-                    } catch (error) {
-                      console.error('Zoom slider error:', error);
-                    }
-                  },
-                  onResponderRelease: () => {
-                    setIsSliderActive(false);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  },
-                }}
               />
             </View>
             <View style={{
               flexDirection: 'row',
               justifyContent: 'space-between',
-              width: 180,
+              width: DEFAULT_ZOOM_SLIDER_WIDTH,
               marginTop: 8,
             }}>
               <Text style={{ 

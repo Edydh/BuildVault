@@ -1,4 +1,22 @@
-import type { PushNavigationTarget, PushNotificationDiagnostics } from './pushNotifications';
+import type {
+  PushLatencySummary,
+  PushNavigationTarget,
+  PushNotificationDiagnostics,
+} from './pushNotifications';
+
+const EMPTY_LATENCY_SUMMARY: PushLatencySummary = {
+  targetSampleCount: 10,
+  totalSampleCount: 0,
+  sendToReceiveSampleCount: 0,
+  sendToReceiveP50Ms: null,
+  sendToReceiveP95Ms: null,
+  dispatchToReceiveSampleCount: 0,
+  dispatchToReceiveP50Ms: null,
+  dispatchToReceiveP95Ms: null,
+  receiveToDisplaySampleCount: 0,
+  receiveToDisplayP50Ms: null,
+  receiveToDisplayP95Ms: null,
+};
 
 export async function registerPushTokenForCurrentUser(): Promise<string | null> {
   return null;
@@ -38,5 +56,7 @@ export async function getPushNotificationDiagnostics(): Promise<PushNotification
     tokenPreview: null,
     lastDispatchAt: null,
     pendingNavigationTarget: null,
+    latencySummary: EMPTY_LATENCY_SUMMARY,
+    recentLatencySamples: [],
   };
 }
