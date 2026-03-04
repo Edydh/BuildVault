@@ -965,26 +965,6 @@ function ProjectDetailContent() {
     }
   };
 
-  const handleShareProject = async () => {
-    if (!project) return;
-
-    Alert.alert(
-      'Share Project',
-      'How would you like to share this project?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Share Summary Only',
-          onPress: () => shareProjectSummary(),
-        },
-        {
-          text: 'Share with Media Files',
-          onPress: () => shareProjectWithMedia(),
-        },
-      ]
-    );
-  };
-
   const handleOpenPublicSettings = () => {
     if (!id) return;
     router.push(`/project/${id}/public`);
@@ -993,133 +973,6 @@ function ProjectDetailContent() {
   const handleOpenNotesScreen = () => {
     if (!id) return;
     router.push(`/project/${id}/notes`);
-  };
-
-  const shareProjectSummary = async () => {
-    if (!project) return;
-    
-    try {
-      // Create project summary data (metadata only)
-      const projectData = {
-        project: {
-          name: project.name,
-          client: project.client,
-          location: project.location,
-          created_at: project.created_at,
-        },
-        media: media.map(item => ({
-          type: item.type,
-          note: item.note,
-          created_at: item.created_at,
-        })),
-        exportDate: new Date().toISOString(),
-        version: '1.0.3',
-        note: 'This is a project summary. Media files are not included.',
-      };
-
-      // Create export file
-      const exportFileName = `BuildVault_Project_${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_Summary_${new Date().toISOString().split('T')[0]}.json`;
-      const exportPath = FileSystem.documentDirectory + exportFileName;
-      
-      await FileSystem.writeAsStringAsync(exportPath, JSON.stringify(projectData, null, 2));
-
-      // Share the export file
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(exportPath, {
-          mimeType: 'application/json',
-          dialogTitle: `Share Project Summary: ${project.name}`,
-        });
-      } else {
-        Alert.alert('Export Complete', `Project summary exported to: ${exportFileName}`);
-      }
-
-    } catch (error) {
-      console.error('Project summary sharing error:', error);
-      Alert.alert('Error', 'Failed to share project summary. Please try again.');
-    }
-  };
-
-  const shareProjectWithMedia = async () => {
-    if (!project) return;
-    
-    try {
-      Alert.alert('Share with Media', 'Preparing project with all media files...', [], { cancelable: false });
-      
-      // Create a project folder structure
-      const projectFolderName = `BuildVault_Project_${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}`;
-      const projectFolderPath = FileSystem.documentDirectory + projectFolderName + '/';
-      
-      // Create project folder
-      await FileSystem.makeDirectoryAsync(projectFolderPath, { intermediates: true });
-      
-      // Create project info file
-      const projectData = {
-        project: {
-          name: project.name,
-          client: project.client,
-          location: project.location,
-          created_at: project.created_at,
-        },
-        media: media.map(item => ({
-          type: item.type,
-          note: item.note,
-          created_at: item.created_at,
-          filename: `${item.type}_${item.created_at}.${item.type === 'photo' ? 'jpg' : item.type === 'video' ? 'mp4' : 'pdf'}`,
-        })),
-        exportDate: new Date().toISOString(),
-        version: '1.0.3',
-        note: 'This project includes all media files. Open the project_info.json file for details.',
-      };
-      
-      const projectInfoPath = projectFolderPath + 'project_info.json';
-      await FileSystem.writeAsStringAsync(projectInfoPath, JSON.stringify(projectData, null, 2));
-      
-      // Copy all media files to the project folder
-      const copiedFiles = [];
-      for (const mediaItem of media) {
-        try {
-          const fileExtension = mediaItem.type === 'photo' ? 'jpg' : 
-                              mediaItem.type === 'video' ? 'mp4' : 'pdf';
-          const localUri = await ensureShareableLocalUri(mediaItem.uri, fileExtension);
-          const fileName = `${mediaItem.type}_${mediaItem.created_at}.${fileExtension}`;
-          const destinationPath = projectFolderPath + fileName;
-          
-          await FileSystem.copyAsync({
-            from: localUri,
-            to: destinationPath,
-          });
-          
-          copiedFiles.push(destinationPath);
-          console.log(`Copied file: ${fileName}`);
-        } catch (fileError) {
-          console.log(`Could not copy file: ${mediaItem.uri}`, fileError);
-        }
-      }
-      
-      // Share all files together
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        // Share the first file (project info) and let user know about others
-        await Sharing.shareAsync(projectInfoPath, {
-          mimeType: 'application/json',
-          dialogTitle: `Share Project with Media: ${project.name}`,
-        });
-        
-        // Show detailed info about what was shared
-        Alert.alert(
-          'Project Shared!',
-          `Project "${project.name}" has been prepared for sharing.\n\n📁 Files created:\n• project_info.json (project details)\n• ${copiedFiles.length} media files\n\n💡 To share all files:\n1. Use Files app to access the project folder\n2. Select all files in the folder\n3. Share via cloud storage (Google Drive, iCloud, Dropbox)\n\n📂 Folder location: ${projectFolderName}`,
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert('Export Complete', `Project with media exported to: ${projectFolderName}\n\nFiles created: ${copiedFiles.length + 1} files`);
-      }
-
-    } catch (error) {
-      console.error('Project with media sharing error:', error);
-      Alert.alert('Error', 'Failed to share project with media. Please try again.');
-    }
   };
 
   const handleOpenActivityModal = () => {
@@ -3914,19 +3767,6 @@ function ProjectDetailContent() {
                     </View>
                   )}
                 </View>
-                <TouchableOpacity
-                  onPress={handleShareProject}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: bvColors.surface.chrome,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Ionicons name="share" size={20} color={bvColors.text.primary} />
-                </TouchableOpacity>
               </>
             )}
           </View>

@@ -23,7 +23,6 @@ import {
 } from '../../lib/db';
 import { ensureProjectDir, deleteProjectDir } from '../../lib/files';
 import * as FileSystem from '../../lib/fileSystemCompat';
-import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { GlassCard, GlassTextInput, GlassModal, GlassActionSheet } from '../../components/glass';
 import Animated from 'react-native-reanimated';
@@ -210,7 +209,6 @@ export default function ProjectsList() {
   const [showProjectOptions, setShowProjectOptions] = useState<{visible: boolean; project?: Project}>({ visible: false });
   const [showErrorSheet, setShowErrorSheet] = useState(false);
   const [showSuccessSheet, setShowSuccessSheet] = useState(false);
-  const [showShareSheet, setShowShareSheet] = useState(false);
   const [showDeleteSheet, setShowDeleteSheet] = useState(false);
   const [sheetMessage, setSheetMessage] = useState('');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -604,136 +602,6 @@ export default function ProjectsList() {
   const handleCloseEditModal = () => {
     setShowEdit(false);
     setEditingProject(null);
-  };
-
-  const handleShareProject = async (project: Project) => {
-    setSelectedProject(project);
-    setShowShareSheet(true);
-  };
-
-  const shareProjectSummary = async (project: Project) => {
-    try {
-      // Create project summary data (metadata only)
-      const projectData = {
-        project: {
-          name: project.name,
-          client: project.client,
-          location: project.location,
-          created_at: project.created_at,
-        },
-        exportDate: new Date().toISOString(),
-        version: '1.0.3',
-        note: 'This is a project summary from BuildVault. Media files are not included in this export.',
-      };
-
-      // Create export file
-      const exportFileName = `BuildVault_Project_${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_Summary_${new Date().toISOString().split('T')[0]}.json`;
-      const exportPath = FileSystem.documentDirectory + exportFileName;
-      
-      await FileSystem.writeAsStringAsync(exportPath, JSON.stringify(projectData, null, 2));
-
-      // Share the export file
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(exportPath, {
-          mimeType: 'application/json',
-          dialogTitle: `Share Project Summary: ${project.name}`,
-        });
-      } else {
-        setSheetMessage(`Project summary exported to: ${exportFileName}`);
-        setShowSuccessSheet(true);
-      }
-
-    } catch (error) {
-      console.error('Project summary sharing error:', error);
-      setSheetMessage('Failed to share project summary. Please try again.');
-      setShowErrorSheet(true);
-    }
-  };
-
-  const shareProjectWithMedia = async (project: Project) => {
-    try {
-      // Show progress message - we could add a loading state here in the future
-      console.log('Preparing project with all media files...');
-      
-      // Get media for this project
-      const { getMediaByProject } = await import('../../lib/db');
-      const media = getMediaByProject(project.id);
-      
-      // Create a project folder structure
-      const projectFolderName = `BuildVault_Project_${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}`;
-      const projectFolderPath = FileSystem.documentDirectory + projectFolderName + '/';
-      
-      // Create project folder
-      await FileSystem.makeDirectoryAsync(projectFolderPath, { intermediates: true });
-      
-      // Create project info file
-      const projectData = {
-        project: {
-          name: project.name,
-          client: project.client,
-          location: project.location,
-          created_at: project.created_at,
-        },
-        media: media.map(item => ({
-          type: item.type,
-          note: item.note,
-          created_at: item.created_at,
-          filename: `${item.type}_${item.created_at}.${item.type === 'photo' ? 'jpg' : item.type === 'video' ? 'mp4' : 'pdf'}`,
-        })),
-        exportDate: new Date().toISOString(),
-        version: '1.0.3',
-        note: 'This project includes all media files. Open the project_info.json file for details.',
-      };
-      
-      const projectInfoPath = projectFolderPath + 'project_info.json';
-      await FileSystem.writeAsStringAsync(projectInfoPath, JSON.stringify(projectData, null, 2));
-      
-      // Copy all media files to the project folder
-      const copiedFiles = [];
-      for (const mediaItem of media) {
-        try {
-          const fileInfo = await FileSystem.getInfoAsync(mediaItem.uri);
-          if (fileInfo.exists) {
-            const fileExtension = mediaItem.type === 'photo' ? 'jpg' : 
-                                mediaItem.type === 'video' ? 'mp4' : 'pdf';
-            const fileName = `${mediaItem.type}_${mediaItem.created_at}.${fileExtension}`;
-            const destinationPath = projectFolderPath + fileName;
-            
-            await FileSystem.copyAsync({
-              from: mediaItem.uri,
-              to: destinationPath,
-            });
-            
-            copiedFiles.push(destinationPath);
-            console.log(`Copied file: ${fileName}`);
-          }
-        } catch (fileError) {
-          console.log(`Could not copy file: ${mediaItem.uri}`, fileError);
-        }
-      }
-      
-      // Share the project info file
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(projectInfoPath, {
-          mimeType: 'application/json',
-          dialogTitle: `Share Project with Media: ${project.name}`,
-        });
-        
-        // Show detailed info about what was shared
-        setSheetMessage(`Project "${project.name}" has been prepared for sharing.\n\n📁 Files created:\n• project_info.json (project details)\n• ${copiedFiles.length} media files\n\n💡 To share all files:\n1. Use Files app to access the project folder\n2. Select all files in the folder\n3. Share via cloud storage (Google Drive, iCloud, Dropbox)\n\n📂 Folder location: ${projectFolderName}`);
-        setShowSuccessSheet(true);
-      } else {
-        setSheetMessage(`Project with media exported to: ${projectFolderName}\n\nFiles created: ${copiedFiles.length + 1} files`);
-        setShowSuccessSheet(true);
-      }
-
-    } catch (error) {
-      console.error('Project with media sharing error:', error);
-      setSheetMessage('Failed to share project with media. Please try again.');
-      setShowErrorSheet(true);
-    }
   };
 
   const handleProjectOptions = (project: Project) => {
@@ -1214,10 +1082,6 @@ export default function ProjectsList() {
             onPress: () => showProjectOptions.project && handleEditProject(showProjectOptions.project),
           },
           {
-            label: 'Share Project',
-            onPress: () => showProjectOptions.project && handleShareProject(showProjectOptions.project),
-          },
-          {
             label: 'Delete Project',
             destructive: true,
             onPress: () => showProjectOptions.project && handleDeleteProject(showProjectOptions.project),
@@ -1232,34 +1096,6 @@ export default function ProjectsList() {
         organizations={organizations}
         onClose={handleCloseEditModal}
         onSave={handleUpdateProject}
-      />
-      
-      {/* Share Project Action Sheet */}
-      <GlassActionSheet
-        visible={showShareSheet}
-        onClose={() => setShowShareSheet(false)}
-        title="Share Project"
-        message="How would you like to share this project?"
-        actions={[
-          {
-            label: 'Share Summary Only',
-            onPress: () => {
-              setShowShareSheet(false);
-              if (selectedProject) shareProjectSummary(selectedProject);
-            },
-          },
-          {
-            label: 'Share with Media Files',
-            onPress: () => {
-              setShowShareSheet(false);
-              if (selectedProject) shareProjectWithMedia(selectedProject);
-            },
-          },
-          {
-            label: 'Cancel',
-            onPress: () => setShowShareSheet(false),
-          },
-        ]}
       />
       
       {/* Delete Project Action Sheet */}
