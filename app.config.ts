@@ -69,6 +69,9 @@ const config: ExpoConfig = {
     resizeMode: 'contain',
     backgroundColor: '#0B0F14',
   },
+  runtimeVersion: {
+    policy: 'appVersion',
+  },
   updates: {
     url: 'https://u.expo.dev/50a61d02-4a8e-4f71-9423-183446f39b6a',
   },
@@ -101,9 +104,6 @@ const config: ExpoConfig = {
     notification: {
       icon: './assets/notification-icon.png',
       color: '#3A63F3',
-    },
-    runtimeVersion: {
-      policy: 'appVersion',
     },
     edgeToEdgeEnabled: true,
     package: 'com.edydhm.buildvault',
