@@ -31,7 +31,6 @@ export type PushNotificationDiagnostics = {
   lastDispatchAt: number | null;
   pendingNavigationTarget: PushNavigationTarget | null;
   latencySummary: PushLatencySummary;
-  recentLatencySamples: PushLatencySample[];
 };
 
 export type PushLatencySample = {
@@ -369,7 +368,7 @@ async function recordPushLatencyEvent(envelope: unknown, event: PushLatencyEvent
   const samples = await readPushLatencySamples();
   let sendTs = payload.sendTs ?? null;
   let dispatchTs = payload.dispatchTs ?? null;
-  let sampleKey = buildLatencySampleKey(payload.notificationId, dispatchTs, sendTs);
+  const sampleKey = buildLatencySampleKey(payload.notificationId, dispatchTs, sendTs);
   let index = samples.findIndex((sample) => sample.sampleKey === sampleKey);
   let prev = index >= 0 ? samples[index] : null;
 
@@ -855,6 +854,5 @@ export async function getPushNotificationDiagnostics(): Promise<PushNotification
       Number.isFinite(lastDispatchMs) && lastDispatchMs > 0 ? Math.floor(lastDispatchMs) : null,
     pendingNavigationTarget: pendingTarget,
     latencySummary,
-    recentLatencySamples: latencySamples.slice(0, 10),
   };
 }

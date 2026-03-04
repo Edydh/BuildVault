@@ -57,6 +57,5 @@ export async function getPushNotificationDiagnostics(): Promise<PushNotification
     lastDispatchAt: null,
     pendingNavigationTarget: null,
     latencySummary: EMPTY_LATENCY_SUMMARY,
-    recentLatencySamples: [],
   };
 }
